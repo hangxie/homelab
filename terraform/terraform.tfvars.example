@@ -1,0 +1,47 @@
+# Copy this file to terraform.tfvars and fill in your values
+
+proxmox_nodes = {
+  node1 = {
+    name      = "proxmox1"
+    ipv4      = "192.168.0.201"
+    api_token = "terraform@pve!homelab=12345678-1234-1234-1234-1234567890ab"
+    endpoint  = "https://proxmox1.xiehang.com:8006"
+  }
+  node2 = {
+    name      = "proxmox2"
+    ipv4      = "192.168.0.203"
+    api_token = "terraform@pve!homelab=12345678-1234-1234-1234-1234567890ab"
+    endpoint  = "https://proxmox2.xiehang.com:8006"
+  }
+}
+
+# Storage classes to install. The first entry becomes the default StorageClass.
+storage_classes = ["rook-ceph"]
+
+# Kubernetes API VIP used by kubectl after the control plane is joined.
+kube_api_vip = "192.168.0.218"
+
+# VM setting
+vm = {
+  bios           = "ovmf"
+  bridge         = "vmbr0"
+  boot_order     = ["scsi0", "ide2"]
+  cloud_image_id = "local:iso/debian-13-generic-amd64.img"
+  disk_storage   = "local-lvm"
+  gateway        = "192.168.0.1"
+  machine        = "q35"
+  scsi_hardware  = "virtio-scsi-pci"
+}
+
+nodes = {
+  "master-0" = { hypervisor = "node2", ip = "192.168.0.210", cores = 4, memory = 8192, disks = ["40"] }
+  "master-1" = { hypervisor = "node2", ip = "192.168.0.211", cores = 4, memory = 8192, disks = ["40"] }
+  "master-2" = { hypervisor = "node2", ip = "192.168.0.212", cores = 4, memory = 8192, disks = ["40"] }
+  "worker-0" = { hypervisor = "node2", ip = "192.168.0.220", cores = 8, memory = 16384, disks = ["80", "120"] }
+  "worker-1" = { hypervisor = "node2", ip = "192.168.0.221", cores = 8, memory = 16384, disks = ["80", "120"] }
+  "worker-2" = { hypervisor = "node2", ip = "192.168.0.222", cores = 8, memory = 16384, disks = ["80", "120"] }
+  "worker-3" = { hypervisor = "node2", ip = "192.168.0.223", cores = 8, memory = 16384, disks = ["80", "120"] }
+  "worker-4" = { hypervisor = "node2", ip = "192.168.0.224", cores = 8, memory = 16384, disks = ["80", "120"] }
+  "worker-5" = { hypervisor = "node2", ip = "192.168.0.225", cores = 10, memory = 10240, disks = ["80"], gpu_pci_id = "gpu0" }
+  "worker-6" = { hypervisor = "node2", ip = "192.168.0.226", cores = 10, memory = 10240, disks = ["80"], gpu_pci_id = "gpu1" }
+}

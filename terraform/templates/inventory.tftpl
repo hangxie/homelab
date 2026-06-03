@@ -1,0 +1,25 @@
+[masters]
+%{ for name, config in masters ~}
+${name} ansible_host=${config.ip}
+%{ endfor ~}
+
+[workers]
+%{ for name, config in workers ~}
+${name} ansible_host=${config.ip}%{ if length(lookup(worker_ceph_devices, name, [])) > 0 } rook_ceph_devices='${jsonencode(worker_ceph_devices[name])}'%{ endif }
+%{ endfor ~}
+
+[non_gpu_workers]
+%{ for name, config in non_gpu_workers ~}
+${name}
+%{ endfor ~}
+
+[gpu_workers]
+%{ for name, config in gpu_workers ~}
+${name}
+%{ endfor ~}
+
+[all:vars]
+ansible_user=debian
+ansible_python_interpreter=/usr/bin/python3
+storage_classes=${storage_classes_json}
+kube_api_vip=${kube_api_vip}
