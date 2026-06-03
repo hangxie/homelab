@@ -1,0 +1,9 @@
+crds:
+  create: true
+
+replicaCount: 2
+
+monitoring:
+  podMonitorEnabled: true
+  podMonitorAdditionalLabels:
+    release: prometheus-stack

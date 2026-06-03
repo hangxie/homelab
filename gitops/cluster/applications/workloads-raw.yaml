@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: workloads-raw
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "110"
+spec:
+  goTemplate: true
+  generators:
+    - git:
+        repoURL: https://github.com/hangxie/homelab.git
+        revision: main
+        directories:
+          - path: 'gitops/workloads/raw/*'
+  template:
+    metadata:
+      name: 'wl-{{ .path.basename }}'
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: workloads
+      source:
+        repoURL: https://github.com/hangxie/homelab.git
+        targetRevision: main
+        path: '{{ .path.path }}/manifests'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ .path.basename }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 5m

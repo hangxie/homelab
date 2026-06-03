@@ -1,0 +1,44 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-cluster
+  namespace: postgres-cluster
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  primaryUpdateStrategy: unsupervised
+
+  bootstrap:
+    initdb:
+      database: app
+      owner: postgres
+      secret:
+        name: postgres-cluster-superuser
+
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: postgres-cluster-superuser
+
+  storage:
+    size: 50Gi
+    storageClass: rook-ceph-block
+
+  monitoring:
+    enablePodMonitor: true
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: "256MB"
+      effective_cache_size: "1GB"
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+
+  affinity:
+    podAntiAffinityType: required
+    topologyKey: kubernetes.io/hostname

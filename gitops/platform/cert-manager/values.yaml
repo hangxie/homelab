@@ -1,0 +1,24 @@
+# cert-manager helm values. CRDs installed via the chart.
+crds:
+  enabled: true
+
+replicaCount: 2
+
+webhook:
+  replicaCount: 2
+
+cainjector:
+  replicaCount: 2
+
+prometheus:
+  enabled: true
+  servicemonitor:
+    enabled: true
+    labels:
+      release: prometheus-stack
+
+extraArgs:
+  # Bind the helper httpserver on every interface so the gateway can
+  # liveness-probe webhooks from any node.
+  - --dns01-recursive-nameservers-only
+  - --dns01-recursive-nameservers=1.1.1.1:53,8.8.8.8:53

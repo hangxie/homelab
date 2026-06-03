@@ -1,0 +1,38 @@
+# Argo CD self-managed values (spec §7.4).
+# Bootstrap (Ansible) installs a minimal single-replica release; Argo CD
+# then reconciles itself to these values via the multi-source Application
+# at gitops/cluster/applications/argocd.yaml.
+
+global:
+  domain: argocd.homelab.xiehang.com
+
+configs:
+  params:
+    # Decision 24 — Gateway terminates TLS; argocd-server speaks plain HTTP.
+    server.insecure: "true"
+  cm:
+    # The homelab repo is consumed over public HTTPS.
+    timeout.reconciliation: "180s"
+    # Surface the gateway hostname so generated callback URLs resolve.
+    url: "https://argocd.homelab.xiehang.com"
+  rbac:
+    policy.default: role:readonly
+    policy.csv: |
+      g, argocd-admins, role:admin
+
+controller:
+  replicas: 3
+
+repoServer:
+  replicas: 2
+
+server:
+  replicas: 2
+  ingress:
+    enabled: false
+
+applicationSet:
+  replicas: 2
+
+# ApplicationSet generators must support the multi-source Helm pattern used
+# throughout this repo; nothing to enable beyond chart defaults.

@@ -1,0 +1,28 @@
+apiVersion: ceph.rook.io/v1
+kind: CephObjectStore
+metadata:
+  name: object-store
+  namespace: rook-ceph
+spec:
+  metadataPool:
+    failureDomain: host
+    replicated: { size: 3 }
+  dataPool:
+    failureDomain: host
+    replicated: { size: 3 }
+  preservePoolsOnDelete: false
+  gateway:
+    port: 80
+    instances: 2
+---
+# RGW user consumed by Loki at wave 80. Rook auto-produces a Secret named
+# rook-ceph-object-user-object-store-loki in the rook-ceph namespace; Loki's
+# ExternalSecret-driven copy lifts AccessKey/SecretKey out of it.
+apiVersion: ceph.rook.io/v1
+kind: CephObjectStoreUser
+metadata:
+  name: loki
+  namespace: rook-ceph
+spec:
+  store: object-store
+  displayName: "loki s3 backend"

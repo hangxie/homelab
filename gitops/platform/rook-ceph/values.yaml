@@ -1,0 +1,13 @@
+crds:
+  enabled: true
+
+resources:
+  limits:
+    memory: 512Mi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+# Prometheus stack creates the ServiceMonitor itself once enabled below.
+monitoring:
+  enabled: true

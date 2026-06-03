@@ -1,0 +1,59 @@
+deploymentMode: SimpleScalable
+
+loki:
+  auth_enabled: false
+  storage:
+    type: s3
+    bucketNames:
+      chunks: loki-chunks
+      ruler:  loki-ruler
+      admin:  loki-admin
+    s3:
+      # endpoint surfaced via the RGW Service; ExternalSecret-managed Secret
+      # supplies access_key_id / secret_access_key at runtime.
+      endpoint: rook-ceph-rgw-object-store.rook-ceph.svc:80
+      region: us-east-1
+      s3ForcePathStyle: true
+      insecure: true
+      accessKeyId: ${ACCESS_KEY_ID}
+      secretAccessKey: ${SECRET_ACCESS_KEY}
+  schemaConfig:
+    configs:
+      - from: "2024-01-01"
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index: { prefix: index_, period: 24h }
+
+write:
+  replicas: 2
+  persistence:
+    storageClass: rook-ceph-block
+    size: 10Gi
+  extraEnvFrom:
+    - secretRef: { name: loki-s3 }
+
+read:
+  replicas: 2
+  persistence:
+    storageClass: rook-ceph-block
+    size: 10Gi
+  extraEnvFrom:
+    - secretRef: { name: loki-s3 }
+
+backend:
+  replicas: 2
+  persistence:
+    storageClass: rook-ceph-block
+    size: 10Gi
+  extraEnvFrom:
+    - secretRef: { name: loki-s3 }
+
+gateway:
+  enabled: true
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: prometheus-stack

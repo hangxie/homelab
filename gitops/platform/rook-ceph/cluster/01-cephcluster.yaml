@@ -1,0 +1,56 @@
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: rook-ceph
+  namespace: rook-ceph
+spec:
+  cephVersion:
+    image: quay.io/ceph/ceph:v18.2.4
+  dataDirHostPath: /var/lib/rook
+  mon:
+    count: 3
+    allowMultiplePerNode: false
+  mgr:
+    count: 2
+    modules:
+      - name: rook
+        enabled: true
+  dashboard:
+    enabled: true
+    ssl: false
+  monitoring:
+    enabled: true
+  network:
+    connections:
+      encryption:
+        enabled: false
+      compression:
+        enabled: false
+  crashCollector:
+    disable: false
+  logCollector:
+    enabled: true
+    periodicity: daily
+  storage:
+    useAllNodes: false
+    useAllDevices: false
+    # Worker inventory carries rook_ceph_devices via inventory.ini; the
+    # cluster mirrors that on the matching worker hosts.
+    nodes:
+      - name: worker-0
+        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
+      - name: worker-1
+        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
+      - name: worker-2
+        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
+      - name: worker-3
+        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
+      - name: worker-4
+        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
+  placement:
+    all:
+      tolerations: []
+    osd:
+      tolerations: []
+  disruptionManagement:
+    managePodBudgets: true

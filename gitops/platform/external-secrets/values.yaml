@@ -1,0 +1,14 @@
+installCRDs: true
+
+replicaCount: 2
+
+webhook:
+  replicaCount: 2
+
+certController:
+  replicaCount: 2
+
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    release: prometheus-stack
