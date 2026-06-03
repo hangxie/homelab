@@ -1,2 +1,217 @@
 # homelab
-Home lab setup
+
+Single-cluster Kubernetes homelab on Proxmox. Terraform provisions VMs, Ansible bootstraps the cluster, Argo CD owns everything thereafter.
+
+## Architecture
+
+```
+Terraform → Proxmox VMs / disks / cloud-init
+   ↓
+Ansible  → OS, kubeadm, Cilium (full lifecycle), NVIDIA host stack,
+           minimal Argo CD + AppProjects,
+           one Vault bootstrap Secret, root Application
+   ↓
+Argo CD  → everything else, including its own chart/config
+```
+
+### Ownership
+
+- **Terraform** never touches Kubernetes objects.
+- **Ansible** stops once `apply-root-app.yml` confirms every Application and ApplicationSet is Synced/Healthy.
+- **Argo CD** reconciles all in-cluster state via the root Application and the workload ApplicationSets. The one deliberate exception is Cilium, which Ansible owns end-to-end.
+
+### Argo CD shape
+
+```
+root Application
+└── gitops/cluster/applications/      (App-of-Apps; explicit sync waves)
+    ├── argocd                        (no wave; self-manages)
+    ├── cert-manager (20) → cert-manager-config (25)
+    ├── external-secrets (30) → external-secrets-stores (35)
+    ├── rook-ceph (40) → rook-ceph-cluster (50)
+    ├── metrics-server (60)
+    ├── prometheus-stack (70)
+    ├── loki / tempo / alloy (80)
+    ├── nfd (88) → nvidia-device-plugin (92)
+    ├── gateway-routes (100)
+    ├── postgres-cnpg (105) → postgres-cluster (108)
+    └── workloads-helm / workloads-raw (110; ApplicationSets)
+        ├── gitops/workloads/helm/*  (config.json + values.yaml + extras/)
+        └── gitops/workloads/raw/*   (manifests/)
+```
+
+ApplicationSet-generated workloads sync concurrently within wave 110.
+
+### Persistent stores
+
+- **HashiCorp Vault** (external) — only persistent source of truth besides Git. Auth via AppRole with `secret_id_ttl=0` and `secret_id_num_uses=0`.
+- **Rook-Ceph** — block (`rook-ceph-block`, default), CephFS (`rook-cephfs`, RWX), and an object store consumed by Loki via an `ExternalSecret`-driven copy of the Rook-produced RGW Secret.
+- **CloudNativePG** — three-instance Postgres cluster at `postgres-cluster-rw.postgres-cluster`. Per-workload users/databases are created by Sync-hook Jobs at wave -1; superuser credentials flow from Vault into a `postgres-cluster-superuser` Secret.
+
+### TLS
+
+`cert-manager-config` provisions Let's Encrypt `ClusterIssuer`s (`letsencrypt-prod` + `letsencrypt-staging`) using a Cloudflare DNS-01 solver, then issues `homelab-wildcard-tls` in `gateway-system` for `*.homelab.xiehang.com`. The Gateway terminates TLS on 443; upstream services speak plain HTTP. The Cloudflare API token comes from Vault (`cloudflare/api-token`) via an `ExternalSecret`. Browsers trust LE out of the box — no operator-side CA import.
+
+## First-time bootstrap
+
+End-to-end provisioning of a fresh homelab cluster from this repo plus an external Vault.
+
+### Prerequisites
+
+- Operator workstation with `terraform`, `ansible`, `kubectl`, `helm`, `vault` CLI on PATH.
+- Reachable Proxmox cluster, SSH agent loaded with the key used for VM access.
+- External HashiCorp Vault reachable at `registry.xiehang.com:8200`.
+- DNS `*.homelab.xiehang.com` pointed at the Gateway VIP (registered manually post-bootstrap).
+- `xiehang.com` zone hosted on Cloudflare, with a scoped API token (`Zone:DNS:Edit` on `xiehang.com` only) ready for cert-manager's DNS-01 solver.
+- Public HTTPS access to `https://github.com/hangxie/homelab.git`.
+
+### Steps
+
+```bash
+export VAULT_ADDR=https://registry.xiehang.com:8200
+export VAULT_TOKEN=...   # operator token with admin perms
+
+# 1. Enable the KV v2 mount at homelab/ (one-time, idempotent).
+vault secrets enable -path=homelab -version=2 kv
+
+# 2. Pre-load externally minted credentials (see "Secrets" below).
+#    Required because seed-vault.sh refuses to generate placeholders for these.
+vault kv put homelab/harbor/llm-models \
+  username='robot$llm-models+ci' \
+  password='<secret from Harbor>'
+vault kv put homelab/cloudflare/api-token \
+  api-token='<scoped token from Cloudflare>'
+
+# 3. Seed Vault (auto-generates random passwords for everything else).
+scripts/seed-vault.sh
+
+# 4. Provision infrastructure.
+cd terraform
+terraform init
+terraform apply
+cd ..
+
+# 5. Bootstrap the cluster (orchestrates k8s + Cilium + Vault AppRole secret-id
+#    + Argo CD + root Application; vault-bootstrap.yml runs as Phase 6 here).
+ansible-playbook \
+  -i ansible/inventory.ini \
+  ansible/bootstrap-k8s.yml
+
+# 6. Point DNS at the Gateway VIP.
+#    Add a wildcard A record: *.homelab.xiehang.com -> 192.168.0.219
+```
+
+### Secrets
+
+`scripts/seed-vault.sh` auto-generates random passwords for everything except
+externally minted credentials marked `generate: false` in
+`scripts/vault-secrets.template.yaml`. Those must be written to Vault directly
+with the same `VAULT_TOKEN` used for seeding. Current entries:
+
+- `harbor/llm-models` — Harbor robot account used by `llama-model.sh` /
+  `vllm-model.sh` to read/write the model cache.
+- `cloudflare/api-token` — scoped Cloudflare API token used by cert-manager's
+  DNS-01 solver to issue Let's Encrypt wildcard certs.
+
+#### Rotate Harbor credentials
+
+1. Rotate the robot account in Harbor for the `llm-models` project.
+2. Overwrite the Vault entry (a single `kv put` replaces the whole secret):
+
+   ```bash
+   vault kv put homelab/harbor/llm-models \
+     username='robot$llm-models+ci' \
+     password='<new secret from Harbor>'
+   ```
+
+3. Force the `harbor-credentials` Secret in both namespaces to refresh from
+   Vault immediately (otherwise wait for the 1h ExternalSecret refresh):
+
+   ```bash
+   for ns in llama-cpp vllm; do
+     kubectl -n "$ns" annotate externalsecret harbor-credentials \
+       force-sync=$(date +%s) --overwrite
+   done
+   ```
+
+#### Rotate the Cloudflare API token
+
+1. Mint a new scoped token in the Cloudflare dashboard
+   (`Zone:DNS:Edit` on `xiehang.com` only).
+2. Overwrite the Vault entry:
+
+   ```bash
+   vault kv put homelab/cloudflare/api-token \
+     api-token='<new token from Cloudflare>'
+   ```
+
+3. Force the `cloudflare-api-token` Secret to refresh:
+
+   ```bash
+   kubectl -n cert-manager annotate externalsecret cloudflare-api-token \
+     force-sync=$(date +%s) --overwrite
+   ```
+
+4. Revoke the old token in the Cloudflare dashboard once cert-manager has
+   successfully renewed (`kubectl -n gateway-system describe certificate
+   homelab-wildcard`).
+
+### Verification
+
+```bash
+kubectl get applications -n argocd
+kubectl get applicationsets -n argocd
+kubectl get cephcluster -n rook-ceph
+kubectl get certificate -A
+kubectl get clustersecretstore vault-homelab
+kubectl get nodes -L feature.node.kubernetes.io/pci-10de.present
+kubectl -n kube-system exec ds/cilium -- cilium-dbg status --brief
+kubectl get cluster -n postgres-cluster postgres-cluster -o jsonpath='{.status.phase}'
+```
+
+Browse `https://grafana.homelab.xiehang.com` and `https://argocd.homelab.xiehang.com`.
+
+## Rebuild modes
+
+Routine changes live in the values files and don't require either of these.
+
+### Reset (cluster broken, VMs fine)
+
+```bash
+ansible-playbook -i ansible/inventory.ini ansible/reset.yml
+ansible-playbook -i ansible/inventory.ini ansible/bootstrap-k8s.yml
+```
+
+Survives: VM identities, IPs, host packages, Vault data, this repo.
+Destroys: every byte inside the cluster (Postgres, Ceph, Prometheus, models, Loki logs, etc.).
+Time: ~15–20 min Ansible + ~10–15 min Argo CD first-sync.
+
+### Nuke (re-cut from infrastructure up)
+
+```bash
+cd terraform && terraform destroy
+# edit terraform.tfvars / variables.tf as needed
+terraform apply
+cd ..
+ansible-playbook -i ansible/inventory.ini ansible/bootstrap-k8s.yml
+```
+
+Survives: only Vault and Git.
+Destroys: VMs, disks, all cluster state.
+
+### What is *not* covered
+
+- Live migration / blue-green cutover.
+- In-cluster backup/restore — DR is deferred.
+- Partial node replacement while a cluster is healthy — use `scripts/remove-worker.sh` ad-hoc.
+- Vault unavailable. The cluster cannot fully converge without Vault; restore Vault from its own backups.
+
+## Repo layout
+
+- `terraform/` — Proxmox VMs, disks, cloud-init, Kubernetes API VIP. Writes `ansible/inventory.ini`.
+- `ansible/` — kubeadm, Cilium, NVIDIA host stack, minimal Argo CD + AppProjects, Vault bootstrap Secret, root Application.
+- `gitops/cluster/` — root Application and per-component Application/ApplicationSet manifests.
+- `gitops/platform/` — Helm values and supporting CRs for platform components.
+- `gitops/workloads/helm/<name>/` — `config.json` (chart coordinates, validated against `.schema.json`), `values.yaml`, `extras/` (ExternalSecrets, init Jobs, HTTPRoutes).
+- `gitops/workloads/raw/<name>/` — `manifests/` of raw YAML.
+- `scripts/` — operator utilities (Vault seeding, CA download, dashboard creds, PVC inspection, model fetching, node removal, redeploy, Proxmox GPU passthrough).
