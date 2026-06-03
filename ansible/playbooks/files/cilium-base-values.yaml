@@ -1,0 +1,26 @@
+# Cilium values shared by phase-1 bootstrap (cilium.yml) and the
+# phase-5 post-bootstrap upgrade (cilium-post-bootstrap.yml). Keys that
+# must stay consistent across install and upgrade live here so there is
+# one source of truth - datapath/IPAM/encryption/API endpoint settings
+# would be disruptive to flip after the cluster is running.
+kubeProxyReplacement: true
+k8sServicePort: 6443
+ipam:
+  mode: kubernetes
+routingMode: tunnel
+tunnelProtocol: vxlan
+encryption:
+  enabled: true
+  type: wireguard
+  nodeEncryption: true
+gatewayAPI:
+  enabled: true
+  enableAlpn: true
+  enableAppProtocol: true
+l2announcements:
+  enabled: true
+k8sClientRateLimit:
+  qps: 50
+  burst: 100
+prometheus:
+  enabled: true

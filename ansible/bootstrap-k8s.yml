@@ -1,0 +1,15 @@
+---
+# Top-level bootstrap entrypoint.
+# Imports are appended phase-by-phase per the migration design.
+
+- import_playbook: playbooks/install-k8s-components.yml
+- import_playbook: playbooks/init-primary-master.yml
+- import_playbook: playbooks/cilium.yml
+- import_playbook: playbooks/join-control-plane.yml
+- import_playbook: playbooks/join-workers.yml
+- import_playbook: playbooks/finalize-kubeconfig.yml
+- import_playbook: playbooks/gpu-host.yml
+- import_playbook: playbooks/install-argocd.yml
+- import_playbook: playbooks/vault-bootstrap.yml
+- import_playbook: playbooks/apply-root-app.yml
+- import_playbook: playbooks/cilium-post-bootstrap.yml

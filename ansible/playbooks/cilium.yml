@@ -1,0 +1,144 @@
+---
+- name: Install Cilium CNI
+  hosts: localhost
+  gather_facts: false
+  vars:
+    cilium_version: "1.19.4"
+    gateway_api_version: "v1.5.1"
+    pod_network_cidr: "10.10.0.0/16"
+    kubeconfig: "/tmp/k8s-setup-latest/admin.conf"
+    control_plane_host: "{{ hostvars[groups['masters'][0]]['ansible_host'] }}"
+
+  tasks:
+    - name: Wait for Kubernetes API server to be ready
+      command: kubectl get --raw=/readyz
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: apiserver_ready
+      changed_when: false
+      retries: 30
+      delay: 10
+      until:
+        - apiserver_ready.rc == 0
+        - "'ok' in apiserver_ready.stdout"
+
+    - name: Check if Gateway API CRDs are installed
+      command: kubectl get crd gateways.gateway.networking.k8s.io
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: gateway_crd_check
+      failed_when: false
+      changed_when: false
+
+    - name: Install Gateway API CRDs (standard channel)
+      command: >
+        kubectl apply -f
+        https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ gateway_api_version }}/standard-install.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      when: gateway_crd_check.rc != 0
+
+    - name: Wait for Gateway API CRDs to be established
+      command: kubectl wait --for=condition=Established crd/{{ item }} --timeout=120s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      loop:
+        - gateways.gateway.networking.k8s.io
+        - httproutes.gateway.networking.k8s.io
+        - gatewayclasses.gateway.networking.k8s.io
+        - referencegrants.gateway.networking.k8s.io
+        - tlsroutes.gateway.networking.k8s.io
+
+    # Cilium 1.19.x looks up TLSRoute at v1alpha2. Gateway API >= v1.3 promotes
+    # TLSRoute to v1 and stops serving v1alpha2, which crashes the operator.
+    # This patch re-enables v1alpha2 serving idempotently.
+    - name: Ensure TLSRoute v1alpha2 is served for Cilium operator compatibility
+      shell: |
+        idx=$(kubectl get crd tlsroutes.gateway.networking.k8s.io \
+          -o jsonpath='{range .spec.versions[*]}{.name}={.served}{"\n"}{end}' \
+          | grep -n 'v1alpha2=false' | cut -d: -f1)
+        if [ -n "$idx" ]; then
+          idx=$((idx - 1))
+          kubectl patch crd tlsroutes.gateway.networking.k8s.io --type=json \
+            -p="[{\"op\":\"replace\",\"path\":\"/spec/versions/${idx}/served\",\"value\":true}]"
+          echo "patched"
+        else
+          echo "already served"
+        fi
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: tlsroute_patch
+      changed_when: "'patched' in tlsroute_patch.stdout"
+
+    - name: Ensure Cilium helm repo is present
+      kubernetes.core.helm_repository:
+        kubeconfig: "{{ kubeconfig }}"
+        repo_name: cilium
+        repo_url: https://helm.cilium.io/
+
+    # Bootstrap install: shared values from files/cilium-base-values.yaml
+    # plus only the bootstrap-specific overrides. Hubble UI/relay, SPIRE,
+    # ServiceMonitors, dashboards, and operator.replicas=2 all require
+    # services that don't exist yet (workers, rook-ceph, prometheus,
+    # cert-manager) - those are layered on later by cilium-post-bootstrap.yml.
+    - name: Install Cilium bootstrap CNI
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig }}"
+        chart_ref: cilium/cilium
+        release_name: cilium
+        release_namespace: kube-system
+        chart_version: "{{ cilium_version }}"
+        values_files:
+          - "{{ playbook_dir }}/files/cilium-base-values.yaml"
+        values:
+          k8sServiceHost: "{{ control_plane_host }}"
+          # Only master-0 is schedulable at this point, so cap operator
+          # replicas at 1 to keep `wait: true` from timing out on a
+          # pending second pod. Bumped to 2 in cilium-post-bootstrap.yml.
+          operator:
+            replicas: 1
+        wait: true
+        timeout: 600s
+
+    - name: Wait for Cilium agent pods to be ready
+      command: >
+        kubectl wait --for=condition=Ready pods -l k8s-app=cilium
+        -n kube-system --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      retries: 3
+      delay: 30
+      register: cilium_ready
+      until: cilium_ready.rc == 0
+
+    - name: Wait for Cilium operator to be ready
+      command: >
+        kubectl wait --for=condition=Ready pods -l io.cilium/app=operator
+        -n kube-system --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Verify Cilium GatewayClass is accepted
+      command: kubectl wait --for=condition=Accepted gatewayclass/cilium --timeout=120s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      retries: 5
+      delay: 10
+      register: gwc_ready
+      until: gwc_ready.rc == 0
+
+    - name: Display Cilium status summary
+      shell: |
+        kubectl -n kube-system get pods -l k8s-app=cilium -o wide
+        echo "---"
+        kubectl -n kube-system get pods -l io.cilium/app=operator -o wide
+        echo "---"
+        kubectl get gatewayclass cilium
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: cilium_status
+      changed_when: false
+
+    - name: Show Cilium status
+      debug:
+        msg: "{{ cilium_status.stdout_lines }}"

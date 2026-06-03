@@ -1,0 +1,134 @@
+---
+# OS-level NVIDIA host stack: driver, container toolkit, containerd runtime,
+# the gpu=true:NoSchedule node taint. NFD and the NVIDIA device plugin are
+# delegated to GitOps (waves 88 and 92).
+
+- name: Detect GPU worker nodes
+  hosts: workers
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Install PCI utilities
+      apt:
+        name: pciutils
+        state: present
+        update_cache: yes
+
+    - name: Detect NVIDIA GPUs via PCI scan
+      shell: lspci | grep -qi nvidia
+      register: nvidia_gpu_detect
+      changed_when: false
+      failed_when: false
+
+    - name: Group workers by GPU presence
+      group_by:
+        key: "{{ 'gpu_workers_detected' if nvidia_gpu_detect.rc == 0 else 'non_gpu_workers_detected' }}"
+
+- name: Install NVIDIA host stack on GPU workers
+  hosts: gpu_workers_detected
+  become: true
+  gather_facts: false
+  vars:
+    nvidia_cuda_distro: debian13
+    nvidia_cuda_repo_url: "https://developer.download.nvidia.com/compute/cuda/repos/{{ nvidia_cuda_distro }}/x86_64"
+    nvidia_cuda_keyring_path: /usr/share/keyrings/nvidia-cuda-archive-keyring.gpg
+
+  tasks:
+    - name: Install GPU host prerequisites
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+        state: present
+        update_cache: yes
+
+    - name: Enable contrib/non-free components in Debian Deb822 sources
+      replace:
+        path: /etc/apt/sources.list.d/debian.sources
+        regexp: '^Components: main$'
+        replace: 'Components: main contrib non-free non-free-firmware'
+
+    - name: Add NVIDIA container toolkit GPG key
+      shell: |
+        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit.gpg
+      args:
+        creates: /usr/share/keyrings/nvidia-container-toolkit.gpg
+
+    - name: Add NVIDIA container toolkit repo
+      shell: |
+        curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+          | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit.gpg] https://#g' \
+          > /etc/apt/sources.list.d/nvidia-container-toolkit.list
+      args:
+        creates: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+    - name: Add NVIDIA CUDA apt GPG key
+      shell: |
+        curl -fsSL {{ nvidia_cuda_repo_url }}/8793F200.pub | gpg --dearmor -o {{ nvidia_cuda_keyring_path }}
+      args:
+        creates: "{{ nvidia_cuda_keyring_path }}"
+
+    - name: Add NVIDIA CUDA apt repository
+      copy:
+        dest: /etc/apt/sources.list.d/nvidia-cuda.list
+        mode: '0644'
+        content: |
+          deb [signed-by={{ nvidia_cuda_keyring_path }}] {{ nvidia_cuda_repo_url }} /
+
+    - name: Install NVIDIA container toolkit
+      apt:
+        name: nvidia-container-toolkit
+        state: present
+        update_cache: yes
+
+    - name: Verify NVIDIA CUDA driver package is available
+      command: apt-cache policy nvidia-driver-cuda
+      register: nvidia_driver_cuda_policy
+      changed_when: false
+      failed_when: "'Candidate: (none)' in nvidia_driver_cuda_policy.stdout"
+
+    - name: Install NVIDIA driver from CUDA repo
+      apt:
+        name:
+          - nvidia-driver-cuda
+          - nvidia-kernel-open-dkms
+          - linux-headers-amd64
+          - nvtop
+        state: present
+        update_cache: yes
+
+    - name: Configure NVIDIA runtime for containerd
+      command: nvidia-ctk runtime configure --runtime=containerd --set-as-default
+
+    - name: Dump effective containerd config
+      command: containerd config dump
+      register: containerd_config_dump
+      changed_when: false
+
+    - name: Verify NVIDIA runtime is present in effective containerd config
+      assert:
+        that:
+          - >
+            'default_runtime_name = "nvidia"' in containerd_config_dump.stdout
+            or 'nvidia-container-runtime' in containerd_config_dump.stdout
+            or '.runtimes.nvidia' in containerd_config_dump.stdout
+        fail_msg: NVIDIA runtime not found in effective containerd config
+
+    - name: Reboot GPU workers so the new kernel module loads
+      reboot:
+
+- name: Taint GPU nodes
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Apply gpu=true:NoSchedule taint to GPU nodes
+      command: >
+        kubectl taint nodes {{ item }}
+        gpu=true:NoSchedule --overwrite
+      loop: "{{ groups['gpu_workers_detected'] | default([]) }}"
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      when: (groups['gpu_workers_detected'] | default([]) | length) > 0

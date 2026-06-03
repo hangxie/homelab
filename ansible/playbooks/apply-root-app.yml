@@ -1,0 +1,105 @@
+---
+# Apply gitops/cluster/root-app.yaml and wait for every child Application and
+# ApplicationSet to converge. Spec §6.2 item 10.
+
+- name: Apply root Application and wait for convergence
+  hosts: localhost
+  gather_facts: false
+  vars:
+    repo_root: "{{ playbook_dir }}/../.."
+    per_app_timeout_seconds: 600       # 10 min
+    global_timeout_seconds: 1800       # 30 min
+
+  tasks:
+    - name: Apply root Application
+      command: kubectl apply -f {{ repo_root }}/gitops/cluster/root-app.yaml
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+
+    - name: Wait for root and direct Applications to be Synced and Healthy
+      shell: |
+        set -o pipefail
+        kubectl -n argocd get applications.argoproj.io \
+          -o jsonpath='{range .items[*]}{.metadata.name}|{.status.sync.status}|{.status.health.status}{"\n"}{end}' \
+        | awk -F'|' 'NF==3 && ($2 != "Synced" || $3 != "Healthy") { print; not_ready=1 } END { exit not_ready ? 1 : 0 }'
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: apps_status
+      retries: "{{ (global_timeout_seconds / 30) | int }}"
+      delay: 30
+      until: apps_status.rc == 0
+      changed_when: false
+
+    - name: Wait for every ApplicationSet to report ResourcesUpToDate=True
+      shell: |
+        set -o pipefail
+        kubectl -n argocd get applicationsets.argoproj.io \
+          -o jsonpath='{range .items[*]}{.metadata.name}|{.status.conditions[?(@.type=="ResourcesUpToDate")].status}{"\n"}{end}' \
+        | awk -F'|' 'NF>=1 && $1 != "" && $2 != "True" { print; not_ready=1 } END { exit not_ready ? 1 : 0 }'
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: appsets_status
+      retries: "{{ (global_timeout_seconds / 30) | int }}"
+      delay: 30
+      until: appsets_status.rc == 0
+      changed_when: false
+
+    # The ApplicationSet's git generator produces one Application per matching
+    # source path; count those against the subdirectories under each generator's
+    # base path. Mismatches indicate ApplicationSet rendering errors.
+    - name: Verify ApplicationSet generated counts match subdirectory counts
+      shell: |
+        set -o pipefail
+        fail=0
+        for appset in $(kubectl -n argocd get applicationsets.argoproj.io -o jsonpath='{.items[*].metadata.name}'); do
+          # Best-effort: ApplicationSets created by this repo all use a
+          # single git generator with a path glob. Skip the check entirely
+          # if no generated apps are expected (e.g. operator-renamed sets).
+          generated=$(kubectl -n argocd get applications.argoproj.io \
+            -l argocd.argoproj.io/application-set-name=$appset \
+            -o jsonpath='{.items[*].metadata.name}' | wc -w)
+          base_path=$(kubectl -n argocd get applicationsets.argoproj.io $appset \
+            -o jsonpath='{.spec.generators[0].git.directories[0].path}{.spec.generators[0].git.files[0].path}')
+          if [ -z "$base_path" ]; then continue; fi
+          glob_dir="{{ repo_root }}/$(dirname "$base_path")"
+          if [ ! -d "$glob_dir" ]; then continue; fi
+          expected=$(find "$glob_dir" -mindepth 1 -maxdepth 1 -type d | wc -l)
+          if [ "$generated" -ne "$expected" ]; then
+            echo "$appset: generated=$generated expected=$expected"
+            fail=1
+          fi
+        done
+        exit $fail
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: appset_counts
+      changed_when: false
+
+    - name: Wait for every generated Application to be Synced and Healthy
+      shell: |
+        set -o pipefail
+        kubectl -n argocd get applications.argoproj.io \
+          -o jsonpath='{range .items[*]}{.metadata.name}|{.status.sync.status}|{.status.health.status}{"\n"}{end}' \
+        | awk -F'|' 'NF==3 && ($2 != "Synced" || $3 != "Healthy") { print; not_ready=1 } END { exit not_ready ? 1 : 0 }'
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: generated_apps_status
+      retries: "{{ (global_timeout_seconds / 30) | int }}"
+      delay: 30
+      until: generated_apps_status.rc == 0
+      changed_when: false
+
+    - name: Final summary
+      debug:
+        msg:
+          - "All Argo CD Applications Synced/Healthy."
+          - "All ApplicationSets ResourcesUpToDate=True."
+          - "ApplicationSet generated counts match repo subdirectory counts."

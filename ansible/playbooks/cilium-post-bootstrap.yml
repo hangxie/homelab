@@ -1,0 +1,171 @@
+---
+# Post-bootstrap Cilium configuration. Runs after Argo CD has converged the
+# platform dependencies that the first Cilium install deliberately avoids:
+# rook-ceph storage, Prometheus ServiceMonitor CRDs, and the monitoring
+# namespace.
+
+- name: Enable Cilium post-bootstrap features and observability
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubeconfig: "/tmp/k8s-setup-latest/admin.conf"
+    control_plane_host: "{{ hostvars[groups['masters'][0]]['ansible_host'] }}"
+
+  tasks:
+    - name: Wait for Prometheus ServiceMonitor CRD
+      command: kubectl wait --for=condition=Established crd/servicemonitors.monitoring.coreos.com --timeout=120s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      retries: 5
+      delay: 10
+      register: sm_crd_wait
+      until: sm_crd_wait.rc == 0
+
+    - name: Helm upgrade Cilium with post-bootstrap features
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig }}"
+        chart_ref: cilium/cilium
+        release_name: cilium
+        release_namespace: kube-system
+        reuse_values: true
+        values_files:
+          - "{{ playbook_dir }}/files/cilium-base-values.yaml"
+        values:
+          k8sServiceHost: "{{ control_plane_host }}"
+          authentication:
+            enabled: true
+            mutual:
+              spire:
+                enabled: true
+                install:
+                  enabled: true
+                  server:
+                    dataStorage:
+                      storageClass: rook-ceph-block
+          prometheus:
+            serviceMonitor:
+              enabled: true
+              labels:
+                release: prometheus-stack
+          operator:
+            replicas: 2
+            prometheus:
+              enabled: true
+              serviceMonitor:
+                enabled: true
+                labels:
+                  release: prometheus-stack
+            dashboards:
+              enabled: true
+              namespace: monitoring
+          hubble:
+            enabled: true
+            relay:
+              enabled: true
+              replicas: 2
+            ui:
+              enabled: true
+              replicas: 2
+            metrics:
+              enableOpenMetrics: true
+              enabled:
+                - dns
+                - drop
+                - tcp
+                - flow
+                - port-distribution
+                - icmp
+                - "httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction"
+              serviceMonitor:
+                enabled: true
+                labels:
+                  release: prometheus-stack
+              dashboards:
+                enabled: true
+                namespace: monitoring
+          dashboards:
+            enabled: true
+            namespace: monitoring
+        wait: true
+        timeout: 600s
+
+    - name: Restart Cilium agents to pick up cilium-config changes
+      command: kubectl -n kube-system rollout restart daemonset/cilium deployment/cilium-operator
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for Cilium agent rollout
+      command: kubectl -n kube-system rollout status daemonset/cilium --timeout=600s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for Cilium operator rollout
+      command: kubectl -n kube-system rollout status deployment/cilium-operator --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for SPIRE server to be ready
+      command: kubectl -n cilium-spire rollout status statefulset/spire-server --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      retries: 3
+      delay: 30
+      register: spire_server_ready
+      until: spire_server_ready.rc == 0
+
+    - name: Wait for SPIRE agents to be ready
+      command: kubectl -n cilium-spire rollout status daemonset/spire-agent --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      retries: 3
+      delay: 30
+      register: spire_agent_ready
+      until: spire_agent_ready.rc == 0
+
+    - name: Wait for Hubble Relay to be ready
+      command: kubectl -n kube-system rollout status deployment/hubble-relay --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      retries: 3
+      delay: 30
+      register: hubble_relay_ready
+      until: hubble_relay_ready.rc == 0
+
+    - name: Wait for Hubble UI to be ready
+      command: kubectl -n kube-system rollout status deployment/hubble-ui --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      retries: 3
+      delay: 30
+      register: hubble_ui_ready
+      until: hubble_ui_ready.rc == 0
+
+    - name: Verify ServiceMonitors are present
+      command: >
+        kubectl -n kube-system get servicemonitor
+        cilium-agent cilium-operator hubble
+        -o name
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: sm_list
+      changed_when: false
+      retries: 5
+      delay: 5
+      until: sm_list.rc == 0
+
+    - name: Verify dashboard ConfigMaps are present
+      command: >
+        kubectl -n monitoring get configmap -l grafana_dashboard=1
+        -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: dash_list
+      changed_when: false
+
+    - name: Show monitoring summary
+      debug:
+        msg:
+          - "ServiceMonitors:"
+          - "{{ sm_list.stdout_lines }}"
+          - "Grafana dashboard ConfigMaps:"
+          - "{{ dash_list.stdout_lines }}"

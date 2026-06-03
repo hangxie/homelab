@@ -1,0 +1,140 @@
+---
+# Phase 6: seed the vault-approle Secret in the external-secrets namespace
+# so the ClusterSecretStore can authenticate. Spec §6.2 item 9 + §9.3.
+#
+# Pre-requisites on the operator workstation:
+#   - vault CLI installed
+#   - vault_addr configured and the vault CLI authenticated, with permissions to read
+#     auth/approle/role/homelab/role-id and write
+#     auth/approle/role/homelab/secret-id
+#   - scripts/seed-vault.sh already run against the target Vault
+
+- name: Bootstrap Vault credentials into Kubernetes
+  hosts: localhost
+  gather_facts: false
+  vars:
+    vault_effective_addr: "{{ vault_addr | default(lookup('env', 'VAULT_ADDR'), true) }}"
+    vault_cli_environment:
+      VAULT_ADDR: "{{ vault_effective_addr }}"
+
+  tasks:
+    - name: Ensure Vault address is configured
+      assert:
+        that: vault_effective_addr | length > 0
+        fail_msg: "Set vault_addr or export VAULT_ADDR before running vault-bootstrap.yml."
+
+    - name: Verify Vault token is usable
+      command: vault token lookup
+      register: vault_token_lookup
+      changed_when: false
+      failed_when: false
+      environment: "{{ vault_cli_environment }}"
+      no_log: true
+
+    - name: Ensure vault CLI is authenticated
+      assert:
+        that: vault_token_lookup.rc == 0
+        fail_msg: "Authenticate the vault CLI for {{ vault_effective_addr }} before running vault-bootstrap.yml: export VAULT_TOKEN or run vault login."
+
+    - name: Check Vault AppRole role exists
+      command: vault read -field=role_id auth/approle/role/homelab/role-id
+      register: vault_approle_role_id_check
+      changed_when: false
+      failed_when: false
+      environment: "{{ vault_cli_environment }}"
+      no_log: true
+
+    - name: Ensure Vault AppRole role is seeded
+      assert:
+        that:
+          - vault_approle_role_id_check.rc == 0
+          - vault_approle_role_id_check.stdout | trim | length > 0
+        fail_msg: >-
+          Vault AppRole auth mount or role 'homelab' is missing or unreadable
+          at auth/approle/role/homelab on {{ vault_effective_addr }}. Run
+          scripts/seed-vault.sh with VAULT_ADDR={{ vault_effective_addr }} and
+          an admin Vault token, then rerun this playbook.
+
+    - name: Create external-secrets namespace
+      command: kubectl create namespace external-secrets --dry-run=client -o yaml
+      register: ns_yaml
+      changed_when: false
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+
+    - name: Apply external-secrets namespace
+      command: kubectl apply -f -
+      args:
+        stdin: "{{ ns_yaml.stdout }}"
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      changed_when: true
+
+    - name: Create local temp directory for Vault values
+      command: mktemp -d /tmp/vault-bootstrap.XXXXXX
+      register: vault_temp_dir
+      changed_when: false
+
+    - name: Read and apply Vault AppRole Secret
+      block:
+        - name: Read AppRole role-id from Vault
+          shell: |
+            vault read -field=role_id auth/approle/role/homelab/role-id > "{{ vault_temp_dir.stdout }}/role-id"
+          register: vault_role_id
+          changed_when: false
+          environment: "{{ vault_cli_environment }}"
+
+        - name: Generate a fresh AppRole secret-id
+          shell: |
+            vault write -force -field=secret_id auth/approle/role/homelab/secret-id > "{{ vault_temp_dir.stdout }}/secret-id"
+          register: vault_secret_id
+          changed_when: true
+          environment: "{{ vault_cli_environment }}"
+
+        - name: Read rendered Vault values from temp files
+          slurp:
+            src: "{{ vault_temp_dir.stdout }}/{{ item }}"
+          loop:
+            - role-id
+            - secret-id
+          register: vault_value_files
+          no_log: true
+
+        - name: Store Vault values as facts
+          set_fact:
+            vault_role_id_value: "{{ vault_value_files.results[0].content | b64decode | trim }}"
+            vault_secret_id_value: "{{ vault_value_files.results[1].content | b64decode | trim }}"
+          no_log: true
+
+        - name: Render vault-approle Secret
+          copy:
+            dest: /tmp/vault-approle.yaml
+            mode: '0600'
+            content: |
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: vault-approle
+                namespace: external-secrets
+              stringData:
+                role-id: {{ vault_role_id_value }}
+                secret-id: {{ vault_secret_id_value }}
+          no_log: true
+
+        - name: Apply vault-approle Secret
+          command: kubectl apply -f /tmp/vault-approle.yaml
+          environment:
+            KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+          no_log: true
+      always:
+        - name: Remove rendered Secret file
+          file:
+            path: /tmp/vault-approle.yaml
+            state: absent
+          no_log: true
+
+        - name: Remove local temp directory for Vault values
+          file:
+            path: "{{ vault_temp_dir.stdout }}"
+            state: absent
+          no_log: true
