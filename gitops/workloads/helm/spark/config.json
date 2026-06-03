@@ -1,0 +1,5 @@
+{
+  "chart_repo": "https://charts.bitnami.com/bitnami",
+  "chart_name": "spark",
+  "chart_version": "9.4.0"
+}

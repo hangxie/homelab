@@ -1,0 +1,5 @@
+{
+  "chart_repo": "https://apache.github.io/superset",
+  "chart_name": "superset",
+  "chart_version": "0.13.5"
+}

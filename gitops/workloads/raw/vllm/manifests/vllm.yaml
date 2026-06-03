@@ -1,0 +1,110 @@
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: vllm-api-key
+  namespace: vllm
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: vllm-api-key
+    creationPolicy: Owner
+  data:
+    - secretKey: api-key
+      remoteRef:
+        key: vllm/api-key
+        property: api-key
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: harbor-credentials
+  namespace: vllm
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: harbor-credentials
+    creationPolicy: Owner
+  data:
+    - secretKey: username
+      remoteRef:
+        key: harbor/llm-models
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: harbor/llm-models
+        property: password
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vllm-models
+  namespace: vllm
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: rook-ceph-block
+  resources:
+    requests:
+      storage: 200Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: vllm
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: vllm }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: vllm }
+    spec:
+      nodeSelector:
+        feature.node.kubernetes.io/pci-10de.present: "true"
+      tolerations:
+        - { key: gpu, operator: Equal, value: "true", effect: NoSchedule }
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.6.4.post1
+          # Operator drops models into the PVC via scripts/vllm-model.sh; set
+          # MODEL_NAME to a directory under /models with a working config.
+          env:
+            - { name: MODEL_NAME, value: "/models/default" }
+            - name: API_KEY
+              valueFrom: { secretKeyRef: { name: vllm-api-key, key: api-key } }
+          args:
+            - --model
+            - "$(MODEL_NAME)"
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8000"
+            - --api-key
+            - "$(API_KEY)"
+          ports:
+            - { containerPort: 8000 }
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - { name: models, mountPath: /models }
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: vllm-models
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm
+  namespace: vllm
+spec:
+  selector: { app.kubernetes.io/name: vllm }
+  ports:
+    - { port: 8000, targetPort: 8000 }

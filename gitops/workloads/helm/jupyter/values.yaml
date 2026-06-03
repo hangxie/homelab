@@ -1,0 +1,43 @@
+hub:
+  db:
+    type: postgres
+    url: postgresql+psycopg2://jupyterhub@postgres-cluster-rw.postgres-cluster.svc:5432/jupyterhub
+    upgrade: true
+  existingSecret: jupyterhub-db
+  config:
+    Authenticator:
+      admin_users:
+        - admin
+    DummyAuthenticator:
+      password: replace-me
+    JupyterHub:
+      authenticator_class: dummy
+
+proxy:
+  service:
+    type: ClusterIP
+
+singleuser:
+  storage:
+    type: dynamic
+    dynamic:
+      storageClass: rook-ceph-block
+    capacity: 10Gi
+  cpu:
+    limit: 2
+    guarantee: 250m
+  memory:
+    limit: 4Gi
+    guarantee: 256Mi
+
+scheduling:
+  userScheduler:
+    enabled: true
+  podPriority:
+    enabled: true
+
+prePuller:
+  hook:
+    enabled: false
+  continuous:
+    enabled: false

@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: airflow-postgres-bootstrap
+  namespace: airflow
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: psql
+          image: postgres:16
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-superuser
+                  key: password
+            - name: AIRFLOW_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-db-credentials
+                  key: password
+          command: [bash, -ec]
+          args:
+            - |
+              psql -h postgres-cluster-rw.postgres-cluster -U postgres \
+                   -v ON_ERROR_STOP=1 \
+                   -v AIRFLOW_PASSWORD="${AIRFLOW_PASSWORD}" <<SQL
+              SELECT format('CREATE USER airflow WITH PASSWORD %L', :'AIRFLOW_PASSWORD')
+                WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname='airflow')\gexec
+              ALTER USER airflow WITH PASSWORD :'AIRFLOW_PASSWORD';
+              SELECT 'CREATE DATABASE airflow OWNER airflow'
+                WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='airflow')\gexec
+              GRANT ALL PRIVILEGES ON DATABASE airflow TO airflow;
+              SQL

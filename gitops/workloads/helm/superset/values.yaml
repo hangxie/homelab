@@ -1,0 +1,51 @@
+postgresql:
+  enabled: false
+
+redis:
+  enabled: true
+  master:
+    persistence:
+      enabled: true
+      storageClass: rook-ceph-block
+      size: 8Gi
+
+supersetNode:
+  replicaCount: 2
+
+supersetWorker:
+  replicaCount: 2
+
+supersetCeleryBeat:
+  enabled: true
+
+supersetWebsockets:
+  enabled: true
+
+extraEnv:
+  SUPERSET_DB_DIALECT: postgresql
+  SUPERSET_DB_HOST: postgres-cluster-rw.postgres-cluster.svc
+  SUPERSET_DB_PORT: "5432"
+  SUPERSET_DB_NAME: superset
+
+extraSecretEnv:
+  SUPERSET_SECRET_KEY:
+    secretKeyRef:
+      name: superset-secret
+      key: secret-key
+  SUPERSET_DB_USER:
+    secretKeyRef:
+      name: superset-db-credentials
+      key: username
+  SUPERSET_DB_PASSWORD:
+    secretKeyRef:
+      name: superset-db-credentials
+      key: password
+
+init:
+  loadExamples: false
+  adminUser:
+    username: admin
+    email: admin@homelab.xiehang.com
+
+serviceAccount:
+  create: true

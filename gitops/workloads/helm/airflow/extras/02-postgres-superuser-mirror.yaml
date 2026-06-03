@@ -1,0 +1,24 @@
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: postgres-superuser
+  namespace: airflow
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: postgres-superuser
+    creationPolicy: Owner
+  data:
+    - secretKey: username
+      remoteRef:
+        key: postgres-cnpg/superuser
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: postgres-cnpg/superuser
+        property: password

@@ -1,0 +1,5 @@
+{
+  "chart_repo": "https://charts.bitnami.com/bitnami",
+  "chart_name": "redis",
+  "chart_version": "20.6.0"
+}

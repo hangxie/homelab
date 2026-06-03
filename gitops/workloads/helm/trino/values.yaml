@@ -1,0 +1,36 @@
+coordinator:
+  resources:
+    requests:
+      cpu: 500m
+      memory: 4Gi
+
+worker:
+  replicas: 3
+  resources:
+    requests:
+      cpu: 1
+      memory: 8Gi
+
+server:
+  workers: 3
+  config:
+    authenticationType: PASSWORD
+
+auth:
+  passwordAuth: |
+    admin:$2y$10$replace-with-bcrypt-from-trino-credentials-Secret
+
+# Catalogs reference Hive metastore (hive-metastore.hive.svc:9083) and MySQL.
+additionalCatalogs:
+  hive: |
+    connector.name=hive
+    hive.metastore.uri=thrift://hive-metastore.hive.svc:9083
+  mysql: |
+    connector.name=mysql
+    connection-url=jdbc:mysql://mysql-primary.mysql.svc:3306
+    connection-user=root
+
+serviceMonitor:
+  enabled: true
+  labels:
+    release: prometheus-stack

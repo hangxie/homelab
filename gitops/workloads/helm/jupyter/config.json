@@ -1,0 +1,5 @@
+{
+  "chart_repo": "https://hub.jupyter.org/helm-chart/",
+  "chart_name": "jupyterhub",
+  "chart_version": "4.0.0"
+}

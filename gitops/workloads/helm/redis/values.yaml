@@ -1,0 +1,26 @@
+architecture: replication
+
+auth:
+  existingSecret: redis-default
+  existingSecretPasswordKey: password
+
+global:
+  storageClass: rook-ceph-block
+
+master:
+  persistence:
+    enabled: true
+    size: 8Gi
+
+replica:
+  replicaCount: 2
+  persistence:
+    enabled: true
+    size: 8Gi
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: prometheus-stack

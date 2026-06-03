@@ -1,0 +1,22 @@
+replicaCount: 1
+
+persistence:
+  enabled: true
+  storageClass: rook-ceph-block
+  size: 10Gi
+
+extraEnvVars:
+  - name: OLLAMA_BASE_URL
+    value: http://llama-cpp.llama-cpp.svc:8080
+  - name: OPENAI_API_BASE_URL
+    value: http://vllm.vllm.svc:8000/v1
+  - name: WEBUI_AUTH
+    value: "true"
+
+envFrom:
+  - secretRef:
+      name: openwebui-admin
+
+service:
+  type: ClusterIP
+  port: 80

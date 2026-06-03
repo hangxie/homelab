@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["chart_repo", "chart_name", "chart_version"],
+  "properties": {
+    "chart_repo":    { "type": "string", "format": "uri" },
+    "chart_name":    { "type": "string" },
+    "chart_version": { "type": "string" }
+  },
+  "additionalProperties": false
+}

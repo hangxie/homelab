@@ -1,0 +1,174 @@
+#!/bin/bash
+
+set -uo pipefail
+
+if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 <storage-class>"
+    echo "       Storage classes can be listed with: kubectl get sc"
+    exit 1
+fi
+
+STORAGE_CLASS="$1"
+
+printf "%-20s %-40s %-10s %-10s %-10s %-6s\n" "NAMESPACE" "PVC" "CAPACITY" "USED" "AVAIL" "USE%"
+printf "%-20s %-40s %-10s %-10s %-10s %-6s\n" "$(printf '%0.s-' {1..20})" "$(printf '%0.s-' {1..40})" "$(printf '%0.s-' {1..10})" "$(printf '%0.s-' {1..10})" "$(printf '%0.s-' {1..10})" "$(printf '%0.s-' {1..6})"
+
+# Run df via a node-level debug pod (chroot /host), tagged and deleted after use.
+# Faster than mounting the PVC in a new pod — no PVC attachment needed, runs on the
+# node that already has the volume mounted.
+run_df_node() {
+    local node="$1" pod_uid="$2" pv_name="$3"
+    local vol_path="/var/lib/kubelet/pods/${pod_uid}/volumes/kubernetes.io~csi/${pv_name}/mount"
+    local tag="df-pvc-$$-$RANDOM"
+    local out_file
+    out_file=$(mktemp)
+
+    # kubectl debug returns as soon as the pod is created; the pod name is printed to
+    # stdout and the command output goes to pod logs (not kubectl debug's stdout).
+    kubectl debug node/"$node" -n kube-system --image=busybox \
+        -- chroot /host df -h "$vol_path" >"$out_file" 2>&1
+
+    local pod_name
+    pod_name=$(grep -oE 'node-debugger-[a-z0-9-]+' "$out_file" | head -1)
+    rm -f "$out_file"
+
+    local df_out=""
+    if [[ -n "$pod_name" ]]; then
+        kubectl label pod "$pod_name" -n kube-system "df-pvc=$tag" --overwrite >/dev/null 2>&1
+
+        local phase=""
+        for _ in $(seq 30); do
+            phase=$(kubectl get pod "$pod_name" -n kube-system -o jsonpath='{.status.phase}' 2>/dev/null)
+            [[ "$phase" == "Succeeded" || "$phase" == "Failed" ]] && break
+            sleep 2
+        done
+
+        [[ "$phase" == "Succeeded" ]] && df_out=$(kubectl logs "$pod_name" -n kube-system 2>/dev/null | tail -1)
+        kubectl delete pod "$pod_name" -n kube-system --ignore-not-found >/dev/null 2>&1
+    fi
+
+    echo "$df_out"
+}
+
+# Spin up a temporary busybox pod to mount and df a PVC.
+# Used only when no running pod holds the PVC (so no node to attach to).
+run_df_pod() {
+    local ns="$1" pvc_name="$2"
+    local safe_name tmp_pod phase df_line=""
+    safe_name=$(tr -dc 'a-z0-9' <<< "$pvc_name" | head -c 20)
+    tmp_pod="df-pvc-${safe_name}-$$"
+    # Avoid control-plane nodes; do not tolerate their NoSchedule taint.
+    # They typically lack CSI node plugins, so PVC attachment can hang.
+    kubectl run "$tmp_pod" -n "$ns" \
+        --image=busybox --restart=Never \
+        --overrides="{
+          \"spec\": {
+            \"volumes\": [{\"name\":\"vol\",\"persistentVolumeClaim\":{\"claimName\":\"$pvc_name\"}}],
+            \"containers\": [{
+              \"name\": \"df\",
+              \"image\": \"busybox\",
+              \"command\": [\"df\",\"-h\",\"/mnt\"],
+              \"volumeMounts\": [{\"name\":\"vol\",\"mountPath\":\"/mnt\"}]
+            }],
+            \"affinity\": {
+              \"nodeAffinity\": {
+                \"requiredDuringSchedulingIgnoredDuringExecution\": {
+                  \"nodeSelectorTerms\": [{
+                    \"matchExpressions\": [
+                      {
+                        \"key\": \"node-role.kubernetes.io/control-plane\",
+                        \"operator\": \"DoesNotExist\"
+                      },
+                      {
+                        \"key\": \"node-role.kubernetes.io/master\",
+                        \"operator\": \"DoesNotExist\"
+                      }
+                    ]
+                  }]
+                }
+              }
+            }
+          }
+        }" >/dev/null 2>&1
+
+    phase=""
+    for _ in $(seq 30); do
+        phase=$(kubectl get pod "$tmp_pod" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null)
+        [[ "$phase" == "Succeeded" || "$phase" == "Failed" ]] && break
+        sleep 2
+    done
+
+    [[ "$phase" == "Succeeded" ]] && df_line=$(kubectl logs "$tmp_pod" -n "$ns" 2>/dev/null | tail -1)
+    kubectl delete pod "$tmp_pod" -n "$ns" --ignore-not-found >/dev/null 2>&1
+    echo "$df_line"
+}
+
+# CephFS device names are very long and wrap in df output; index from end.
+# Non-wrapped: $1=FS $2=Size $3=Used $4=Avail $5=Use% $6=Mounted (NF=6)
+# Wrapped continuation: $1=Size $2=Used $3=Avail $4=Use% $5=Mounted  (NF=5)
+print_df_row() {
+    local ns="$1" pvc_name="$2" capacity="$3" df_line="$4"
+    local used avail pct
+    used=$(awk '{print $(NF-3)}' <<< "$df_line")
+    avail=$(awk '{print $(NF-2)}' <<< "$df_line")
+    pct=$(awk  '{print $(NF-1)}' <<< "$df_line")
+    printf "%-20s %-40s %-10s %-10s %-10s %-6s\n" "$ns" "$pvc_name" "$capacity" "$used" "$avail" "$pct"
+}
+
+while IFS=$'\t' read -r ns pvc_name capacity; do
+    # Find a running pod that mounts this PVC; resolve the container, mount path,
+    # node, and pod UID all in one jq pass to minimise API calls.
+    pod_info=$(kubectl get pods -n "$ns" -o json | jq -r --arg pvc "$pvc_name" '
+        first(
+          .items[]
+          | select(.status.phase == "Running")
+          | select(any(.spec.volumes[]?; .persistentVolumeClaim.claimName == $pvc))
+          | . as $pod
+          | ($pod.spec.volumes[] | select(.persistentVolumeClaim.claimName == $pvc) | .name) as $vol_name
+          | ($pod.spec.containers[] | select(any(.volumeMounts[]?; .name == $vol_name))) as $ctr
+          | "\($pod.metadata.name)\t\($ctr.name)\t\($vol_name)\t\($ctr.volumeMounts[] | select(.name == $vol_name) | .mountPath)\t\($pod.spec.nodeName)\t\($pod.metadata.uid)"
+        ) // ""
+    ' 2>/dev/null)
+
+    if [[ -z "$pod_info" ]]; then
+        # No running pod — PVC is not mounted on any node, so spin up a temp pod.
+        df_line=$(run_df_pod "$ns" "$pvc_name")
+        if [[ -z "$df_line" ]]; then
+            printf "%-20s %-40s %-10s %-10s %-10s %-6s\n" "$ns" "$pvc_name" "$capacity" "-" "-" "-"
+        else
+            print_df_row "$ns" "$pvc_name" "$capacity" "$df_line"
+        fi
+        continue
+    fi
+
+    pod=$(cut -f1 <<< "$pod_info")
+    container=$(cut -f2 <<< "$pod_info")
+    mount_path=$(cut -f4 <<< "$pod_info")
+    node=$(cut -f5 <<< "$pod_info")
+    pod_uid=$(cut -f6 <<< "$pod_info")
+
+    df_line=$(kubectl exec "$pod" -n "$ns" -c "$container" -- df -h "$mount_path" 2>/dev/null | tail -1)
+
+    if [[ -z "$df_line" ]]; then
+        # Container lacks df (distroless/minimal image) — use the node debug pod.
+        pv_name=$(kubectl get pvc "$pvc_name" -n "$ns" -o jsonpath='{.spec.volumeName}' 2>/dev/null)
+        df_line=$(run_df_node "$node" "$pod_uid" "$pv_name")
+    fi
+
+    if [[ -z "$df_line" ]]; then
+        printf "%-20s %-40s %-10s %-10s %-10s %-6s\n" "$ns" "$pvc_name" "$capacity" "N/A" "N/A" "N/A"
+        continue
+    fi
+
+    print_df_row "$ns" "$pvc_name" "$capacity" "$df_line"
+
+done < <(kubectl get pvc -A -o json | jq -r --arg sc "$STORAGE_CLASS" '
+    .items[]
+    | select(.spec.storageClassName == $sc)
+    | [
+        .metadata.namespace,
+        .metadata.name,
+        (.status.capacity.storage // .spec.resources.requests.storage // "?")
+      ]
+    | @tsv
+')

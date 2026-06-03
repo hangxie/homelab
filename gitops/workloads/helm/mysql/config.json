@@ -1,0 +1,5 @@
+{
+  "chart_repo": "https://charts.bitnami.com/bitnami",
+  "chart_name": "mysql",
+  "chart_version": "11.1.17"
+}

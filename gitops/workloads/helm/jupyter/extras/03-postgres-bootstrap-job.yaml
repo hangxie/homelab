@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: jupyterhub-postgres-bootstrap
+  namespace: jupyter
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: psql
+          image: postgres:16
+          env:
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-superuser, key: password } }
+            - name: JUPYTERHUB_PASSWORD
+              valueFrom: { secretKeyRef: { name: jupyterhub-db, key: password } }
+          command: [bash, -ec]
+          args:
+            - |
+              psql -h postgres-cluster-rw.postgres-cluster -U postgres \
+                   -v ON_ERROR_STOP=1 \
+                   -v JH_PASSWORD="${JUPYTERHUB_PASSWORD}" <<SQL
+              SELECT format('CREATE USER jupyterhub WITH PASSWORD %L', :'JH_PASSWORD')
+                WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname='jupyterhub')\gexec
+              ALTER USER jupyterhub WITH PASSWORD :'JH_PASSWORD';
+              SELECT 'CREATE DATABASE jupyterhub OWNER jupyterhub'
+                WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='jupyterhub')\gexec
+              GRANT ALL PRIVILEGES ON DATABASE jupyterhub TO jupyterhub;
+              SQL

@@ -1,0 +1,64 @@
+airflowVersion: "2.10.3"
+
+executor: KubernetesExecutor
+
+createUserJob:
+  useHelmHooks: false
+  applyCustomEnv: false
+
+migrateDatabaseJob:
+  useHelmHooks: false
+  applyCustomEnv: false
+
+webserverSecretKeySecretName: airflow-webserver-secret
+
+data:
+  metadataConnection:
+    user: airflow
+    pass: ""        # supplied via metadataSecretName
+    protocol: postgresql
+    host: postgres-cluster-rw.postgres-cluster.svc
+    port: 5432
+    db: airflow
+    sslmode: disable
+  metadataSecretName: airflow-db-credentials
+
+postgresql:
+  enabled: false
+
+redis:
+  enabled: true
+  persistence:
+    enabled: true
+    storageClassName: rook-ceph-block
+
+dags:
+  persistence:
+    enabled: true
+    storageClassName: rook-cephfs
+    size: 5Gi
+    accessMode: ReadWriteMany
+
+logs:
+  persistence:
+    enabled: true
+    storageClassName: rook-cephfs
+    size: 20Gi
+    accessMode: ReadWriteMany
+
+webserver:
+  defaultUser:
+    enabled: true
+    username: admin
+    email: admin@homelab.xiehang.com
+
+statsd:
+  enabled: false
+
+flower:
+  enabled: false
+
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    release: prometheus-stack

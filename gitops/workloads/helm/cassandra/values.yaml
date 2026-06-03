@@ -1,0 +1,19 @@
+replicaCount: 3
+
+dbUser:
+  user: cassandra
+  existingSecret: cassandra-admin
+
+global:
+  storageClass: rook-ceph-block
+
+persistence:
+  enabled: true
+  size: 50Gi
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: prometheus-stack

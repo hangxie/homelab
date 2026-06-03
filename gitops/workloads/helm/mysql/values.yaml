@@ -1,0 +1,26 @@
+architecture: replication
+
+auth:
+  existingSecret: mysql-root
+  database: app
+
+global:
+  storageClass: rook-ceph-block
+
+primary:
+  persistence:
+    enabled: true
+    size: 20Gi
+
+secondary:
+  replicaCount: 2
+  persistence:
+    enabled: true
+    size: 20Gi
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: prometheus-stack
