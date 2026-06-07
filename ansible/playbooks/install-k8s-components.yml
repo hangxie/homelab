@@ -1,0 +1,328 @@
+- name: Install Kubernetes components on Debian-based systems
+  hosts: masters,workers
+  become: true
+  gather_facts: false
+  vars:
+    kubernetes_version: "1.36"
+    pod_network_cidr: "10.10.0.0/16"
+    service_network_cidr: "10.20.0.0/16"
+    containerd_registry_hosts:
+      - name: docker.io
+        server: https://registry-1.docker.io
+        mirror: https://registry.xiehang.com/v2/docker-io
+      - name: ghcr.io
+        server: https://ghcr.io
+        mirror: https://registry.xiehang.com/v2/ghcr-io
+      - name: nvcr.io
+        server: https://nvcr.io
+        mirror: https://registry.xiehang.com/v2/nvcr-io
+      - name: oci.stackable.tech
+        server: https://oci.stackable.tech
+        mirror: https://registry.xiehang.com/v2/stackable
+      - name: container-registry.oracle.com
+        server: https://container-registry.oracle.com
+        mirror: https://registry.xiehang.com/v2/oracle
+      - name: quay.io
+        server: https://quay.io
+        mirror: https://registry.xiehang.com/v2/quay-io
+      - name: registry.k8s.io
+        server: https://registry.k8s.io
+        mirror: https://registry.xiehang.com/v2/k8s-io
+
+  tasks:
+    - name: Check if node is already joined to Kubernetes
+      stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf
+
+    # Set hostname
+    - name: Set hostname to inventory name
+      hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Update /etc/hosts with hostname
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1'
+        line: "127.0.1.1 {{ inventory_hostname }}"
+        state: present
+
+    # System prerequisites
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install required packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - conntrack
+          - openssl
+          - socat
+          - ipset
+        state: present
+
+    - name: Disable swap
+      command: swapoff -a
+      changed_when: false
+
+    - name: Remove swap from fstab
+      lineinfile:
+        path: /etc/fstab
+        regexp: '\sswap\s'
+        state: absent
+
+    # Kernel modules
+    - name: Load required kernel modules
+      modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Persist kernel modules
+      copy:
+        dest: /etc/modules-load.d/k8s.conf
+        content: |
+          overlay
+          br_netfilter
+        mode: '0644'
+
+    # Sysctl settings
+    - name: Set sysctl parameters for Kubernetes
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        sysctl_file: /etc/sysctl.d/k8s.conf
+        reload: yes
+      loop:
+        - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+        - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+        - { name: 'net.ipv4.ip_forward', value: '1' }
+        - { name: 'fs.inotify.max_user_instances', value: '512' }
+        - { name: 'fs.inotify.max_user_watches', value: '524288' }
+        - { name: 'fs.file-max', value: '1000000' }
+
+    # Install containerd
+    - name: Install containerd
+      apt:
+        name: containerd
+        state: present
+
+    - name: Create containerd config directory
+      file:
+        path: /etc/containerd
+        state: directory
+        mode: '0755'
+
+    - name: Check if containerd config has CRI enabled
+      shell: grep -q 'disabled_plugins.*cri' /etc/containerd/config.toml 2>/dev/null
+      register: cri_disabled
+      failed_when: false
+      changed_when: false
+
+    - name: Remove broken containerd config (some distributions ship with CRI disabled)
+      file:
+        path: /etc/containerd/config.toml
+        state: absent
+      when: cri_disabled.rc == 0
+
+    - name: Check if containerd config exists
+      stat:
+        path: /etc/containerd/config.toml
+      register: containerd_config
+
+    - name: Check if containerd config is complete
+      shell: grep -q 'SystemdCgroup' /etc/containerd/config.toml 2>/dev/null
+      register: containerd_config_complete
+      failed_when: false
+      changed_when: false
+      when: containerd_config.stat.exists
+
+    - name: Remove incomplete containerd config
+      file:
+        path: /etc/containerd/config.toml
+        state: absent
+      when:
+        - containerd_config.stat.exists
+        - containerd_config_complete.rc != 0
+
+    - name: Generate proper containerd config
+      shell: containerd config default > /etc/containerd/config.toml
+      when: not containerd_config.stat.exists or (containerd_config.stat.exists and containerd_config_complete.rc != 0)
+      notify: Restart containerd
+
+    - name: Enable SystemdCgroup in containerd
+      replace:
+        path: /etc/containerd/config.toml
+        regexp: 'SystemdCgroup = false'
+        replace: 'SystemdCgroup = true'
+      notify: Restart containerd
+
+    - name: Set sandbox image for containerd
+      replace:
+        path: /etc/containerd/config.toml
+        regexp: 'sandbox_image = "registry.k8s.io/pause:.*"'
+        replace: 'sandbox_image = "registry.k8s.io/pause:3.10"'
+      notify: Restart containerd
+
+    - name: Set CNI plugin binary directory for containerd
+      replace:
+        path: /etc/containerd/config.toml
+        regexp: 'bin_dir = ".*/cni"'
+        replace: 'bin_dir = "/opt/cni/bin"'
+      notify: Restart containerd
+
+    - name: Configure containerd registry host config path
+      replace:
+        path: /etc/containerd/config.toml
+        regexp: 'config_path = ""'
+        replace: 'config_path = "/etc/containerd/certs.d"'
+      notify: Restart containerd
+
+    - name: Create containerd registry host directories
+      file:
+        path: "/etc/containerd/certs.d/{{ item.name }}"
+        state: directory
+        mode: '0755'
+      loop: "{{ containerd_registry_hosts }}"
+
+    - name: Configure containerd registry mirrors
+      copy:
+        dest: "/etc/containerd/certs.d/{{ item.name }}/hosts.toml"
+        mode: '0644'
+        content: |
+          server = "{{ item.server }}"
+
+          [host."{{ item.mirror }}"]
+            capabilities = ["pull", "resolve"]
+            override_path = true
+      loop: "{{ containerd_registry_hosts }}"
+      notify: Restart containerd
+
+    - name: Flush handlers to restart containerd now
+      meta: flush_handlers
+
+    - name: Wait for containerd to be ready
+      command: ctr version
+      register: ctr_result
+      retries: 5
+      delay: 3
+      until: ctr_result.rc == 0
+
+    # Install Kubernetes components
+    - name: Create keyrings directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Add Kubernetes GPG key
+      get_url:
+        url: "https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/Release.key"
+        dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+        mode: '0644'
+
+    - name: Add Kubernetes repository
+      deb822_repository:
+        name: kubernetes
+        types: deb
+        uris: "https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/"
+        suites: "/"
+        signed_by: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+        state: present
+        enabled: true
+
+    - name: Update apt cache after adding Kubernetes repository
+      apt:
+        update_cache: yes
+
+    - name: Install Kubernetes packages
+      apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+          - cri-tools
+        state: present
+
+    # Configure and verify crictl after cri-tools is installed
+    - name: Configure crictl to use containerd
+      copy:
+        dest: /etc/crictl.yaml
+        content: |
+          runtime-endpoint: unix:///run/containerd/containerd.sock
+          image-endpoint: unix:///run/containerd/containerd.sock
+          timeout: 10
+        mode: '0644'
+
+    - name: Verify containerd CRI is working
+      command: crictl info
+      register: crictl_result
+      retries: 5
+      delay: 3
+      until: crictl_result.rc == 0
+
+    - name: Hold Kubernetes packages
+      dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+    - name: Enable kubelet service
+      systemd:
+        name: kubelet
+        enabled: yes
+
+    # Install Helm
+    - name: Check if Helm is installed
+      command: helm version --short
+      register: helm_installed
+      failed_when: false
+      changed_when: false
+
+    - name: Download Helm install script
+      get_url:
+        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        dest: /tmp/get_helm.sh
+        mode: '0755'
+      when: helm_installed.rc != 0
+
+    - name: Install Helm
+      command: /tmp/get_helm.sh
+      when: helm_installed.rc != 0
+
+    - name: Set network CIDRs as fact for other plays
+      set_fact:
+        pod_network_cidr: "{{ pod_network_cidr }}"
+        service_network_cidr: "{{ service_network_cidr }}"
+
+  handlers:
+    - name: Restart containerd when the node is not carrying live workloads
+      listen: Restart containerd
+      systemd:
+        name: containerd
+        state: restarted
+        daemon_reload: yes
+      when: >
+        not kubelet_conf.stat.exists
+        or (allow_disruptive_restarts | bool)
+
+    - name: Report skipped containerd restart on joined node
+      listen: Restart containerd
+      debug:
+        msg: >-
+          containerd config changed on {{ inventory_hostname }}, but restart was
+          skipped because the node is already joined to Kubernetes. Re-run with
+          -e allow_disruptive_restarts=true during a maintenance window to apply it.
+      when: >
+        kubelet_conf.stat.exists
+        and not (allow_disruptive_restarts | bool)

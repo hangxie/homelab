@@ -1,0 +1,44 @@
+---
+# Variables consumed by every play. Terraform-supplied values (kube_api_vip)
+# arrive via inventory.ini [all:vars]; the entries below act as
+# fallbacks when running the playbooks against a hand-rolled inventory.
+
+kubernetes_version: "1.36"
+pod_network_cidr: "10.10.0.0/16"
+service_network_cidr: "10.20.0.0/16"
+
+kube_api_vip: "192.168.0.218"
+
+# VRRP shared secret + virtual router id consumed by apiserver-vip.yml.
+# Operator picks the auth pass once at bootstrap; suggested: `openssl rand -hex 4`.
+keepalived_vrrp_router_id: 51
+keepalived_vrrp_auth_pass: "REPLACE_ME"
+
+domain_suffix: "homelab.xiehang.com"
+
+vault_addr: "{{ lookup('env', 'VAULT_ADDR') | default('https://registry.xiehang.com:8200', true) }}"
+
+# Cilium chart pinning. Spec §6.2 item 3 requires a pinned version.
+cilium_version: "1.19.4"
+gateway_api_version: "v1.5.1"
+
+# Path used by every localhost play to find the bootstrap kubeconfig
+# produced by init-primary-master.yml.
+local_setup_dir: "/tmp/k8s-setup-latest"
+bootstrap_kubeconfig: "{{ local_setup_dir }}/admin.conf"
+
+# Runtime restarts on already-joined Kubernetes nodes can evict or restart
+# stateful workloads. Leave this false for ordinary reruns; pass
+# `-e allow_disruptive_restarts=true` during an explicit maintenance window.
+allow_disruptive_restarts: false
+
+# Container registry mirrors plumbed into containerd. The list mirrors the
+# site-up source; trim or replace for environments without a private mirror.
+containerd_registry_hosts:
+  - { name: docker.io,                  server: "https://registry-1.docker.io", mirror: "https://registry.xiehang.com/v2/docker-io" }
+  - { name: ghcr.io,                    server: "https://ghcr.io",              mirror: "https://registry.xiehang.com/v2/ghcr-io" }
+  - { name: nvcr.io,                    server: "https://nvcr.io",              mirror: "https://registry.xiehang.com/v2/nvcr-io" }
+  - { name: oci.stackable.tech,         server: "https://oci.stackable.tech",   mirror: "https://registry.xiehang.com/v2/stackable" }
+  - { name: container-registry.oracle.com, server: "https://container-registry.oracle.com", mirror: "https://registry.xiehang.com/v2/oracle" }
+  - { name: quay.io,                    server: "https://quay.io",              mirror: "https://registry.xiehang.com/v2/quay-io" }
+  - { name: registry.k8s.io,            server: "https://registry.k8s.io",      mirror: "https://registry.xiehang.com/v2/k8s-io" }

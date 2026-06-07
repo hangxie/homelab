@@ -1,0 +1,52 @@
+---
+# Apply gitops/cluster/root-app.yaml and wait for root/platform Applications to
+# converge. Workload Applications are intentionally not part of the bootstrap
+# gate; Argo CD owns them after bootstrap and their runtime health should not
+# block Cilium post-bootstrap finalization.
+
+- name: Apply root Application and wait for convergence
+  hosts: localhost
+  gather_facts: false
+  vars:
+    repo_root: "{{ playbook_dir }}/../.."
+    per_app_timeout_seconds: 600       # 10 min
+    global_timeout_seconds: 1800       # 30 min
+
+  tasks:
+    - name: Apply root Application
+      command: kubectl apply -f {{ repo_root }}/gitops/cluster/root-app.yaml
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+
+    - name: Wait for root and platform Applications to be Synced and Healthy
+      # Each retry first force-syncs any ExternalSecret stuck at Ready=False.
+      # ESO occasionally leaves the condition stale after a startup race even
+      # when the underlying Secret was created correctly; without a nudge,
+      # downstream resources gated on the ES's health never apply.
+      shell: |
+        set -o pipefail
+        kubectl get externalsecret -A \
+          -o jsonpath='{range .items[*]}{.metadata.namespace}|{.metadata.name}|{.status.conditions[0].type}|{.status.conditions[0].status}{"\n"}{end}' \
+        | awk -F'|' '$3=="Ready" && $4=="False" {print $1, $2}' \
+        | while read -r ns name; do
+            [[ -n "$ns" && -n "$name" ]] || continue
+            kubectl -n "$ns" annotate externalsecret "$name" "force-sync=$(date +%s)" --overwrite >/dev/null
+          done
+        kubectl -n argocd get applications.argoproj.io \
+          -o jsonpath='{range .items[*]}{.metadata.name}|{.spec.project}|{.status.sync.status}|{.status.health.status}{"\n"}{end}' \
+        | awk -F'|' 'NF==4 && ($1 == "root" || $2 == "platform") && ($3 != "Synced" || $4 != "Healthy") { print; not_ready=1 } END { exit not_ready ? 1 : 0 }'
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: apps_status
+      retries: "{{ (global_timeout_seconds / 30) | int }}"
+      delay: 30
+      until: apps_status.rc == 0
+      changed_when: false
+
+    - name: Final summary
+      debug:
+        msg:
+          - "Root and platform Argo CD Applications Synced/Healthy."
+          - "Workload Applications are left for Argo CD to reconcile after bootstrap."

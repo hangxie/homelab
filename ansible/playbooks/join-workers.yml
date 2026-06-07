@@ -1,0 +1,71 @@
+---
+- name: Join worker nodes to cluster
+  hosts: workers
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Check if node is already joined
+      stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf
+
+    - name: Check if local join command exists
+      stat:
+        path: "{{ local_setup_dir }}/join-command.sh"
+      register: join_file
+      delegate_to: localhost
+      become: false
+      when: not kubelet_conf.stat.exists
+
+    - name: Read join command from file
+      slurp:
+        src: "{{ local_setup_dir }}/join-command.sh"
+      register: join_command_file
+      delegate_to: localhost
+      become: false
+      when: not kubelet_conf.stat.exists and join_file.stat.exists
+
+    - name: Generate fresh join command from primary master
+      command: kubeadm token create --print-join-command
+      register: fresh_join_command
+      delegate_to: "{{ groups['masters'][0] }}"
+      when: not kubelet_conf.stat.exists and not join_file.stat.exists
+
+    - name: Join the cluster
+      command: "{{ fresh_join_command.stdout | default(join_command_file.content | b64decode) }} --node-name={{ inventory_hostname }}"
+      when: not kubelet_conf.stat.exists
+
+    - name: Create .kube directory for root
+      file:
+        path: /root/.kube
+        state: directory
+        mode: '0755'
+
+    - name: Check if local admin.conf exists
+      stat:
+        path: "{{ local_setup_dir }}/admin.conf"
+      register: admin_conf_file
+      delegate_to: localhost
+      become: false
+
+    - name: Copy admin.conf from local file
+      copy:
+        src: "{{ local_setup_dir }}/admin.conf"
+        dest: /root/.kube/config
+        mode: '0600'
+      when: admin_conf_file.stat.exists
+
+    - name: Fetch admin.conf from primary master
+      slurp:
+        src: /etc/kubernetes/admin.conf
+      register: admin_conf_content
+      delegate_to: "{{ groups['masters'][0] }}"
+      when: not admin_conf_file.stat.exists
+
+    - name: Write admin.conf to worker node
+      copy:
+        content: "{{ admin_conf_content.content | b64decode }}"
+        dest: /root/.kube/config
+        mode: '0600'
+      when: not admin_conf_file.stat.exists

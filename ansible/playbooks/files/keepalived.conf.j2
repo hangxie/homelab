@@ -1,0 +1,31 @@
+global_defs {
+  router_id LVS_{{ inventory_hostname | upper }}
+  enable_script_security
+  script_user root
+}
+
+vrrp_script chk_haproxy {
+  script "/etc/keepalived/check_haproxy.sh"
+  interval 3
+  weight -2
+  fall 3
+  rise 2
+}
+
+vrrp_instance VI_KUBE_API {
+  state {{ 'MASTER' if inventory_hostname == groups['masters'][0] else 'BACKUP' }}
+  interface {{ ansible_facts['default_ipv4'].interface }}
+  virtual_router_id {{ keepalived_vrrp_router_id }}
+  priority {{ 100 - groups['masters'].index(inventory_hostname) }}
+  advert_int 1
+  authentication {
+    auth_type PASS
+    auth_pass {{ keepalived_vrrp_auth_pass }}
+  }
+  virtual_ipaddress {
+    {{ kube_api_vip }}/24 dev {{ ansible_facts['default_ipv4'].interface }}
+  }
+  track_script {
+    chk_haproxy
+  }
+}

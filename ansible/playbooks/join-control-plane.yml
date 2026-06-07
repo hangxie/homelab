@@ -1,0 +1,178 @@
+---
+- name: Join additional control plane nodes
+  hosts: masters[1:]
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Check if node is already joined
+      stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf
+
+    - name: Check if node is registered in the cluster
+      command: kubectl get node {{ inventory_hostname }}
+      register: cluster_node
+      changed_when: false
+      failed_when: false
+      delegate_to: "{{ groups['masters'][0] }}"
+
+    - name: Set joined state
+      set_fact:
+        node_already_joined: "{{ kubelet_conf.stat.exists and cluster_node.rc == 0 }}"
+
+    - name: Check for partial control plane join artifacts
+      stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/kubernetes/admin.conf
+        - /etc/kubernetes/manifests/kube-apiserver.yaml
+        - /etc/kubernetes/manifests/etcd.yaml
+        - /var/lib/etcd/member
+      register: partial_join_artifacts
+      when: not node_already_joined
+
+    - name: Reset partial local kubeadm state
+      command: kubeadm reset -f
+      register: partial_kubeadm_reset
+      changed_when: true
+      failed_when: false
+      when:
+        - not node_already_joined
+        - partial_join_artifacts.results | selectattr('stat.exists') | list | length > 0
+
+    - name: Remove stale local Kubernetes state after reset
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/kubernetes/admin.conf
+        - /etc/kubernetes/controller-manager.conf
+        - /etc/kubernetes/scheduler.conf
+        - /etc/kubernetes/kubelet.conf
+        - /etc/kubernetes/manifests/kube-apiserver.yaml
+        - /etc/kubernetes/manifests/kube-controller-manager.yaml
+        - /etc/kubernetes/manifests/kube-scheduler.yaml
+        - /etc/kubernetes/manifests/etcd.yaml
+        - /var/lib/etcd
+      when:
+        - not node_already_joined
+        - partial_join_artifacts.results | selectattr('stat.exists') | list | length > 0
+
+    - name: Check for stale etcd member on primary master
+      shell: |
+        set -o pipefail
+        kubectl -n kube-system exec "etcd-{{ groups['masters'][0] }}" -- \
+          etcdctl \
+          --endpoints=https://127.0.0.1:2379 \
+          --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+          --cert=/etc/kubernetes/pki/etcd/server.crt \
+          --key=/etc/kubernetes/pki/etcd/server.key \
+          member list | awk -F ', ' '$3 == "{{ inventory_hostname }}" || $4 == "https://{{ ansible_host }}:2380" { print $1 }'
+      args:
+        executable: /bin/bash
+      register: stale_etcd_member
+      changed_when: false
+      failed_when: false
+      delegate_to: "{{ groups['masters'][0] }}"
+      when: not node_already_joined
+
+    - name: Remove stale etcd member from primary master
+      command:
+        argv:
+          - kubectl
+          - -n
+          - kube-system
+          - exec
+          - "etcd-{{ groups['masters'][0] }}"
+          - --
+          - etcdctl
+          - --endpoints=https://127.0.0.1:2379
+          - --cacert=/etc/kubernetes/pki/etcd/ca.crt
+          - --cert=/etc/kubernetes/pki/etcd/server.crt
+          - --key=/etc/kubernetes/pki/etcd/server.key
+          - member
+          - remove
+          - "{{ item }}"
+      loop: "{{ stale_etcd_member.stdout_lines | default([]) }}"
+      delegate_to: "{{ groups['masters'][0] }}"
+      when:
+        - not node_already_joined
+        - stale_etcd_member.stdout_lines | default([]) | length > 0
+
+    - name: Check if local join command exists
+      stat:
+        path: /tmp/k8s-setup-latest/join-command-control-plane.sh
+      register: join_file
+      delegate_to: localhost
+      become: false
+      when: not node_already_joined
+
+    - name: Read control plane join command from file
+      slurp:
+        src: /tmp/k8s-setup-latest/join-command-control-plane.sh
+      register: join_command_file
+      delegate_to: localhost
+      become: false
+      when: not node_already_joined and join_file.stat.exists
+
+    - name: Generate fresh join command from primary master
+      block:
+        - name: Generate worker join command
+          command: kubeadm token create --print-join-command
+          register: fresh_join_command
+          delegate_to: "{{ groups['masters'][0] }}"
+
+        - name: Upload certs and get certificate key
+          command: kubeadm init phase upload-certs --upload-certs
+          register: cert_key_output
+          delegate_to: "{{ groups['masters'][0] }}"
+
+        - name: Set join command fact
+          set_fact:
+            join_command_content: "{{ fresh_join_command.stdout }} --control-plane --certificate-key {{ cert_key_output.stdout_lines[-1] }}"
+      when: not node_already_joined and not join_file.stat.exists
+
+    - name: Ensure kubeadm patches directory exists
+      file:
+        path: /etc/kubernetes/patches
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: not node_already_joined
+
+    - name: Render kube-apiserver bind-address patch
+      template:
+        src: files/kube-apiserver+json.json.j2
+        dest: /etc/kubernetes/patches/kube-apiserver+json.json
+        owner: root
+        group: root
+        mode: '0644'
+      when: not node_already_joined
+
+    - name: Join as control plane node
+      command: >
+        {{ join_command_content | default(join_command_file.content | b64decode) }}
+        --node-name={{ inventory_hostname }}
+        --apiserver-advertise-address={{ ansible_host }}
+        --patches=/etc/kubernetes/patches/
+        --ignore-preflight-errors=Port-6443
+      register: control_plane_join
+      retries: 2
+      delay: 30
+      until: control_plane_join.rc == 0
+      when: not node_already_joined
+
+    - name: Create .kube directory for root
+      file:
+        path: /root/.kube
+        state: directory
+        mode: '0755'
+
+    - name: Copy admin.conf to root's kube config
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /root/.kube/config
+        remote_src: yes
+        mode: '0600'

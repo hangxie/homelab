@@ -1,0 +1,89 @@
+---
+# Phase 4: minimal Argo CD install + AppProjects (spec §7.1).
+# The chart self-manages later via gitops/platform/argocd/values.yaml (Phase 5).
+
+- name: Install minimal Argo CD
+  hosts: localhost
+  gather_facts: false
+  vars:
+    # Chart pinning per Decision 7 (Argo self-manages chart + values).
+    argocd_chart_version: "7.7.16"
+
+  tasks:
+    - name: Add Argo helm repo
+      kubernetes.core.helm_repository:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        repo_name: argo
+        repo_url: https://argoproj.github.io/argo-helm
+
+    - name: Check whether argocd release is already installed
+      command: helm list -n argocd -q
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: argocd_release_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install minimal Argo CD (only on first run)
+      kubernetes.core.helm:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        chart_ref: argo/argo-cd
+        release_name: argocd
+        release_namespace: argocd
+        create_namespace: true
+        chart_version: "{{ argocd_chart_version }}"
+        values:
+          configs:
+            params:
+              server.insecure: "true"
+              controller.diff.server.side: "true"
+          controller:
+            replicas: 1
+          server:
+            replicas: 1
+            ingress:
+              enabled: false
+        wait: true
+        timeout: 600s
+      when: "'argocd' not in (argocd_release_check.stdout_lines | default([]))"
+
+    - name: Check Argo CD server-side diff bootstrap setting
+      command: kubectl -n argocd get configmap argocd-cmd-params-cm -o jsonpath='{.data.controller\.diff\.server\.side}'
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: argocd_server_side_diff
+      changed_when: false
+
+    - name: Enable Argo CD server-side diff for bootstrap controller
+      command: >
+        kubectl -n argocd patch configmap argocd-cmd-params-cm
+        --type merge
+        -p '{"data":{"controller.diff.server.side":"true"}}'
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      when: argocd_server_side_diff.stdout != "true"
+
+    - name: Restart Argo CD application controller after diff setting change
+      command: kubectl -n argocd rollout restart statefulset/argocd-application-controller
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      when: argocd_server_side_diff.stdout != "true"
+
+    - name: Wait for Argo CD application controller after diff setting change
+      command: kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      when: argocd_server_side_diff.stdout != "true"
+
+    - name: Apply AppProjects
+      command: kubectl apply -f {{ playbook_dir }}/../files/argocd-appprojects.yaml
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+
+    - name: Wait for argocd Deployments
+      command: kubectl -n argocd rollout status deployment/{{ item }} --timeout=300s
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      loop:
+        - argocd-server
+        - argocd-repo-server

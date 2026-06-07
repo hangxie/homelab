@@ -1,0 +1,92 @@
+---
+# Installs keepalived + HAProxy on masters as systemd services so the
+# kube-apiserver VIP is served entirely outside Kubernetes. Runs before
+# init-primary-master.yml so that kubeadm init can target the VIP from t=0.
+
+- name: Install keepalived + HAProxy on masters
+  hosts: masters
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Install keepalived and haproxy
+      apt:
+        name:
+          - keepalived
+          - haproxy
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Enable ip_nonlocal_bind so HAProxy can bind the VIP without holding it
+      sysctl:
+        name: net.ipv4.ip_nonlocal_bind
+        value: '1'
+        sysctl_file: /etc/sysctl.d/99-k8s-ip-nonlocal-bind.conf
+        reload: yes
+
+    - name: Install keepalived health-check script
+      copy:
+        src: files/check_haproxy.sh
+        dest: /etc/keepalived/check_haproxy.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Render keepalived.conf
+      template:
+        src: files/keepalived.conf.j2
+        dest: /etc/keepalived/keepalived.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart keepalived
+
+    - name: Render haproxy.cfg
+      template:
+        src: files/haproxy.cfg.j2
+        dest: /etc/haproxy/haproxy.cfg
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart haproxy
+
+    - name: Enable and start haproxy
+      systemd:
+        name: haproxy
+        enabled: yes
+        state: started
+
+    - name: Enable and start keepalived
+      systemd:
+        name: keepalived
+        enabled: yes
+        state: started
+
+    - name: Flush handlers to apply any config changes now
+      meta: flush_handlers
+
+  handlers:
+    - name: Restart haproxy
+      systemd:
+        name: haproxy
+        state: restarted
+
+    - name: Restart keepalived
+      systemd:
+        name: keepalived
+        state: restarted
+
+- name: Wait for the kube-apiserver VIP to accept TCP connections
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Wait for VIP TCP/6443 to be up
+      wait_for:
+        host: "{{ kube_api_vip }}"
+        port: 6443
+        timeout: 60
+      # HAProxy accepts the TCP and immediately closes (no backends up yet).
+      # That's enough to prove keepalived assigned the VIP and HAProxy is bound.
+      # The end-to-end path is proven by init-primary-master.yml's kubeadm init.

@@ -1,0 +1,173 @@
+---
+# Return cluster nodes to bare Debian. Spec §6.2.
+# This does NOT touch Proxmox-level VM state; for full nuke run terraform destroy.
+
+- name: Uninstall Cilium and tear down Kubernetes
+  hosts: masters,workers
+  become: true
+  gather_facts: false
+  ignore_unreachable: true
+
+  tasks:
+    - name: Helm-uninstall Cilium (best effort, primary master only)
+      command: helm uninstall cilium -n kube-system
+      failed_when: false
+      changed_when: false
+      when: inventory_hostname == groups['masters'][0]
+
+    - name: kubeadm reset
+      command: kubeadm reset -f
+      failed_when: false
+      changed_when: true
+
+    - name: Stop kubelet
+      systemd:
+        name: kubelet
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Stop containerd
+      systemd:
+        name: containerd
+        state: stopped
+      failed_when: false
+
+    - name: cilium-dbg cleanup (best effort)
+      command: cilium-dbg cleanup --force
+      failed_when: false
+      changed_when: false
+
+    - name: Remove Cilium host interfaces
+      shell: |
+        for iface in $(ip -o link show | awk -F': ' '{print $2}' | cut -d@ -f1 | grep -E '^cilium_'); do
+          ip link delete "$iface" || true
+        done
+      failed_when: false
+      changed_when: false
+
+    - name: Drop Cilium state
+      file:
+        path: /var/lib/cilium
+        state: absent
+
+    - name: Flush iptables
+      shell: |
+        iptables -F  || true
+        iptables -X  || true
+        iptables -t nat    -F || true
+        iptables -t nat    -X || true
+        iptables -t mangle -F || true
+        iptables -t mangle -X || true
+        ip6tables -F  || true
+        ip6tables -X  || true
+        ip6tables -t nat    -F || true
+        ip6tables -t nat    -X || true
+        ip6tables -t mangle -F || true
+        ip6tables -t mangle -X || true
+      changed_when: true
+
+    - name: Flush nftables
+      command: nft flush ruleset
+      failed_when: false
+      changed_when: true
+
+    - name: Stop and disable keepalived (masters only)
+      systemd:
+        name: keepalived
+        enabled: false
+        state: stopped
+      failed_when: false
+      when: inventory_hostname in groups['masters']
+
+    - name: Stop and disable haproxy (masters only)
+      systemd:
+        name: haproxy
+        enabled: false
+        state: stopped
+      failed_when: false
+      when: inventory_hostname in groups['masters']
+
+    - name: Purge keepalived and haproxy packages (masters only)
+      apt:
+        name:
+          - keepalived
+          - haproxy
+        state: absent
+        purge: yes
+      failed_when: false
+      when: inventory_hostname in groups['masters']
+
+    - name: Drop kube-API VIP from interface (masters only, best effort)
+      shell: |
+        set -e
+        iface=$(ip -o route get {{ kube_api_vip | default('192.168.0.218') }} 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="dev") print $(i+1)}' | head -1)
+        if [ -n "$iface" ] && ip -o addr show dev "$iface" | grep -q "{{ kube_api_vip | default('192.168.0.218') }}"; then
+          ip addr del {{ kube_api_vip | default('192.168.0.218') }}/24 dev "$iface"
+        fi
+      failed_when: false
+      changed_when: true
+      when: inventory_hostname in groups['masters']
+
+    - name: Remove keepalived, haproxy, patches, and sysctl artifacts (masters only)
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/keepalived
+        - /etc/haproxy
+        - /etc/sysctl.d/99-k8s-ip-nonlocal-bind.conf
+        - /etc/kubernetes/patches
+      when: inventory_hostname in groups['masters']
+
+    - name: Delete Kubernetes state directories
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/kubernetes
+        - /var/lib/kubelet
+        - /var/lib/etcd
+
+    - name: Wipe Rook state directory
+      file:
+        path: /var/lib/rook
+        state: absent
+
+    - name: Discover Ceph OSD devices on this host (workers only)
+      shell: |
+        ls /dev/disk/by-id/ 2>/dev/null | grep -E '^scsi-0QEMU_QEMU_HARDDISK_drive-scsi[1-9][0-9]*$' || true
+      register: ceph_disk_ids
+      changed_when: false
+      when: inventory_hostname in groups['workers']
+
+    - name: Zap Ceph OSD disks
+      command: sgdisk --zap-all /dev/disk/by-id/{{ item }}
+      loop: "{{ ceph_disk_ids.stdout_lines | default([]) }}"
+      failed_when: false
+      changed_when: true
+      when: inventory_hostname in groups['workers']
+
+    - name: Remove operator and root kubeconfig
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /root/.kube
+        - /home/debian/.kube
+
+    - name: Start containerd back up
+      systemd:
+        name: containerd
+        state: started
+      failed_when: false
+
+- name: Clean up local bootstrap artifacts
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Remove local setup dir symlink
+      file:
+        path: "{{ local_setup_dir }}"
+        state: absent

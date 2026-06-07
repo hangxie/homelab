@@ -1,0 +1,20 @@
+global
+  daemon
+  maxconn 4096
+
+defaults
+  mode tcp
+  timeout connect 5s
+  timeout client 50s
+  timeout server 50s
+
+frontend k8s-api
+  bind {{ kube_api_vip }}:6443
+  default_backend k8s-api-backend
+
+backend k8s-api-backend
+  balance roundrobin
+  option tcp-check
+{% for m in groups['masters'] %}
+  server {{ m }} {{ hostvars[m]['ansible_host'] }}:6443 check inter 2s rise 2 fall 3
+{% endfor %}

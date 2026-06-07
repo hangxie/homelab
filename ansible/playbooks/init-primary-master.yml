@@ -1,0 +1,157 @@
+---
+- name: Initialize Kubernetes primary master
+  hosts: masters[0]
+  become: true
+  vars:
+    pod_network_cidr: "10.10.0.0/16"
+    service_network_cidr: "10.20.0.0/16"
+    kube_api_vip_default: "192.168.0.218"
+    kube_api_endpoint_host: "{{ kube_api_vip | default(kube_api_vip_default) }}"
+    kube_api_control_plane_endpoint: "{{ kube_api_endpoint_host }}:6443"
+    kube_api_cert_sans: "{{ ([kube_api_endpoint_host] + (groups['masters'] | map('extract', hostvars, 'ansible_host') | list) + groups['masters']) | unique }}"
+
+  tasks:
+    - name: Check if cluster is already initialized
+      stat:
+        path: /etc/kubernetes/admin.conf
+      register: kubeadm_init
+
+    - name: Ensure kubeadm patches directory exists
+      file:
+        path: /etc/kubernetes/patches
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Render kube-apiserver bind-address patch
+      template:
+        src: files/kube-apiserver+json.json.j2
+        dest: /etc/kubernetes/patches/kube-apiserver+json.json
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Create kubeadm config file
+      copy:
+        dest: /tmp/kubeadm-config.yaml
+        content: |
+          apiVersion: kubeadm.k8s.io/v1beta3
+          kind: InitConfiguration
+          nodeRegistration:
+            name: {{ inventory_hostname }}
+          localAPIEndpoint:
+            advertiseAddress: {{ ansible_host }}
+            bindPort: 6443
+          patches:
+            directory: /etc/kubernetes/patches
+          skipPhases:
+            - addon/kube-proxy
+          ---
+          apiVersion: kubeadm.k8s.io/v1beta3
+          kind: ClusterConfiguration
+          controlPlaneEndpoint: {{ kube_api_control_plane_endpoint }}
+          apiServer:
+            certSANs:
+          {% for san in kube_api_cert_sans %}
+              - "{{ san }}"
+          {% endfor %}
+          networking:
+            podSubnet: {{ pod_network_cidr }}
+            serviceSubnet: {{ service_network_cidr }}
+          etcd:
+            local:
+              extraArgs:
+                listen-metrics-urls: "http://0.0.0.0:2381"
+          scheduler:
+            extraArgs:
+              bind-address: "0.0.0.0"
+          controllerManager:
+            extraArgs:
+              bind-address: "0.0.0.0"
+          ---
+          apiVersion: kubeproxy.config.k8s.io/v1alpha1
+          kind: KubeProxyConfiguration
+          metricsBindAddress: "0.0.0.0:10249"
+          ---
+          apiVersion: kubelet.config.k8s.io/v1beta1
+          kind: KubeletConfiguration
+          imageMaximumGCAge: 168h
+
+    - name: Initialize the cluster
+      command: kubeadm init --config=/tmp/kubeadm-config.yaml --upload-certs --ignore-preflight-errors=Port-6443
+      when: not kubeadm_init.stat.exists
+      register: kubeadm_init_result
+
+    - name: Upload kubeadm config
+      command: kubeadm init phase upload-config kubeadm --config=/tmp/kubeadm-config.yaml
+      changed_when: false
+
+    - name: Create .kube directory for root
+      file:
+        path: /root/.kube
+        state: directory
+        mode: '0755'
+
+    - name: Copy admin.conf to root's kube config
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /root/.kube/config
+        remote_src: yes
+        mode: '0600'
+
+    - name: Generate join command for workers
+      command: kubeadm token create --print-join-command
+      register: join_command
+      changed_when: false
+
+    - name: Create unique temp directory for join files
+      command: mktemp -d /tmp/k8s-setup.XXXXXX
+      register: temp_dir
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Create symlink to latest setup dir
+      file:
+        src: "{{ temp_dir.stdout }}"
+        dest: /tmp/k8s-setup-latest
+        state: link
+        force: yes
+      delegate_to: localhost
+      become: false
+
+    - name: Save worker join command to local file
+      copy:
+        content: "{{ join_command.stdout }}"
+        dest: "{{ temp_dir.stdout }}/join-command.sh"
+        mode: '0755'
+      delegate_to: localhost
+      become: false
+
+    - name: Save admin.conf to local file
+      fetch:
+        src: /etc/kubernetes/admin.conf
+        dest: "{{ temp_dir.stdout }}/admin.conf"
+        flat: yes
+
+    - name: Generate certificate key for control plane join
+      command: kubeadm init phase upload-certs --upload-certs
+      register: cert_key_output
+      changed_when: false
+
+    - name: Extract certificate key
+      set_fact:
+        certificate_key: "{{ cert_key_output.stdout_lines[-1] }}"
+
+    - name: Save control plane join command to local file
+      copy:
+        content: "{{ join_command.stdout }} --control-plane --certificate-key {{ certificate_key }}"
+        dest: "{{ temp_dir.stdout }}/join-command-control-plane.sh"
+        mode: '0755'
+      delegate_to: localhost
+      become: false
+
+    - name: Show temp directory location
+      debug:
+        msg: "Join files saved to {{ temp_dir.stdout }} (symlinked at /tmp/k8s-setup-latest)"
