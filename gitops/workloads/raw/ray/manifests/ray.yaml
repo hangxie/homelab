@@ -1,0 +1,408 @@
+# Ray namespace contents — KubeRay-managed RayService running vLLM via
+# Ray Serve's LLM API. Single application, one configured LLMConfig from the
+# MODELS env var. Worker pod init container reads the live RayService CR and
+# pulls the listed model into the CephFS PVC.
+#
+# Operator workflow:
+#   - Add a model:    edit MODELS env var (comma-separated), commit, push.
+#   - Remove a model: same; then optionally `scripts/vllm-model.sh delete <id>`.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ray-vllm
+  namespace: ray
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ray-vllm
+  namespace: ray
+rules:
+  - apiGroups: ["ray.io"]
+    resources: ["rayservices"]
+    resourceNames: ["ray-vllm"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ray-vllm
+  namespace: ray
+subjects:
+  - kind: ServiceAccount
+    name: ray-vllm
+    namespace: ray
+roleRef:
+  kind: Role
+  name: ray-vllm
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: harbor-credentials
+  namespace: ray
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: harbor-credentials
+    creationPolicy: Owner
+  data:
+    - secretKey: username
+      remoteRef:
+        key: harbor/llm-models
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: harbor/llm-models
+        property: password
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: hf-token
+  namespace: ray
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: hf-token
+    creationPolicy: Owner
+  data:
+    - secretKey: token
+      remoteRef:
+        key: huggingface/api-token
+        property: token
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llm-models
+  namespace: ray
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: rook-cephfs
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ray-vllm-serve-script
+  namespace: ray
+data:
+  serve.py: |
+    """Ray Serve LLM app: builds one LLMConfig per model_id listed in the
+    MODELS env var (comma-separated) and exposes them under a single
+    OpenAI-compatible /v1 router via build_openai_app."""
+    import os
+    from ray.serve.llm import LLMConfig, LLMServingArgs, build_openai_app
+
+    MODELS = [m.strip() for m in os.environ.get("MODELS", "").split(",") if m.strip()]
+    if not MODELS:
+        raise RuntimeError("MODELS env var must list at least one model")
+
+    def _opt_int(name):
+        v = os.environ.get(name, "").strip()
+        return int(v) if v and v.lower() != "auto" else None
+
+    def _make_config(model_id: str) -> LLMConfig:
+        engine_kwargs = dict(
+            tensor_parallel_size=1,
+            gpu_memory_utilization=float(os.environ.get("GPU_MEMORY_UTILIZATION", "0.90")),
+            max_num_seqs=int(os.environ.get("MAX_NUM_SEQS", "1")),
+            kv_cache_dtype=os.environ.get("KV_CACHE_DTYPE", "fp8"),
+            enforce_eager=os.environ.get("ENFORCE_EAGER", "false").lower() == "true",
+            enable_prefix_caching=os.environ.get("ENABLE_PREFIX_CACHING", "true").lower() == "true",
+            dtype="half",
+            trust_remote_code=True,
+            enable_auto_tool_choice=True,
+        )
+        mml = _opt_int("MAX_MODEL_LEN")
+        if mml:
+            engine_kwargs["max_model_len"] = mml
+        mnbt = _opt_int("MAX_NUM_BATCHED_TOKENS")
+        if mnbt:
+            engine_kwargs["max_num_batched_tokens"] = mnbt
+
+        return LLMConfig(
+            model_loading_config=dict(
+                model_id=model_id,
+                model_source=f"/mnt/models/{model_id}",
+            ),
+            deployment_config=dict(
+                autoscaling_config=dict(min_replicas=1, max_replicas=1),
+                max_ongoing_requests=32,
+            ),
+            engine_kwargs=engine_kwargs,
+        )
+
+    llm_configs = [_make_config(m) for m in MODELS]
+    app = build_openai_app(LLMServingArgs(llm_configs=llm_configs))
+---
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: ray-vllm
+  namespace: ray
+spec:
+  serviceUnhealthySecondThreshold: 1800
+  deploymentUnhealthySecondThreshold: 1800
+  serveConfigV2: |
+    applications:
+      - name: vllm
+        route_prefix: /
+        import_path: serve:app
+        runtime_env:
+          env_vars:
+            PYTHONPATH: /home/ray
+            MODELS: "Qwen/Qwen3-4B-AWQ"
+            MAX_MODEL_LEN: "10240"
+            MAX_NUM_BATCHED_TOKENS: "6144"
+            GPU_MEMORY_UTILIZATION: "0.90"
+            HF_HUB_OFFLINE: "1"
+  rayClusterConfig:
+    enableInTreeAutoscaling: true
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: hangxie/ray-vllm:v0.1.0
+              resources:
+                requests: { cpu: "2", memory: "4Gi" }
+                limits:   { cpu: "2", memory: "6Gi" }
+              env:
+                - { name: PYTHONPATH, value: /home/ray }
+              ports:
+                - { name: gcs,       containerPort: 6379 }
+                - { name: dashboard, containerPort: 8265 }
+                - { name: serve,     containerPort: 8000 }
+                - { name: metrics,   containerPort: 8080 }
+              volumeMounts:
+                - { name: serve-script, mountPath: /home/ray/serve.py, subPath: serve.py }
+                - { name: dshm,         mountPath: /dev/shm }
+          volumes:
+            - { name: serve-script, configMap: { name: ray-vllm-serve-script } }
+            - { name: dshm,         emptyDir: { medium: Memory } }
+    workerGroupSpecs:
+      - groupName: gpu-worker
+        replicas: 0
+        minReplicas: 0
+        maxReplicas: 1
+        rayStartParams:
+          num-gpus: "1"
+        template:
+          spec:
+            serviceAccountName: ray-vllm
+            nodeSelector:
+              feature.node.kubernetes.io/pci-0300_10de.present: "true"
+            tolerations:
+              - { key: gpu, operator: Equal, value: "true", effect: NoSchedule }
+            initContainers:
+              - name: oras-installer
+                image: ghcr.io/oras-project/oras:v1.2.2
+                command: [sh, -ceu, "cp /bin/oras /shared/oras"]
+                volumeMounts:
+                  - { name: shared-bin, mountPath: /shared }
+              - name: kubectl-installer
+                image: alpine/kubectl:1.36.1
+                command: [sh, -ceu, 'cp "$(command -v kubectl)" /shared/kubectl']
+                volumeMounts:
+                  - { name: shared-bin, mountPath: /shared }
+              - name: yq-installer
+                image: mikefarah/yq:4
+                command: [sh, -ceu, "cp /usr/bin/yq /shared/yq"]
+                volumeMounts:
+                  - { name: shared-bin, mountPath: /shared }
+              - name: model-pull
+                image: hangxie/ray-vllm:v0.1.0
+                # CephFS root must be writable for the lockfile + model dirs.
+                securityContext: { runAsUser: 0, runAsGroup: 0 }
+                env:
+                  - { name: HARBOR_REGISTRY,              value: registry.xiehang.com }
+                  - { name: HARBOR_PROJECT,               value: llm-models }
+                  - { name: HF_HUB_DISABLE_PROGRESS_BARS, value: "1" }
+                  - { name: RAYSERVICE_NAME,              value: ray-vllm }
+                  - name: HF_TOKEN
+                    valueFrom: { secretKeyRef: { name: hf-token, key: token } }
+                  - name: HARBOR_USERNAME
+                    valueFrom: { secretKeyRef: { name: harbor-credentials, key: username } }
+                  - name: HARBOR_PASSWORD
+                    valueFrom: { secretKeyRef: { name: harbor-credentials, key: password } }
+                command:
+                  - bash
+                  - -ceu
+                  - |
+                    export PATH="/shared:$PATH"
+                    mkdir -p /mnt/models
+
+                    MODELS=$(kubectl get rayservice "${RAYSERVICE_NAME}" \
+                               -o jsonpath='{.spec.serveConfigV2}' \
+                             | yq '.applications[0].runtime_env.env_vars.MODELS' - \
+                             | tr ',' '\n')
+
+                    if [ -z "${MODELS}" ] || [ "${MODELS}" = "null" ]; then
+                      echo "No MODELS env var in serveConfigV2; nothing to pull."
+                      exit 0
+                    fi
+
+                    slug() {
+                      echo "$1" | tr '[:upper:]/.+_' '[:lower:]----' \
+                                | tr -cd 'a-z0-9-' | tr -s '-'
+                    }
+
+                    for MODEL_ID in ${MODELS}; do
+                      MODEL_ID="$(echo "${MODEL_ID}" | xargs)"
+                      [ -z "${MODEL_ID}" ] && continue
+                      DEST="/mnt/models/${MODEL_ID}"
+                      LOCK="/mnt/models/.pull.lock.$(slug "${MODEL_ID}")"
+
+                      (
+                        exec 9>"${LOCK}"
+                        flock -w 3600 -x 9 || { echo "ERROR: lock not acquired for ${MODEL_ID}" >&2; exit 1; }
+
+                        if [ -f "${DEST}/config.json" ]; then
+                          echo "PVC ok: ${MODEL_ID}"
+                          exit 0
+                        fi
+
+                        mkdir -p "${DEST}"
+                        chmod -R 777 "/mnt/models/$(dirname "${MODEL_ID}")"
+
+                        HARBOR_TAG="$(slug "${MODEL_ID}")"
+                        HARBOR_REF="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${HARBOR_TAG}:latest"
+
+                        echo "Attempting Harbor pull: ${HARBOR_REF}"
+                        if echo "${HARBOR_PASSWORD}" | oras pull -u "${HARBOR_USERNAME}" --password-stdin \
+                             "${HARBOR_REF}" --output "${DEST}" \
+                           && [ -f "${DEST}/config.json" ]; then
+                          echo "Pulled from Harbor: ${MODEL_ID}"
+                          exit 0
+                        fi
+
+                        if [ -z "${HF_TOKEN:-}" ]; then
+                          echo "ERROR: HF_TOKEN empty; homelab policy requires a token." >&2
+                          exit 1
+                        fi
+
+                        echo "Downloading from HuggingFace: ${MODEL_ID}"
+                        hf download "${MODEL_ID}" --local-dir "${DEST}"
+                        [ -f "${DEST}/config.json" ] || { echo "ERROR: HF download incomplete" >&2; exit 1; }
+
+                        echo "Pushing to Harbor: ${HARBOR_REF}"
+                        cd "${DEST}"
+                        # Word-split $FILES intentionally so each file becomes a separate oras arg.
+                        FILES=$(find . -maxdepth 1 -type f | sed 's|^\./||' | tr '\n' ' ')
+                        echo "${HARBOR_PASSWORD}" | oras push -u "${HARBOR_USERNAME}" --password-stdin \
+                             "${HARBOR_REF}" ${FILES} \
+                          || echo "WARN: Harbor push failed; model is on PVC" >&2
+                      ) || exit 1
+                    done
+
+                    echo "All configured models present on PVC."
+                volumeMounts:
+                  - { name: llm-models, mountPath: /mnt/models }
+                  - { name: shared-bin, mountPath: /shared }
+                  - { name: host-ca,    mountPath: /etc/ssl/certs, readOnly: true }
+            containers:
+              - name: ray-worker
+                image: hangxie/ray-vllm:v0.1.0
+                resources:
+                  # GPU nodes have ~10 GiB total memory and ~3.4 GiB is held
+                  # by daemonsets, so the worker request must stay under ~7 GiB
+                  # or the pod fails to schedule. The higher limit leaves room
+                  # for transient vLLM CUDA compilation during cold starts.
+                  requests: { cpu: "2", memory: "4Gi", nvidia.com/gpu: "1" }
+                  limits:   { cpu: "4", memory: "7Gi", nvidia.com/gpu: "1" }
+                env:
+                  - { name: PYTHONPATH, value: /home/ray }
+                ports:
+                  - { name: metrics, containerPort: 8080, protocol: TCP }
+                volumeMounts:
+                  - { name: serve-script, mountPath: /home/ray/serve.py, subPath: serve.py }
+                  - { name: dshm,         mountPath: /dev/shm }
+                  - { name: llm-models,   mountPath: /mnt/models, readOnly: true }
+            volumes:
+              - { name: serve-script, configMap: { name: ray-vllm-serve-script } }
+              - { name: dshm,         emptyDir: { medium: Memory } }
+              - { name: llm-models,   persistentVolumeClaim: { claimName: llm-models } }
+              - { name: shared-bin,   emptyDir: {} }
+              - { name: host-ca,      hostPath: { path: /etc/ssl/certs, type: Directory } }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ray-vllm
+  namespace: ray
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+  hostnames:
+    - "vllm.homelab.xiehang.com"
+  rules:
+    - backendRefs:
+        - name: ray-vllm-serve-svc
+          port: 8000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ray-dashboard
+  namespace: ray
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+  hostnames:
+    - "ray.homelab.xiehang.com"
+  rules:
+    - backendRefs:
+        - name: ray-vllm-head-svc
+          port: 8265
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ray-vllm-head
+  namespace: ray
+  labels:
+    release: prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      ray.io/node-type: head
+  endpoints:
+    - port: metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - ray
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: ray-vllm-workers
+  namespace: ray
+  labels:
+    release: prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      ray.io/node-type: worker
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - ray

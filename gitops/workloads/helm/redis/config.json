@@ -1,0 +1,5 @@
+{
+  "chart_repo": "registry-1.docker.io/bitnamicharts",
+  "chart_name": "redis",
+  "chart_version": "20.6.0"
+}

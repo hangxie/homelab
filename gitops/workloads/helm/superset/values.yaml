@@ -1,0 +1,72 @@
+postgresql:
+  enabled: false
+
+redis:
+  enabled: true
+  image:
+    repository: bitnamilegacy/redis
+  master:
+    persistence:
+      enabled: true
+      storageClass: rook-ceph-block
+      size: 8Gi
+
+# The upstream apache/superset image ships with mysqlclient but not psycopg2,
+# so a Postgres metadata DB connection fails at boot with
+# `ModuleNotFoundError: No module named 'psycopg2'`. Install it at container
+# start. The chart concatenates bootstrapScript with its own init logic.
+bootstrapScript: |
+  #!/bin/bash
+  pip install --quiet psycopg2-binary
+  if [ ! -f ~/bootstrap ]; then echo "Running Superset with uid $(id -u)" > ~/bootstrap; fi
+
+supersetNode:
+  replicas:
+    replicaCount: 2
+  connections:
+    db_host: postgres-cluster-rw.postgres-cluster.svc
+    db_port: "5432"
+    db_user: superset
+    db_name: superset
+
+supersetWorker:
+  replicas:
+    replicaCount: 2
+
+supersetCeleryBeat:
+  enabled: true
+
+supersetWebsockets:
+  enabled: true
+  # The chart's default `jwtSecret: CHANGE-ME` is 9 chars, but the
+  # @apache/superset-websocket service requires >=32 bytes and exits at boot
+  # otherwise. The chart has no `existingSecret` hook for this Secret, so we
+  # inline a value here. TODO: externalize via Vault + ExternalSecret patch.
+  config:
+    jwtSecret: "6hJgm-mULfdzcq1T-1Vl-3R-jPe194jb"
+
+extraEnvRaw:
+  - name: SUPERSET_SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: superset-secret
+        key: secret-key
+  - name: DB_USER
+    valueFrom:
+      secretKeyRef:
+        name: superset-db-credentials
+        key: username
+  - name: DB_PASS
+    valueFrom:
+      secretKeyRef:
+        name: superset-db-credentials
+        key: password
+
+init:
+  loadExamples: false
+  adminUser:
+    username: admin
+    email: admin@homelab.xiehang.com
+
+serviceAccount:
+  create: true

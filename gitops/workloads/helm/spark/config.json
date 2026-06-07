@@ -1,0 +1,5 @@
+{
+  "chart_repo": "registry-1.docker.io/bitnamicharts",
+  "chart_name": "spark",
+  "chart_version": "9.4.0"
+}

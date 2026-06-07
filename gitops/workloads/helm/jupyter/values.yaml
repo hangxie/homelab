@@ -1,0 +1,55 @@
+hub:
+  db:
+    type: postgres
+    url: postgresql+psycopg2://jupyterhub@postgres-cluster-rw.postgres-cluster.svc:5432/jupyterhub
+    upgrade: true
+  existingSecret: jupyterhub-db
+  config:
+    Authenticator:
+      admin_users:
+        - admin
+    DummyAuthenticator:
+      password: replace-me
+    JupyterHub:
+      authenticator_class: dummy
+  networkPolicy:
+    # Cilium's CIDR selectors do not match in-cluster pod identities, so the
+    # chart's default `egressAllowRules.privateIPs: true` (ipBlock 10.0.0.0/8)
+    # silently fails to permit hub -> postgres. Use a namespaceSelector instead.
+    egress:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: postgres-cluster
+        ports:
+          - port: 5432
+            protocol: TCP
+
+proxy:
+  service:
+    type: ClusterIP
+
+singleuser:
+  storage:
+    type: dynamic
+    dynamic:
+      storageClass: rook-ceph-block
+    capacity: 10Gi
+  cpu:
+    limit: 2
+    guarantee: 0.25
+  memory:
+    limit: 4Gi
+    guarantee: 256Mi
+
+scheduling:
+  userScheduler:
+    enabled: true
+  podPriority:
+    enabled: true
+
+prePuller:
+  hook:
+    enabled: false
+  continuous:
+    enabled: false

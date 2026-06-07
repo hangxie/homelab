@@ -1,0 +1,5 @@
+{
+  "chart_repo": "oci.stackable.tech/sdp-charts",
+  "chart_name": "hive-operator",
+  "chart_version": "26.3.0"
+}

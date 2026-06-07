@@ -1,0 +1,228 @@
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: harbor-credentials
+  namespace: llama-cpp
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: harbor-credentials
+    creationPolicy: Owner
+  data:
+    - secretKey: username
+      remoteRef:
+        key: harbor/llm-models
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: harbor/llm-models
+        property: password
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: hf-token
+  namespace: llama-cpp
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: hf-token
+    creationPolicy: Owner
+  data:
+    - secretKey: token
+      remoteRef:
+        key: huggingface/api-token
+        property: token
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llama-cpp-models
+  namespace: llama-cpp
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: rook-cephfs
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-cpp
+  namespace: llama-cpp
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: llama-cpp }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: llama-cpp }
+    spec:
+      nodeSelector:
+        feature.node.kubernetes.io/pci-0300_10de.present: "true"
+      tolerations:
+        - { key: gpu, operator: Equal, value: "true", effect: NoSchedule }
+      initContainers:
+        - name: oras-installer
+          image: ghcr.io/oras-project/oras:v1.2.2
+          command: [cp, /bin/oras, /shared/oras]
+          volumeMounts:
+            - { name: shared-bin, mountPath: /shared }
+        - name: model-pull
+          image: hangxie/ray-vllm:v0.1.0
+          # CephFS PVC root is root-owned; init container must write the lockfile.
+          securityContext: { runAsUser: 0, runAsGroup: 0 }
+          env:
+            # Single llama-cpp model. The server container reuses this same
+            # value via YAML alias so the pull target and served GGUF cannot drift.
+            - { name: MODEL_SPEC, value: &llama_cpp_model_spec bartowski/Llama-3.2-3B-Instruct-GGUF/Llama-3.2-3B-Instruct-Q6_K.gguf }
+            - { name: HARBOR_REGISTRY, value: registry.xiehang.com }
+            - { name: HARBOR_PROJECT, value: llm-models }
+            - { name: HF_HUB_DISABLE_PROGRESS_BARS, value: "1" }
+            - name: HF_TOKEN
+              valueFrom: { secretKeyRef: { name: hf-token, key: token } }
+            - name: HARBOR_USERNAME
+              valueFrom: { secretKeyRef: { name: harbor-credentials, key: username } }
+            - name: HARBOR_PASSWORD
+              valueFrom: { secretKeyRef: { name: harbor-credentials, key: password } }
+          command:
+            - bash
+            - -ceu
+            - |
+              export PATH="/shared:$PATH"
+              HF_REPO="$(dirname "${MODEL_SPEC}")"
+              HF_FILE="$(basename "${MODEL_SPEC}")"
+              case "${HF_REPO}" in
+                */*) ;;
+                *)
+                  echo "ERROR: MODEL_SPEC must be '<org>/<repo>/<file>.gguf' (got '${MODEL_SPEC}')" >&2
+                  exit 1
+                  ;;
+              esac
+
+              DEST_DIR="/models/${HF_REPO}"
+              DEST="${DEST_DIR}/${HF_FILE}"
+              MARKER="${DEST}.size"
+              HARBOR_SLUG="$(echo "${MODEL_SPEC}" | tr '[:upper:]/.+_' '[:lower:]----' | tr -cd 'a-z0-9-' | tr -s '-')"
+              HARBOR_REF="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/gguf-${HARBOR_SLUG}:latest"
+
+              # CephFS-aware exclusive lock so concurrent pods serialize their work.
+              mkdir -p /models
+              exec 9>/models/.pull.lock
+              flock -w 3600 -x 9 || { echo "ERROR: lock not acquired in 1h" >&2; exit 1; }
+
+              file_size() { stat -c %s "$1" 2>/dev/null || wc -c < "$1" | tr -d ' '; }
+
+              if [ -s "${DEST}" ] && [ -s "${MARKER}" ] \
+                 && [ "$(file_size "${DEST}")" = "$(cat "${MARKER}" | tr -d ' ')" ]; then
+                echo "Already on PVC: ${MODEL_SPEC}"
+                exit 0
+              fi
+
+              mkdir -p "${DEST_DIR}"
+              chmod -R 777 "/models/$(dirname "${HF_REPO}")"
+              rm -f "${DEST}" "${MARKER}" "${DEST}.part"
+
+              echo "Attempting Harbor pull: ${HARBOR_REF}"
+              if echo "${HARBOR_PASSWORD}" | oras pull -u "${HARBOR_USERNAME}" --password-stdin "${HARBOR_REF}" --output "${DEST_DIR}"; then
+                if [ -s "${DEST}" ] && [ -s "${MARKER}" ]; then
+                  echo "Pulled from Harbor: ${HARBOR_REF}"
+                  exit 0
+                fi
+                echo "Harbor pull returned incomplete artifact; falling through to HuggingFace"
+                rm -f "${DEST}" "${MARKER}"
+              else
+                echo "Harbor pull failed; falling through to HuggingFace"
+              fi
+
+              if [ -z "${HF_TOKEN:-}" ]; then
+                echo "ERROR: HF_TOKEN empty; homelab policy requires a token. Seed homelab/huggingface/api-token in Vault." >&2
+                exit 1
+              fi
+
+              echo "Downloading from HuggingFace: ${HF_REPO}/${HF_FILE}"
+              # hf download writes to a temp path and atomically renames into local-dir.
+              hf download "${HF_REPO}" "${HF_FILE}" --local-dir "${DEST_DIR}"
+
+              if [ ! -s "${DEST}" ]; then
+                echo "ERROR: HF download finished but ${DEST} is missing" >&2
+                exit 1
+              fi
+
+              printf '%s\n' "$(file_size "${DEST}")" > "${MARKER}"
+
+              echo "Pushing to Harbor: ${HARBOR_REF}"
+              cd "${DEST_DIR}"
+              if echo "${HARBOR_PASSWORD}" | oras push -u "${HARBOR_USERNAME}" --password-stdin "${HARBOR_REF}" "${HF_FILE}" "${HF_FILE}.size"; then
+                echo "Pushed to Harbor: ${HARBOR_REF}"
+              else
+                echo "WARN: Harbor push failed; model is on PVC, exiting 0" >&2
+              fi
+          volumeMounts:
+            - { name: models, mountPath: /models }
+            - { name: shared-bin, mountPath: /shared }
+            - { name: host-ca-certs, mountPath: /etc/ssl/certs, readOnly: true }
+      containers:
+        - name: llama-cpp
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          env:
+            - { name: MODEL_SPEC, value: *llama_cpp_model_spec }
+          args:
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8080"
+            - --model
+            - "/models/$(MODEL_SPEC)"
+            - --n-gpu-layers
+            - "999"
+          ports:
+            - { containerPort: 8080 }
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - { name: models, mountPath: /models }
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: llama-cpp-models
+        - name: shared-bin
+          emptyDir: {}
+        - name: host-ca-certs
+          hostPath:
+            path: /etc/ssl/certs
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llama-cpp
+  namespace: llama-cpp
+spec:
+  selector: { app.kubernetes.io/name: llama-cpp }
+  ports:
+    - { port: 8080, targetPort: 8080 }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: llama-cpp
+  namespace: llama-cpp
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+  hostnames:
+    - "llama-cpp.homelab.xiehang.com"
+  rules:
+    - backendRefs:
+        - name: llama-cpp
+          port: 8080
