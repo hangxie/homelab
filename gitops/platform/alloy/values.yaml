@@ -1,0 +1,50 @@
+alloy:
+  configMap:
+    create: true
+    content: |
+      logging {
+        level  = "info"
+        format = "logfmt"
+      }
+
+      // Scrape kubelet pod logs and forward to Loki.
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      loki.source.kubernetes "pods" {
+        targets    = discovery.kubernetes.pods.targets
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki-gateway.loki/loki/api/v1/push"
+        }
+      }
+
+      // Forward OTLP traces to Tempo.
+      otelcol.receiver.otlp "default" {
+        grpc {}
+        http {}
+        output {
+          traces = [otelcol.exporter.otlp.tempo.input]
+        }
+      }
+
+      otelcol.exporter.otlp "tempo" {
+        client {
+          endpoint = "tempo.tempo:4317"
+          tls {
+            insecure = true
+          }
+        }
+      }
+
+controller:
+  type: daemonset
+
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    release: prometheus-stack

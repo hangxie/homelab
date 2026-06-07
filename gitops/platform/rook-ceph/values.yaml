@@ -1,0 +1,31 @@
+crds:
+  enabled: true
+
+resources:
+  limits:
+    memory: 512Mi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+# Prometheus stack creates the ServiceMonitor itself once enabled below.
+monitoring:
+  enabled: true
+
+cephCommandsTimeoutSeconds: "60"
+
+# GPU-tainted worker nodes (worker-5/worker-6) run vllm/llama-cpp pods that
+# need RBD volumes. The CSI node plugin (DaemonSet) and provisioner must be
+# allowed to schedule there, otherwise PVC mounts fail with
+# `driver name rook-ceph.rbd.csi.ceph.com not found`.
+csi:
+  pluginTolerations:
+    - key: gpu
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+  provisionerTolerations:
+    - key: gpu
+      operator: Equal
+      value: "true"
+      effect: NoSchedule

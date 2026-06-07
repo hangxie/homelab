@@ -1,0 +1,19 @@
+# Constrain the device plugin DaemonSet to NFD-labeled NVIDIA GPU nodes.
+# The plugin's pod tolerates gpu=true:NoSchedule so it runs on GPU workers.
+nodeSelector:
+  feature.node.kubernetes.io/pci-0300_10de.present: "true"
+
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: feature.node.kubernetes.io/pci-0300_10de.present
+              operator: In
+              values: ["true"]
+
+tolerations:
+  - key: gpu
+    operator: Equal
+    value: "true"
+    effect: NoSchedule

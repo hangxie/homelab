@@ -1,0 +1,16 @@
+master:
+  replicaCount: 2
+
+gc:
+  replicaCount: 2
+
+worker:
+  tolerations:
+    - key: gpu
+      operator: Exists
+      effect: NoSchedule
+
+prometheus:
+  enable: true
+  labels:
+    release: prometheus-stack

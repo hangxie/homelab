@@ -1,0 +1,67 @@
+fullnameOverride: prometheus-stack
+
+# Cilium drops Cilium/Hubble dashboards in monitoring; Grafana's sidecar
+# must search every namespace to discover them.
+grafana:
+  admin:
+    existingSecret: grafana-admin
+    userKey: username
+    passwordKey: password
+  defaultDashboardsTimezone: browser
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+      label: grafana_dashboard
+      labelValue: "1"
+    datasources:
+      enabled: true
+      searchNamespace: ALL
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: prometheus-stack
+  persistence:
+    enabled: true
+    storageClassName: rook-ceph-block
+    size: 5Gi
+
+prometheus:
+  prometheusSpec:
+    retention: 30d
+    serviceMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: rook-ceph-block
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 20Gi
+
+alertmanager:
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: rook-ceph-block
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 5Gi
+
+kubeProxy:
+  enabled: false
+
+kubeEtcd:
+  service:
+    port: 2381
+    targetPort: 2381
+
+defaultRules:
+  create: true
+  rules:
+    kubeProxy: false

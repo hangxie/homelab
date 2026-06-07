@@ -1,0 +1,21 @@
+apiVersion: external-secrets.io/v1beta1
+kind: ClusterSecretStore
+metadata:
+  name: vault-homelab
+spec:
+  provider:
+    vault:
+      server: https://registry.xiehang.com:8200
+      path: homelab
+      version: v2
+      auth:
+        appRole:
+          path: approle
+          roleRef:
+            name: vault-approle
+            namespace: external-secrets
+            key: role-id
+          secretRef:
+            name: vault-approle
+            namespace: external-secrets
+            key: secret-id

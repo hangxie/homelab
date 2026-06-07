@@ -1,0 +1,8 @@
+# KubeRay operator Helm values.
+#
+# Cluster-scoped: the operator watches RayService/RayCluster/RayJob
+# resources across all namespaces. Default chart settings are appropriate
+# for a homelab (single replica, leader election off by default).
+#
+# https://github.com/ray-project/kuberay-helm/blob/main/helm-chart/kuberay-operator/values.yaml
+fullnameOverride: kuberay-operator

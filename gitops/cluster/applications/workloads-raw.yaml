@@ -1,0 +1,47 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: workloads-raw
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "110"
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          # Mandatory — required for the cluster's data platform.
+          - name: hdfs
+          - name: ray
+          # Optional — comment a line out to disable that workload.
+          # Pruning is automatic: a disabled workload's resources
+          # (including PVCs) are deleted on the next Argo sync.
+          - name: dbeaver
+          - name: llama-cpp
+  template:
+    metadata:
+      name: 'wl-{{ .name }}'
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: workloads
+      source:
+        repoURL: https://github.com/hangxie/homelab.git
+        targetRevision: main
+        path: 'gitops/workloads/raw/{{ .name }}/manifests'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ .name }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 5m

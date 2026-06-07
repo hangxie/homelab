@@ -1,0 +1,81 @@
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: rook-ceph
+  namespace: rook-ceph
+spec:
+  cephVersion:
+    # v18.2.4 has a mon ms_dispatch CPU-spin bug that wedges the cluster
+    # during initial pool-create operations on this hardware profile;
+    # v18.2.7 ships the fix.
+    image: quay.io/ceph/ceph:v18.2.7
+  dataDirHostPath: /var/lib/rook
+  mon:
+    count: 3
+    allowMultiplePerNode: false
+  mgr:
+    count: 2
+    modules:
+      - name: rook
+        enabled: true
+  dashboard:
+    enabled: true
+    port: 7000
+    ssl: false
+  monitoring:
+    enabled: true
+  network:
+    connections:
+      encryption:
+        enabled: false
+      compression:
+        enabled: false
+  crashCollector:
+    disable: false
+  logCollector:
+    enabled: true
+    periodicity: daily
+  # Loosen the daemon liveness probes: the 5s default is too tight while
+  # the mon's RocksDB is still ramping up and during initial OSD bootstrap,
+  # which produces a kubelet-driven restart storm.
+  healthCheck:
+    livenessProbe:
+      mon:
+        probe:
+          timeoutSeconds: 30
+          periodSeconds: 15
+          failureThreshold: 5
+          initialDelaySeconds: 30
+      mgr:
+        probe:
+          timeoutSeconds: 30
+          periodSeconds: 15
+          failureThreshold: 5
+      osd:
+        probe:
+          timeoutSeconds: 30
+          periodSeconds: 15
+          failureThreshold: 5
+  storage:
+    useAllNodes: false
+    useAllDevices: false
+    # Worker inventory carries rook_ceph_devices via inventory.ini; the
+    # cluster mirrors that on the matching worker hosts.
+    nodes:
+      - name: worker-0
+        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
+      - name: worker-1
+        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
+      - name: worker-2
+        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
+      - name: worker-3
+        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
+      - name: worker-4
+        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
+  placement:
+    all:
+      tolerations: []
+    osd:
+      tolerations: []
+  disruptionManagement:
+    managePodBudgets: true

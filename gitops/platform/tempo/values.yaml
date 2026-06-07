@@ -1,0 +1,23 @@
+tempo:
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+  retention: 168h
+
+persistence:
+  enabled: true
+  storageClassName: rook-ceph-block
+  size: 10Gi
+
+securityContext:
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  runAsNonRoot: true
+
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    release: prometheus-stack
