@@ -1,0 +1,47 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+See `README.md` for architecture, bootstrap flow, and rebuild modes.
+
+## Rules
+
+- **No LLM co-author trailers in commits.** Don't add `Co-Authored-By: Claude …` or similar.
+- **Fix in place.** Edit the existing file/resource. No parallel versions, shim files, or "v2" copies — clean up the old thing first.
+- **No one-off migration code.** Operator resets or redeploys per README; don't add transition branches or backfill jobs.
+- **HF token always required.** Every HuggingFace download path reads the token and fails loudly if missing.
+
+## Ownership (don't cross)
+
+- Terraform → infra only. No K8s objects.
+- Ansible → bootstrap only. Stops after `apply-root-app.yml` reports all apps Synced/Healthy. Exception: Cilium (full lifecycle).
+- Argo CD → everything else in-cluster, including its own chart/config.
+- Vault → only persistent source of truth besides Git. Secrets enter via `ExternalSecret` against `vault-homelab` — never literal Secret manifests.
+
+## Adding things
+
+- **Helm workload:** create `gitops/workloads/helm/<name>/{config.json,values.yaml}` (+ `extras/`), add `- name: <name>` to `gitops/cluster/applications/workloads-helm.yaml`.
+- **Raw workload:** create `gitops/workloads/raw/<name>/manifests/*.yaml`, add `- name: <name>` to `workloads-raw.yaml`.
+- **Disable a workload:** comment out its line. Pruning (incl. PVCs) is automatic.
+- **Platform component:** edit `gitops/platform/<component>/`. Respect sync waves in `gitops/cluster/applications/<component>.yaml`.
+- **New secret path:** add to `scripts/vault-secrets.template.yaml`, re-run `scripts/seed-vault.sh`. `generate: false` entries must be `vault kv put` first.
+- `config.json` schema: `chart_repo` / `chart_name` / `chart_version` only.
+
+## Commands
+
+```bash
+pre-commit run --all-files
+terraform -chdir=terraform {init,apply,destroy}
+ansible-playbook -i ansible/inventory.ini ansible/bootstrap-k8s.yml
+ansible-playbook -i ansible/inventory.ini ansible/reset.yml
+scripts/seed-vault.sh                            # needs VAULT_ADDR + VAULT_TOKEN
+kubectl -n argocd get applications,applicationsets
+kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrite
+```
+
+## Gotchas
+
+- Root app uses `directory.recurse: false` — only `Application`/`ApplicationSet` manifests in `gitops/cluster/applications/`.
+- `workloads-helm` ApplicationSet is multi-source (chart + `$values` + `extras/`). Don't collapse.
+- Gateway terminates TLS on 443; upstream services are plain HTTP.
+- `ansible/inventory.ini` is generated from `terraform/templates/inventory.tftpl`. Don't hand-edit.
