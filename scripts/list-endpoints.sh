@@ -60,7 +60,7 @@ while IFS=$'\t' read -r ns name hostname; do
     url="${URL_SCHEME}://$hostname"
     case "$ns/$name" in
         airflow/airflow)
-            print_row "$url" "admin" "admin"
+            print_secret_row "$url" airflow airflow-admin password admin
             ;;
         argocd/argocd)
             print_secret_row "$url" argocd argocd-initial-admin-secret password admin

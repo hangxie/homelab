@@ -11,6 +11,33 @@ createUserJob:
     enabled: true
     username: admin
     email: admin@homelab.xiehang.com
+  # Chart hardcodes the `-p` arg from defaultUser.password. Override args to
+  # read the password from the airflow-admin Secret (sourced from Vault).
+  env:
+    - name: AIRFLOW_ADMIN_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: airflow-admin
+          key: password
+  args:
+    - "bash"
+    - "-c"
+    - |-
+      exec \
+      airflow users create "$@"
+    - --
+    - "-r"
+    - "{{ .Values.createUserJob.defaultUser.role }}"
+    - "-u"
+    - "{{ .Values.createUserJob.defaultUser.username }}"
+    - "-e"
+    - "{{ .Values.createUserJob.defaultUser.email }}"
+    - "-f"
+    - "{{ .Values.createUserJob.defaultUser.firstName }}"
+    - "-l"
+    - "{{ .Values.createUserJob.defaultUser.lastName }}"
+    - "-p"
+    - "$(AIRFLOW_ADMIN_PASSWORD)"
 
 migrateDatabaseJob:
   useHelmHooks: false
