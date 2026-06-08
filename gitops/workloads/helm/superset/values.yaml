@@ -61,12 +61,18 @@ extraEnvRaw:
       secretKeyRef:
         name: superset-db-credentials
         key: password
+  - name: SUPERSET_ADMIN_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: superset-admin
+        key: password
 
 init:
   loadExamples: false
   adminUser:
     username: admin
     email: admin@homelab.xiehang.com
+    password: '"${SUPERSET_ADMIN_PASSWORD}"'
 
 serviceAccount:
   create: true

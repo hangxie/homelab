@@ -90,7 +90,7 @@ while IFS=$'\t' read -r ns name hostname; do
             print_secret_row "$url" rook-ceph rook-ceph-dashboard-password password admin
             ;;
         superset/superset)
-            print_row "$url" "admin" "admin"
+            print_secret_row "$url" superset superset-admin password admin
             ;;
         trino/trino)
             print_secret_user_pass_row "$url" trino trino-credentials username password admin
