@@ -1,0 +1,15 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: superset
+  namespace: superset
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+  hostnames:
+    - "superset.homelab.xiehang.com"
+  rules:
+    - backendRefs:
+        - name: wl-superset
+          port: 8088
