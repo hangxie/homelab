@@ -20,9 +20,13 @@ secondary:
   persistence:
     enabled: true
     size: 10Gi
-  # Bitnami chart's slave bootstrap creates root@localhost using mysql_native_password,
-  # which MySQL 8.4 disables by default. Re-enable until we migrate off this chart.
-  extraFlags: "--mysql-native-password=ON"
+  # Bitnami slave bootstrap runs CHANGE REPLICATION SOURCE TO without a log
+  # position, so it misses the primary's pre-existing CREATE USER events and
+  # the secondary ends up with no root user. The dump-based variant mysqldumps
+  # the primary first, syncing mysql.user before replication starts.
+  extraEnvVars:
+    - name: MYSQL_REPLICATION_SLAVE_DUMP
+      value: "true"
 
 metrics:
   enabled: true
