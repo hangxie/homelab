@@ -7,6 +7,10 @@ createUserJob:
   useHelmHooks: false
   applyCustomEnv: false
   ttlSecondsAfterFinished: null
+  defaultUser:
+    enabled: true
+    username: admin
+    email: admin@homelab.xiehang.com
 
 migrateDatabaseJob:
   useHelmHooks: false
@@ -49,10 +53,6 @@ logs:
     size: 5Gi
 
 webserver:
-  defaultUser:
-    enabled: true
-    username: admin
-    email: admin@homelab.xiehang.com
   startupProbe:
     periodSeconds: 10
     timeoutSeconds: 20
