@@ -1,5 +1,5 @@
 {
   "chart_repo": "https://airflow.apache.org",
   "chart_name": "airflow",
-  "chart_version": "1.19.0"
+  "chart_version": "1.22.0"
 }
