@@ -20,13 +20,10 @@ secondary:
   persistence:
     enabled: true
     size: 10Gi
-  # Bitnami slave bootstrap runs CHANGE REPLICATION SOURCE TO without a log
-  # position, so it misses the primary's pre-existing CREATE USER events and
-  # the secondary ends up with no root user. The dump-based variant mysqldumps
-  # the primary first, syncing mysql.user before replication starts.
-  extraEnvVars:
-    - name: MYSQL_REPLICATION_SLAVE_DUMP
-      value: "true"
+  # Bitnami's MySQL 8.4 secondary bootstrap still creates the local root user
+  # with mysql_native_password. Keep the plugin enabled so probes and the
+  # metrics exporter can authenticate after a fresh secondary PVC bootstrap.
+  extraFlags: "--mysql-native-password=ON"
 
 metrics:
   enabled: true
