@@ -1,5 +1,5 @@
-airflowVersion: "2.10.3"
-defaultAirflowTag: "2.10.3"
+airflowVersion: "3.2.2"
+defaultAirflowTag: "3.2.2"
 
 executor: KubernetesExecutor
 
@@ -17,7 +17,8 @@ migrateDatabaseJob:
   applyCustomEnv: false
   ttlSecondsAfterFinished: null
 
-webserverSecretKeySecretName: airflow-webserver-secret
+apiSecretKeySecretName: airflow-api-secret-key
+jwtSecretName: airflow-jwt-secret
 
 data:
   metadataConnection:
@@ -52,7 +53,7 @@ logs:
     storageClassName: rook-cephfs
     size: 5Gi
 
-webserver:
+apiServer:
   startupProbe:
     periodSeconds: 10
     timeoutSeconds: 20
