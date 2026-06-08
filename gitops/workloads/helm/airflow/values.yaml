@@ -7,6 +7,10 @@ createUserJob:
   useHelmHooks: false
   applyCustomEnv: false
   ttlSecondsAfterFinished: null
+  # Job.spec.template is immutable; force Argo CD to replace (not patch) on
+  # change, and skip server-side diff so the diff doesn't trip on immutability.
+  jobAnnotations:
+    argocd.argoproj.io/sync-options: Replace=true,ServerSideDiff=false
   defaultUser:
     enabled: true
     username: admin
@@ -43,6 +47,8 @@ migrateDatabaseJob:
   useHelmHooks: false
   applyCustomEnv: false
   ttlSecondsAfterFinished: null
+  jobAnnotations:
+    argocd.argoproj.io/sync-options: Replace=true,ServerSideDiff=false
 
 apiSecretKeySecretName: airflow-api-secret-key
 jwtSecretName: airflow-jwt-secret
