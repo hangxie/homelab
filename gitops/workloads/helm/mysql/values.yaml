@@ -20,6 +20,9 @@ secondary:
   persistence:
     enabled: true
     size: 10Gi
+  # Bitnami chart's slave bootstrap creates root@localhost using mysql_native_password,
+  # which MySQL 8.4 disables by default. Re-enable until we migrate off this chart.
+  extraFlags: "--mysql-native-password=ON"
 
 metrics:
   enabled: true
