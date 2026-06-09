@@ -1,0 +1,15 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: trino
+  namespace: trino
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+  hostnames:
+    - "trino.homelab.xiehang.com"
+  rules:
+    - backendRefs:
+        - name: trino
+          port: 8080

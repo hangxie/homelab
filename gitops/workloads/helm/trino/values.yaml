@@ -24,8 +24,7 @@ additionalConfigProperties:
   - internal-communication.shared-secret=homelab-trino-internal-shared-secret-20260603
 
 auth:
-  passwordAuth: |
-    admin:$2y$10$replace-with-bcrypt-from-trino-credentials-Secret
+  passwordAuthSecret: trino-credentials
 
 # Catalogs reference Hive metastore (hive-metastore.hive.svc:9083) and MySQL.
 additionalCatalogs:
