@@ -85,6 +85,9 @@ while IFS=$'\t' read -r ns name hostname; do
         monitoring/alertmanager|monitoring/prometheus|ray/ray-dashboard|spark/spark-history)
             print_row "$url" "-" "(no auth)"
             ;;
+        openwebui/open-webui)
+            print_secret_row "$url" openwebui openwebui-admin WEBUI_SECRET_KEY admin
+            ;;
         ray/ray-vllm)
             print_row "${url}/v1" "-" "(no auth)"
             ;;
