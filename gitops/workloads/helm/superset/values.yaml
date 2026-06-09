@@ -73,6 +73,34 @@ init:
     username: admin
     email: admin@homelab.xiehang.com
     password: '"${SUPERSET_ADMIN_PASSWORD}"'
+  # `superset fab create-admin` is no-op when the row already exists, so a
+  # rotated Vault password never reaches the metadata DB. Append
+  # `fab reset-password` so each post-install/post-upgrade hook re-syncs it.
+  initscript: |-
+    #!/bin/sh
+    set -eu
+    echo "Upgrading DB schema..."
+    superset db upgrade
+    echo "Initializing roles..."
+    superset init
+    {{ if .Values.init.createAdmin }}
+    echo "Creating admin user..."
+    superset fab create-admin \
+                    --username {{ .Values.init.adminUser.username }} \
+                    --firstname {{ .Values.init.adminUser.firstname }} \
+                    --lastname {{ .Values.init.adminUser.lastname }} \
+                    --email {{ .Values.init.adminUser.email }} \
+                    --password {{ .Values.init.adminUser.password }} \
+                    || true
+    echo "Syncing admin password from Vault..."
+    superset fab reset-password \
+                    --username {{ .Values.init.adminUser.username }} \
+                    --password {{ .Values.init.adminUser.password }}
+    {{- end }}
+    if [ -f "{{ .Values.extraConfigMountPath }}/import_datasources.yaml" ]; then
+      echo "Importing database connections.... "
+      superset import_datasources -p {{ .Values.extraConfigMountPath }}/import_datasources.yaml
+    fi
 
 serviceAccount:
   create: true
