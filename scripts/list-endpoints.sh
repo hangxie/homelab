@@ -69,7 +69,7 @@ while IFS=$'\t' read -r ns name hostname; do
             print_row "$url" "-" "(create admin on first login)"
             ;;
         jupyter/jupyterhub)
-            print_row "$url" "admin" "replace-me"
+            print_secret_row "$url" jupyter jupyter-admin password admin
             ;;
         kube-system/hubble)
             print_row "$url" "-" "(no auth)"
