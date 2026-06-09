@@ -173,6 +173,7 @@ spec:
     headGroupSpec:
       rayStartParams:
         dashboard-host: "0.0.0.0"
+        dashboard-auth-password: "$RAY_DASHBOARD_AUTH_PASSWORD"
       template:
         spec:
           containers:
@@ -183,6 +184,8 @@ spec:
                 limits:   { cpu: "2", memory: "6Gi" }
               env:
                 - { name: PYTHONPATH, value: /home/ray }
+                - name: RAY_DASHBOARD_AUTH_PASSWORD
+                  valueFrom: { secretKeyRef: { name: ray-dashboard, key: password } }
               ports:
                 - { name: gcs,       containerPort: 6379 }
                 - { name: dashboard, containerPort: 8265 }
@@ -354,22 +357,6 @@ spec:
     - backendRefs:
         - name: ray-vllm-serve-svc
           port: 8000
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: ray-dashboard
-  namespace: ray
-spec:
-  parentRefs:
-    - name: default-gateway
-      namespace: gateway-system
-  hostnames:
-    - "ray.homelab.xiehang.com"
-  rules:
-    - backendRefs:
-        - name: ray-vllm-head-svc
-          port: 8265
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
