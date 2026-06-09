@@ -1,0 +1,20 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hub-kube-apiserver-egress
+  namespace: jupyter
+spec:
+  endpointSelector:
+    matchLabels:
+      app: jupyterhub
+      component: hub
+      release: wl-jupyter
+  egress:
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "6443"
+              protocol: TCP
