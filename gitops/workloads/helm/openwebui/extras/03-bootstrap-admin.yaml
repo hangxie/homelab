@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openwebui-admin-bootstrap
+  namespace: openwebui
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-options: Replace=true,ServerSideDiff=false
+spec:
+  backoffLimit: 15
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: signup
+          image: curlimages/curl:8.10.1
+          env:
+            - name: ADMIN_EMAIL
+              value: admin@homelab.xiehang.com
+            - name: ADMIN_NAME
+              value: Admin
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: openwebui-admin
+                  key: password
+          command: [sh, -ceu]
+          args:
+            - |
+              endpoint="http://open-webui.openwebui.svc:80"
+
+              echo "Waiting for OpenWebUI to be ready..."
+              for i in $(seq 1 60); do
+                if curl -fsS -o /dev/null "${endpoint}/health"; then
+                  echo "OpenWebUI is ready."
+                  break
+                fi
+                if [ "${i}" = "60" ]; then
+                  echo "OpenWebUI not ready after 5m; failing." >&2
+                  exit 1
+                fi
+                sleep 5
+              done
+
+              # OpenWebUI auto-promotes the very first signup to admin. A second
+              # run (e.g. ArgoCD re-sync) gets HTTP 400 "Email is taken!" — treat
+              # that as success so the hook is idempotent. Vault password
+              # rotation is intentionally NOT propagated here; matches the
+              # Airflow admin-bootstrap behavior.
+              payload=$(printf '{"name":"%s","email":"%s","password":"%s"}' \
+                "${ADMIN_NAME}" "${ADMIN_EMAIL}" "${ADMIN_PASSWORD}")
+              code=$(curl -sS -o /tmp/resp -w '%{http_code}' \
+                -X POST "${endpoint}/api/v1/auths/signup" \
+                -H 'Content-Type: application/json' \
+                -d "${payload}")
+              body=$(cat /tmp/resp)
+              echo "Signup HTTP ${code}: ${body}"
+
+              case "${code}" in
+                200) echo "Admin user created."; exit 0 ;;
+                400)
+                  if printf '%s' "${body}" | grep -q -i 'taken'; then
+                    echo "Admin user already exists; nothing to do."
+                    exit 0
+                  fi
+                  echo "Signup rejected: ${body}" >&2
+                  exit 1
+                  ;;
+                *) echo "Unexpected status ${code}" >&2; exit 1 ;;
+              esac

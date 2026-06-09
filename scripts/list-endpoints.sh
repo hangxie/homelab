@@ -89,7 +89,7 @@ while IFS=$'\t' read -r ns name hostname; do
             print_row "$url" "-" "(no auth)"
             ;;
         openwebui/open-webui)
-            print_secret_row "$url" openwebui openwebui-admin WEBUI_SECRET_KEY admin
+            print_secret_row "$url" openwebui openwebui-admin password admin@homelab.xiehang.com
             ;;
         ray/ray-vllm)
             print_row "${url}/v1" "-" "(no auth)"
