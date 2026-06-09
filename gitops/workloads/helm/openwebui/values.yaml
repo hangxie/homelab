@@ -10,12 +10,10 @@ extraEnvVars:
     value: http://llama-cpp.llama-cpp.svc:8080
   - name: OPENAI_API_BASE_URL
     value: http://ray-vllm-serve-svc.ray.svc.cluster.local:8000/v1
-  - name: WEBUI_AUTH
-    value: "true"
-
-envFrom:
-  - secretRef:
-      name: openwebui-admin
+  # Bootstrap Job's signup is the first user (auto-admin in OpenWebUI). Any
+  # subsequent signup lands in `pending` and needs admin approval.
+  - name: DEFAULT_USER_ROLE
+    value: pending
 
 service:
   type: ClusterIP

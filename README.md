@@ -132,6 +132,14 @@ admin-only tool, and the first browser login creates the CloudBeaver admin in
 the workspace PVC. `scripts/list-endpoints.sh` reports that setup step instead
 of a Vault-backed credential.
 
+OpenWebUI's admin user is seeded by a PostSync `openwebui-admin-bootstrap`
+Job that calls the app's signup API with the Vault-backed password and a
+fixed `admin@homelab.xiehang.com` email. The first signup is auto-promoted
+to admin by OpenWebUI; subsequent signups land in `pending` (see
+`DEFAULT_USER_ROLE`). Like Airflow, rotating the Vault password does not
+propagate to OpenWebUI on its own — change it in the UI, or wipe the
+`open-webui` PVC and let the Job re-seed on the next sync.
+
 #### Rotate Harbor credentials
 
 1. Rotate the robot account in Harbor for the `llm-models` project.
