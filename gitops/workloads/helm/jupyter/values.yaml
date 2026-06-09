@@ -8,10 +8,18 @@ hub:
     Authenticator:
       admin_users:
         - admin
-    DummyAuthenticator:
-      password: replace-me
     JupyterHub:
       authenticator_class: dummy
+  extraEnv:
+    - name: JUPYTERHUB_ADMIN_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: jupyter-admin
+          key: password
+  extraConfig:
+    01-admin-password: |
+      import os
+      c.DummyAuthenticator.password = os.environ["JUPYTERHUB_ADMIN_PASSWORD"]
   networkPolicy:
     # Cilium's CIDR selectors do not match in-cluster pod identities, so the
     # chart's default `egressAllowRules.privateIPs: true` (ipBlock 10.0.0.0/8)
