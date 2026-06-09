@@ -66,7 +66,9 @@ while IFS=$'\t' read -r ns name hostname; do
             print_secret_row "$url" argocd argocd-initial-admin-secret password admin
             ;;
         dbeaver/cloudbeaver|dbeaver/dbeaver)
-            print_row "$url" "-" "(create admin on first login)"
+            # CloudBeaver keeps an internal admin in its workspace PVC; this
+            # internal-only tool intentionally stays on the first-login flow.
+            print_row "$url" "-" "(admin created during first login)"
             ;;
         jupyter/jupyter|jupyter/jupyterhub)
             print_secret_row "$url" jupyter jupyter-admin password admin

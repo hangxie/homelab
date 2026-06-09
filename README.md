@@ -127,6 +127,11 @@ with the same `VAULT_TOKEN` used for seeding. Current entries:
 Public vLLM and llama-cpp `/v1` endpoints are currently unauthenticated.
 Bearer-token enforcement is deferred until a dedicated API gateway is added.
 
+DBeaver/CloudBeaver is intentionally not Vault-seeded. It is an internal
+admin-only tool, and the first browser login creates the CloudBeaver admin in
+the workspace PVC. `scripts/list-endpoints.sh` reports that setup step instead
+of a Vault-backed credential.
+
 #### Rotate Harbor credentials
 
 1. Rotate the robot account in Harbor for the `llm-models` project.
