@@ -68,7 +68,7 @@ while IFS=$'\t' read -r ns name hostname; do
         dbeaver/cloudbeaver|dbeaver/dbeaver)
             print_row "$url" "-" "(create admin on first login)"
             ;;
-        jupyter/jupyterhub)
+        jupyter/jupyter|jupyter/jupyterhub)
             print_secret_row "$url" jupyter jupyter-admin password admin
             ;;
         kube-system/hubble)
