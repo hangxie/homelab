@@ -82,10 +82,7 @@ while IFS=$'\t' read -r ns name hostname; do
         monitoring/grafana)
             print_secret_user_pass_row "$url" monitoring grafana-admin username password admin
             ;;
-        ray/ray-dashboard)
-            print_secret_row "$url" ray ray-dashboard password admin
-            ;;
-        monitoring/alertmanager|monitoring/prometheus|spark/spark-history)
+        monitoring/alertmanager|monitoring/prometheus|ray/ray-dashboard|spark/spark-history)
             print_row "$url" "-" "(no auth)"
             ;;
         openwebui/open-webui)
