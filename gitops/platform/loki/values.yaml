@@ -7,7 +7,6 @@ loki:
     bucketNames:
       chunks: loki-chunks
       ruler:  loki-ruler
-      admin:  loki-admin
     s3:
       # endpoint surfaced via the RGW Service; ExternalSecret-managed Secret
       # supplies access_key_id / secret_access_key at runtime.
