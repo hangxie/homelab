@@ -9,11 +9,11 @@ annotations:
   argocd.argoproj.io/sync-options: ServerSideDiff=false
 
 # v14 defaults these subcharts to enabled. Inference uses external llama-cpp
-# and ray-vllm-serve; websockets are unused.
+# and ray-vllm-serve; websockets are unused. No Ollama server exists in the
+# stack, so the in-app Ollama integration is disabled via ENABLE_OLLAMA_API
+# below — llama-cpp speaks the OpenAI-compatible API at /v1, not Ollama's.
 ollama:
   enabled: false
-ollamaUrls:
-  - http://llama-cpp.llama-cpp.svc:8080
 pipelines:
   enabled: false
 websocket:
@@ -24,9 +24,16 @@ persistence:
   storageClass: rook-ceph-block
   size: 10Gi
 
-openaiBaseApiUrl: http://ray-vllm-serve-svc.ray.svc.cluster.local:8000/v1
+openaiBaseApiUrls:
+  - https://vllm.homelab.xiehang.com/v1
+  - https://llama-cpp.homelab.xiehang.com/v1
 
 extraEnvVars:
+  - name: ENABLE_OLLAMA_API
+    value: "False"
+  # Neither backend authenticates, but OpenWebUI requires a key per URL.
+  - name: OPENAI_API_KEYS
+    value: sk-dummy;sk-dummy
   # Bootstrap Job's signup is the first user (auto-admin in OpenWebUI). Any
   # subsequent signup lands in `pending` and needs admin approval.
   - name: DEFAULT_USER_ROLE
