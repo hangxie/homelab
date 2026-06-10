@@ -12,7 +12,7 @@ spec:
   sources:
     - repoURL: https://grafana.github.io/helm-charts
       chart: alloy
-      targetRevision: 0.6.1
+      targetRevision: 1.8.2
       helm:
         valueFiles:
           - $values/gitops/platform/alloy/values.yaml
