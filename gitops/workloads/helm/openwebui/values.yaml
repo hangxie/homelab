@@ -1,5 +1,8 @@
 replicaCount: 1
 
+annotations:
+  argocd.argoproj.io/sync-options: ServerSideDiff=false
+
 persistence:
   enabled: true
   storageClass: rook-ceph-block
