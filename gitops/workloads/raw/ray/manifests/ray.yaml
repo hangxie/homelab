@@ -85,6 +85,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: llm-models
   namespace: ray
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideDiff=false
 spec:
   accessModes: [ReadWriteMany]
   storageClassName: rook-cephfs
@@ -152,6 +154,8 @@ kind: RayService
 metadata:
   name: ray-vllm
   namespace: ray
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideDiff=false
 spec:
   serviceUnhealthySecondThreshold: 1800
   deploymentUnhealthySecondThreshold: 1800
