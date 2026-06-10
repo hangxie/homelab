@@ -3,7 +3,7 @@
 set -uo pipefail
 
 URL_WIDTH=55
-USER_WIDTH=16
+USER_WIDTH=28
 URL_SCHEME="${DASHBOARD_CREDS_SCHEME:-https}"
 
 get_secret() {
