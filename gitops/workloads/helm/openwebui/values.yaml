@@ -1,18 +1,32 @@
 replicaCount: 1
 
+# v14 switched resources to the `open-webui.fullname` template
+# (`<release>-open-webui`). Pin the v6 names so the existing PVC is adopted
+# and the HTTPRoute / bootstrap Job continue to address `open-webui`.
+fullnameOverride: open-webui
+
 annotations:
   argocd.argoproj.io/sync-options: ServerSideDiff=false
+
+# v14 defaults these subcharts to enabled. Inference uses external llama-cpp
+# and ray-vllm-serve; websockets are unused.
+ollama:
+  enabled: false
+ollamaUrls:
+  - http://llama-cpp.llama-cpp.svc:8080
+pipelines:
+  enabled: false
+websocket:
+  enabled: false
 
 persistence:
   enabled: true
   storageClass: rook-ceph-block
   size: 10Gi
 
+openaiBaseApiUrl: http://ray-vllm-serve-svc.ray.svc.cluster.local:8000/v1
+
 extraEnvVars:
-  - name: OLLAMA_BASE_URL
-    value: http://llama-cpp.llama-cpp.svc:8080
-  - name: OPENAI_API_BASE_URL
-    value: http://ray-vllm-serve-svc.ray.svc.cluster.local:8000/v1
   # Bootstrap Job's signup is the first user (auto-admin in OpenWebUI). Any
   # subsequent signup lands in `pending` and needs admin approval.
   - name: DEFAULT_USER_ROLE
