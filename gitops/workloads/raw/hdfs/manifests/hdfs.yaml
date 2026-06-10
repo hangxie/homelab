@@ -15,7 +15,7 @@ data:
   hdfs-site.xml: |
     <?xml version="1.0"?>
     <configuration>
-      <property><name>dfs.replication</name><value>3</value></property>
+      <property><name>dfs.replication</name><value>1</value></property>
       <property><name>dfs.namenode.name.dir</name><value>file:///hadoop/dfs/name</value></property>
       <property><name>dfs.datanode.data.dir</name><value>file:///hadoop/dfs/data</value></property>
       <!-- core-site `fs.defaultFS` points at the namenode Service for client
@@ -106,7 +106,7 @@ metadata:
   namespace: hdfs
 spec:
   serviceName: datanode
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels: { app.kubernetes.io/name: datanode }
   template:
