@@ -7,7 +7,7 @@
   gather_facts: false
   vars:
     # Chart pinning per Decision 7 (Argo self-manages chart + values).
-    argocd_chart_version: "7.7.16"
+    argocd_chart_version: "9.5.20"
 
   tasks:
     - name: Add Argo helm repo
