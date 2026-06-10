@@ -1,0 +1,19 @@
+# Hadoop S3A defaults baked into spark-defaults.conf. Mounted on master
+# and worker pods at /opt/bitnami/spark/conf/spark-defaults.conf via
+# extraVolumes / extraVolumeMounts in values.yaml.
+#
+# Credentials are not in this file; AWS_ACCESS_KEY_ID and
+# AWS_SECRET_ACCESS_KEY come in as env vars (see spark-s3 ExternalSecret),
+# and Hadoop S3A's default provider chain picks them up.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spark-defaults
+  namespace: spark
+data:
+  spark-defaults.conf: |
+    spark.hadoop.fs.s3a.endpoint                  http://rook-ceph-rgw-object-store.rook-ceph.svc/
+    spark.hadoop.fs.s3a.endpoint.region           us-east-1
+    spark.hadoop.fs.s3a.path.style.access         true
+    spark.hadoop.fs.s3a.connection.ssl.enabled    false
+    spark.hadoop.fs.s3a.aws.credentials.provider  org.apache.hadoop.fs.s3a.auth.EnvironmentVariableCredentialsProvider
