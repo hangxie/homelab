@@ -10,6 +10,15 @@ master:
     requests:
       cpu: 250m
       memory: 1Gi
+  extraEnvVarsSecret: spark-s3
+  extraVolumes:
+    - name: spark-defaults
+      configMap:
+        name: spark-defaults
+  extraVolumeMounts:
+    - name: spark-defaults
+      mountPath: /opt/bitnami/spark/conf/spark-defaults.conf
+      subPath: spark-defaults.conf
 
 worker:
   replicaCount: 2
@@ -17,6 +26,15 @@ worker:
     requests:
       cpu: 500m
       memory: 2Gi
+  extraEnvVarsSecret: spark-s3
+  extraVolumes:
+    - name: spark-defaults
+      configMap:
+        name: spark-defaults
+  extraVolumeMounts:
+    - name: spark-defaults
+      mountPath: /opt/bitnami/spark/conf/spark-defaults.conf
+      subPath: spark-defaults.conf
 
 metrics:
   enabled: true
