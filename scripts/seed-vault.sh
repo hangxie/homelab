@@ -12,7 +12,8 @@
 # Value resolution order per (path, field):
 #   1. Existing value already in Vault (keeps re-runs idempotent)
 #   2. Default in scripts/vault-secrets.template.yaml `values:` block
-#   3. Auto-generated random secret (32-char url-safe base64)
+#   3. Auto-generated random secret (32 random bytes, url-safe base64 with
+#      padding — 44 chars, valid input for cryptography.fernet.Fernet)
 #
 # Externally minted credentials (entries marked `generate: false`) must be
 # written to Vault with `vault kv put` before this script runs.
@@ -93,9 +94,11 @@ fetch_from_vault() {
   vault kv get -field="${field}" "${KV_MOUNT}/${path}" 2>/dev/null || true
 }
 
-# 32-char url-safe base64 random string (no padding/slashes/pluses).
+# 32 random bytes encoded as url-safe base64 (44 chars including '=' padding).
+# Padding is preserved so cryptography.fernet.Fernet accepts the value as-is
+# for Airflow's fernet key; other consumers treat it as an opaque string.
 generate_random() {
-  openssl rand -base64 24 | tr -d '\n=' | tr '/+' '_-'
+  openssl rand -base64 32 | tr -d '\n' | tr '/+' '_-'
 }
 
 resolve_value() {
