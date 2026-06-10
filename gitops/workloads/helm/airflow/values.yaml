@@ -52,6 +52,7 @@ migrateDatabaseJob:
 
 apiSecretKeySecretName: airflow-api-secret-key
 jwtSecretName: airflow-jwt-secret
+fernetKeySecretName: airflow-fernet-key
 
 data:
   metadataConnection:

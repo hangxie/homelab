@@ -1,0 +1,20 @@
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: airflow-fernet-key
+  namespace: airflow
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: airflow-fernet-key
+    creationPolicy: Owner
+  data:
+    - secretKey: fernet-key
+      remoteRef:
+        key: airflow/fernet-key
+        property: fernet-key
