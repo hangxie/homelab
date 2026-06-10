@@ -26,3 +26,37 @@ metadata:
 spec:
   store: object-store
   displayName: "loki s3 backend"
+---
+# RGW user consumed by Spark via spark-defaults.conf in the spark namespace.
+# Rook produces Secret/rook-ceph-object-user-object-store-spark; Spark's
+# ExternalSecret mirrors it into the spark namespace.
+apiVersion: ceph.rook.io/v1
+kind: CephObjectStoreUser
+metadata:
+  name: spark
+  namespace: rook-ceph
+spec:
+  store: object-store
+  displayName: "spark s3 backend"
+---
+# RGW user reserved for the Hive metastore warehouse. No HiveCluster CR
+# is deployed yet; the user/bucket are provisioned so wiring up a future
+# HiveCluster is a single chart-values change.
+apiVersion: ceph.rook.io/v1
+kind: CephObjectStoreUser
+metadata:
+  name: hive
+  namespace: rook-ceph
+spec:
+  store: object-store
+  displayName: "hive metastore warehouse"
+---
+# RGW user consumed by Trino's hive connector catalog.
+apiVersion: ceph.rook.io/v1
+kind: CephObjectStoreUser
+metadata:
+  name: trino
+  namespace: rook-ceph
+spec:
+  store: object-store
+  displayName: "trino hive catalog s3 backend"
