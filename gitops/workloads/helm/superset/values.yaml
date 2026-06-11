@@ -18,7 +18,7 @@ redis:
 bootstrapScript: |
   #!/bin/bash
   if [ -d "/app/.venv" ]; then
-    /app/.venv/bin/pip install --quiet psycopg2-binary
+    pip install --quiet --prefix /app/.venv psycopg2-binary
   else
     pip install --quiet psycopg2-binary
   fi
