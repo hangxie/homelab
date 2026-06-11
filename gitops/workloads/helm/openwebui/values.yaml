@@ -29,8 +29,6 @@ openaiBaseApiUrls:
   - https://llama-cpp.homelab.xiehang.com/v1
 
 extraEnvVars:
-  - name: ENABLE_OLLAMA_API
-    value: "False"
   # Neither backend authenticates, but OpenWebUI requires a key per URL.
   - name: OPENAI_API_KEYS
     value: sk-dummy;sk-dummy
