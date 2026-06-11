@@ -1,21 +1,21 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: rook-ceph
+  name: ceph-csi-drivers
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "40"
+    argocd.argoproj.io/sync-wave: "45"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: platform
   sources:
-    - repoURL: https://charts.rook.io/release
-      chart: rook-ceph
-      targetRevision: v1.20.0
+    - repoURL: https://ceph.github.io/ceph-csi-operator
+      chart: ceph-csi-drivers
+      targetRevision: 1.0.1
       helm:
         valueFiles:
-          - $values/gitops/platform/rook-ceph/values.yaml
+          - $values/gitops/platform/ceph-csi-drivers/values.yaml
     - repoURL: https://github.com/hangxie/homelab.git
       targetRevision: main
       ref: values
