@@ -5,10 +5,8 @@ metadata:
   namespace: rook-ceph
 spec:
   cephVersion:
-    # v18.2.4 has a mon ms_dispatch CPU-spin bug that wedges the cluster
-    # during initial pool-create operations on this hardware profile;
-    # v18.2.7 ships the fix.
-    image: quay.io/ceph/ceph:v18.2.7
+    # Rook 1.20 dropped Reef (v18.x) — Squid (v19.x) is the floor.
+    image: quay.io/ceph/ceph:v19.2.4
   dataDirHostPath: /var/lib/rook
   mon:
     count: 3

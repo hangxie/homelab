@@ -1,0 +1,42 @@
+# Rook 1.20+ no longer deploys CSI drivers from the rook-ceph chart; the
+# Driver/OperatorConfig CRs come from this ceph-csi-drivers chart instead.
+# Driver names must match the provisioner names already baked into existing
+# StorageClasses (rook-ceph.{rbd,cephfs}.csi.ceph.com).
+
+operatorConfig:
+  namespace: rook-ceph
+  driverSpecDefaults:
+    imageSet:
+      name: rook-csi-operator-image-set-configmap
+    # GPU-tainted workers (worker-5/worker-6) run vllm/llama-cpp pods that
+    # need RBD volumes. The node plugin DaemonSet and controller plugin must
+    # tolerate the gpu taint, otherwise PVC mounts fail with
+    # `driver name rook-ceph.rbd.csi.ceph.com not found`.
+    nodePlugin:
+      priorityClassName: system-node-critical
+      tolerations:
+        - key: gpu
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+    controllerPlugin:
+      priorityClassName: system-cluster-critical
+      tolerations:
+        - key: gpu
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+
+drivers:
+  rbd:
+    enabled: true
+    name: rook-ceph.rbd.csi.ceph.com
+  cephfs:
+    enabled: true
+    name: rook-ceph.cephfs.csi.ceph.com
+  nfs:
+    enabled: false
+    name: rook-ceph.nfs.csi.ceph.com
+  nvmeof:
+    enabled: false
+    name: rook-ceph.nvmeof.csi.ceph.com
