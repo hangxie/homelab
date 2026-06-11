@@ -7,6 +7,10 @@ spec:
   cephVersion:
     # Rook 1.20 dropped Reef (v18.x) — Squid (v19.x) is the floor.
     image: quay.io/ceph/ceph:v19.2.4
+  config:
+    mon:
+      mon_data_avail_warn: "15"
+      mon_data_avail_crit: "5"
   dataDirHostPath: /var/lib/rook
   mon:
     count: 3
