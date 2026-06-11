@@ -11,5 +11,5 @@ spec:
     - "trino.homelab.xiehang.com"
   rules:
     - backendRefs:
-        - name: trino
+        - name: wl-trino-trino
           port: 8080
