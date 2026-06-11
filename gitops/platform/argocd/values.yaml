@@ -19,6 +19,11 @@ configs:
     timeout.reconciliation: "180s"
     # Surface the gateway hostname so generated callback URLs resolve.
     url: "https://argocd.homelab.xiehang.com"
+    # PV controller stamps spec.volumeName onto bound PVCs; Git never carries
+    # it, so without this every PVC reports OutOfSync after binding.
+    resource.customizations.ignoreDifferences.PersistentVolumeClaim: |
+      jsonPointers:
+        - /spec/volumeName
   rbac:
     policy.default: role:readonly
     policy.csv: |
