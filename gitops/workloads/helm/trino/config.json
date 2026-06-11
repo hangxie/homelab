@@ -1,5 +1,5 @@
 {
   "chart_repo": "https://trinodb.github.io/charts",
   "chart_name": "trino",
-  "chart_version": "0.31.0"
+  "chart_version": "1.42.2"
 }
