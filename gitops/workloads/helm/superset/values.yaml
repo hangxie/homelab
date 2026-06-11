@@ -17,7 +17,11 @@ redis:
 # start. The chart concatenates bootstrapScript with its own init logic.
 bootstrapScript: |
   #!/bin/bash
-  pip install --quiet psycopg2-binary
+  if [ -d "/app/.venv" ]; then
+    /app/.venv/bin/pip install --quiet psycopg2-binary
+  else
+    pip install --quiet psycopg2-binary
+  fi
   if [ ! -f ~/bootstrap ]; then echo "Running Superset with uid $(id -u)" > ~/bootstrap; fi
 
 supersetNode:
