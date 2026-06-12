@@ -132,6 +132,19 @@ admin-only tool, and the first browser login creates the CloudBeaver admin in
 the workspace PVC. `scripts/list-endpoints.sh` reports that setup step instead
 of a Vault-backed credential.
 
+Headlamp is intentionally not Vault-seeded. It uses operator-issued
+ServiceAccount tokens (no static credential). The chart provisions the
+`headlamp` ServiceAccount and binds it to `cluster-admin`. To log in,
+mint a short-lived token against that SA and paste it at the login
+screen:
+
+```bash
+kubectl -n headlamp create token headlamp --duration=8h
+```
+
+`scripts/list-endpoints.sh` reports that step instead of a Vault-backed
+credential.
+
 OpenWebUI's admin user is seeded by a PostSync `openwebui-admin-bootstrap`
 Job that calls the app's signup API with the Vault-backed password and a
 fixed `admin@homelab.xiehang.com` email. The first signup is auto-promoted

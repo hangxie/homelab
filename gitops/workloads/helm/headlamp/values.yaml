@@ -1,0 +1,22 @@
+replicaCount: 1
+
+# Predictable resource names for the HTTPRoute backendRef.
+fullnameOverride: headlamp
+
+config:
+  # Use the in-cluster ServiceAccount only to discover the API server and
+  # validate user tokens. The Bearer token a user pastes at the login
+  # screen is what Headlamp forwards to the API server as that user's
+  # identity. No OIDC, no kubeconfig store.
+  inCluster: true
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Token mode is stateless; no plugins this round.
+persistentVolumeClaim:
+  enabled: false
+
+pluginsManager:
+  enabled: false

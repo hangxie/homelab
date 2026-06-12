@@ -20,6 +20,7 @@ spec:
                 # (including PVCs) are deleted on the next Argo sync.
                 - name: airflow
                 - name: cassandra
+                - name: headlamp
                 - name: jupyter
                 - name: mysql
                 - name: openwebui

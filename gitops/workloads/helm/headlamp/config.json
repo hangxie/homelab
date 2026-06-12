@@ -1,0 +1,5 @@
+{
+  "chart_repo": "https://kubernetes-sigs.github.io/headlamp/",
+  "chart_name": "headlamp",
+  "chart_version": "0.42.0"
+}
