@@ -70,6 +70,14 @@ while IFS=$'\t' read -r ns name hostname; do
             # internal-only tool intentionally stays on the first-login flow.
             print_row "$url" "-" "(admin created during first login)"
             ;;
+        headlamp/headlamp)
+            # Token-based login: no static credential is materialized; the
+            # operator mints an SA token on demand and pastes it at the
+            # login screen. The `headlamp` ServiceAccount is provisioned by
+            # the chart and bound to cluster-admin via the chart's own CRB.
+            print_row "$url" headlamp \
+                "(kubectl -n headlamp create token headlamp --duration=8h)"
+            ;;
         jupyter/jupyter|jupyter/jupyterhub)
             print_secret_row "$url" jupyter jupyter-admin password admin
             ;;
