@@ -146,10 +146,11 @@ kubectl -n headlamp create token headlamp --duration=8h
 credential.
 
 OpenWebUI's admin user is seeded by a PostSync `openwebui-admin-bootstrap`
-Job that calls the app's signup API with the Vault-backed password and a
-fixed `admin@homelab.xiehang.com` email. The first signup is auto-promoted
-to admin by OpenWebUI; subsequent signups land in `pending` (see
-`DEFAULT_USER_ROLE`). Like Airflow, rotating the Vault password does not
+Job that verifies the fixed `admin@homelab.xiehang.com` account with the
+Vault-backed password, or calls the signup API on first bootstrap. The first
+signup is auto-promoted to admin by OpenWebUI; subsequent signups land in
+`pending` (see `DEFAULT_USER_ROLE`) and may be blocked by OpenWebUI's
+persisted signup setting. Like Airflow, rotating the Vault password does not
 propagate to OpenWebUI on its own — change it in the UI, or wipe the
 `open-webui` PVC and let the Job re-seed on the next sync.
 

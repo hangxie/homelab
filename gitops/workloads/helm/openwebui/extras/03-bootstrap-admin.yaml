@@ -44,29 +44,59 @@ spec:
                 sleep 5
               done
 
-              # OpenWebUI auto-promotes the very first signup to admin. A second
-              # run (e.g. ArgoCD re-sync) gets HTTP 400 "Email is taken!" — treat
-              # that as success so the hook is idempotent. Vault password
-              # rotation is intentionally NOT propagated here; matches the
-              # Airflow admin-bootstrap behavior.
-              payload=$(printf '{"name":"%s","email":"%s","password":"%s"}' \
-                "${ADMIN_NAME}" "${ADMIN_EMAIL}" "${ADMIN_PASSWORD}")
-              code=$(curl -sS -o /tmp/resp -w '%{http_code}' \
-                -X POST "${endpoint}/api/v1/auths/signup" \
+              # OpenWebUI persists signup settings in its DB, and recent
+              # versions return 403 for signup once registration is disabled.
+              # Verify the existing admin first so Argo CD resyncs are
+              # idempotent without relying on signup's "email taken" behavior.
+              auth_payload=$(printf '{"email":"%s","password":"%s"}' \
+                "${ADMIN_EMAIL}" "${ADMIN_PASSWORD}")
+              signin_code=$(curl -sS -o /tmp/signin-resp -w '%{http_code}' \
+                -X POST "${endpoint}/api/v1/auths/signin" \
                 -H 'Content-Type: application/json' \
-                -d "${payload}")
-              body=$(cat /tmp/resp)
-              echo "Signup HTTP ${code}: ${body}"
+                -d "${auth_payload}")
+              signin_body=$(cat /tmp/signin-resp)
 
-              case "${code}" in
-                200) echo "Admin user created."; exit 0 ;;
-                400)
-                  if printf '%s' "${body}" | grep -q -i 'taken'; then
-                    echo "Admin user already exists; nothing to do."
-                    exit 0
-                  fi
-                  echo "Signup rejected: ${body}" >&2
+              case "${signin_code}" in
+                200|201)
+                  echo "Admin credential verified."
+                  exit 0
+                  ;;
+                400|401|403)
+                  echo "Admin signin did not verify (HTTP ${signin_code}); trying initial signup."
+                  ;;
+                *)
+                  echo "Unexpected signin status ${signin_code}: ${signin_body}" >&2
                   exit 1
                   ;;
-                *) echo "Unexpected status ${code}" >&2; exit 1 ;;
+              esac
+
+              # OpenWebUI auto-promotes the very first signup to admin. Vault
+              # password rotation is intentionally NOT propagated here; matches
+              # the Airflow admin-bootstrap behavior.
+              signup_payload=$(printf '{"name":"%s","email":"%s","password":"%s"}' \
+                "${ADMIN_NAME}" "${ADMIN_EMAIL}" "${ADMIN_PASSWORD}")
+              signup_code=$(curl -sS -o /tmp/signup-resp -w '%{http_code}' \
+                -X POST "${endpoint}/api/v1/auths/signup" \
+                -H 'Content-Type: application/json' \
+                -d "${signup_payload}")
+              signup_body=$(cat /tmp/signup-resp)
+
+              case "${signup_code}" in
+                200) echo "Admin user created."; exit 0 ;;
+                400)
+                  if printf '%s' "${signup_body}" | grep -q -i 'taken'; then
+                    echo "Admin user exists, but signin with the Vault-backed password failed." >&2
+                    echo "Update the OpenWebUI password to match Vault, or wipe the open-webui PVC and re-sync." >&2
+                    exit 1
+                  fi
+                  echo "Signup rejected (HTTP ${signup_code}): ${signup_body}" >&2
+                  exit 1
+                  ;;
+                403)
+                  echo "Signup forbidden. If the admin user exists, its password does not match Vault." >&2
+                  echo "Otherwise enable signup or wipe the open-webui PVC before re-syncing." >&2
+                  echo "Signup rejected (HTTP ${signup_code}): ${signup_body}" >&2
+                  exit 1
+                  ;;
+                *) echo "Unexpected signup status ${signup_code}: ${signup_body}" >&2; exit 1 ;;
               esac
