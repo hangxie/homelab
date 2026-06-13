@@ -8,10 +8,9 @@ operatorConfig:
   driverSpecDefaults:
     imageSet:
       name: rook-csi-operator-image-set-configmap
-    # GPU-tainted workers (worker-5/worker-6) run vllm/llama-cpp pods that
-    # need RBD volumes. The node plugin DaemonSet and controller plugin must
-    # tolerate the gpu taint, otherwise PVC mounts fail with
-    # `driver name rook-ceph.rbd.csi.ceph.com not found`.
+    # Keep these defaults for future Driver CRs. The chart also renders empty
+    # per-driver toleration lists, so enabled drivers below repeat the GPU
+    # toleration explicitly.
     nodePlugin:
       priorityClassName: system-node-critical
       tolerations:
@@ -31,9 +30,37 @@ drivers:
   rbd:
     enabled: true
     name: rook-ceph.rbd.csi.ceph.com
+    nodePlugin:
+      priorityClassName: system-node-critical
+      tolerations:
+        - key: gpu
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+    controllerPlugin:
+      priorityClassName: system-cluster-critical
+      tolerations:
+        - key: gpu
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
   cephfs:
     enabled: true
     name: rook-ceph.cephfs.csi.ceph.com
+    nodePlugin:
+      priorityClassName: system-node-critical
+      tolerations:
+        - key: gpu
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+    controllerPlugin:
+      priorityClassName: system-cluster-critical
+      tolerations:
+        - key: gpu
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
   nfs:
     enabled: false
     name: rook-ceph.nfs.csi.ceph.com
