@@ -1,0 +1,6 @@
+# Oracle MySQL Operator Helm values.
+#
+# Cluster-scoped: the operator watches InnoDBCluster CRs across all
+# namespaces. The single mysql instance lives at gitops/workloads/raw/mysql/.
+#
+# https://github.com/mysql/mysql-operator/blob/trunk/helm/mysql-operator/values.yaml

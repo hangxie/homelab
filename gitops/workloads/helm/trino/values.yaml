@@ -1,6 +1,8 @@
 envFrom:
   - secretRef:
       name: trino-s3
+  - secretRef:
+      name: trino-mysql
 
 coordinator:
   jvm:
@@ -43,8 +45,9 @@ additionalCatalogs:
     s3.aws-secret-key=${ENV:SECRET_ACCESS_KEY}
   mysql: |
     connector.name=mysql
-    connection-url=jdbc:mysql://mysql-primary.mysql.svc:3306
+    connection-url=jdbc:mysql://mysql-cluster.mysql.svc:3306
     connection-user=root
+    connection-password=${ENV:MYSQL_ROOT_PASSWORD}
 
 serviceMonitor:
   enabled: true

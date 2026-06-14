@@ -35,6 +35,7 @@ root Application
     ├── nfd (88) → nvidia-device-plugin (92)
     ├── kuberay-operator (90)
     ├── redis-operator (95)
+    ├── mysql-operator (97)
     ├── gateway-routes (100)
     ├── postgres-cnpg (105) → postgres-cluster (108)
     └── workloads-helm / workloads-raw (110; ApplicationSets)
