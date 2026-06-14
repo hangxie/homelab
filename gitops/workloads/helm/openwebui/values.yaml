@@ -20,6 +20,8 @@ persistence:
   enabled: true
   storageClass: rook-ceph-block
   size: 10Gi
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
 
 openaiBaseApiUrls:
   - https://vllm.homelab.xiehang.com/v1

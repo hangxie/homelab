@@ -25,6 +25,8 @@ grafana:
     enabled: true
     storageClassName: rook-ceph-block
     size: 5Gi
+    annotations:
+      argocd.argoproj.io/sync-options: Prune=false
 
 prometheus:
   prometheusSpec:
