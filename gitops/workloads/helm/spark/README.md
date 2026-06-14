@@ -9,8 +9,8 @@ Use the official Apache Spark image as the default worker/executor source:
 
 ```yaml
 spec:
-  image: docker.io/library/spark:4.0.1
-  sparkVersion: 4.0.1
+  image: docker.io/library/spark:4.1.2
+  sparkVersion: 4.1.2
 ```
 
 Jobs that read or write Ceph RGW through `s3a://` should also opt in to the
