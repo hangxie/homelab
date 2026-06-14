@@ -1,0 +1,10 @@
+# OT-Container-Kit Redis operator Helm values.
+#
+# Cluster-scoped: the operator watches Redis/RedisReplication/RedisSentinel/
+# RedisCluster CRs across all namespaces. The single redis instance lives at
+# gitops/workloads/raw/redis/.
+#
+# https://github.com/OT-CONTAINER-KIT/redis-operator/blob/master/helm-charts/redis-operator/values.yaml
+redisOperator:
+  metrics:
+    enabled: true

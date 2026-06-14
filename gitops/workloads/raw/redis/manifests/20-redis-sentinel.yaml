@@ -1,0 +1,35 @@
+# RedisSentinel: 3-node quorum watching the redis-replication master group.
+# Clients should connect via the Sentinel service (port 26379) and ask for
+# master "myMaster" to follow failovers.
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: RedisSentinel
+metadata:
+  name: redis-sentinel
+  namespace: redis
+spec:
+  clusterSize: 3
+  redisSentinelConfig:
+    redisReplicationName: redis-replication
+    masterGroupName: myMaster
+    redisPort: "6379"
+    quorum: "2"
+    parallelSyncs: "1"
+    failoverTimeout: "180000"
+    downAfterMilliseconds: "30000"
+    redisReplicationPassword:
+      secretKeyRef:
+        name: redis-default
+        key: password
+  kubernetesConfig:
+    image: quay.io/opstree/redis-sentinel:v7.0.15
+    imagePullPolicy: IfNotPresent
+    redisSecret:
+      name: redis-default
+      key: password
+  redisExporter:
+    enabled: true
+    image: quay.io/opstree/redis-exporter:v1.44.0
+    imagePullPolicy: IfNotPresent
+  podSecurityContext:
+    fsGroup: 1000
+    runAsUser: 1000
