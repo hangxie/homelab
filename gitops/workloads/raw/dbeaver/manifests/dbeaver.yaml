@@ -32,6 +32,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: cloudbeaver
   namespace: dbeaver
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   accessModes: [ReadWriteOnce]
   storageClassName: rook-ceph-block

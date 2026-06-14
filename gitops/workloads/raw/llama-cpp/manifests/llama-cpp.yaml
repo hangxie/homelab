@@ -45,6 +45,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: llama-cpp-models
   namespace: llama-cpp
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   accessModes: [ReadWriteMany]
   storageClassName: rook-cephfs
