@@ -12,6 +12,14 @@ spec:
     serverVersion: "5.0.5"
     superuserSecretRef:
       name: cassandra-admin
+    resources:
+      requests:
+        cpu: "1"
+        memory: 4Gi
+      limits:
+        memory 4Gi
+    jvmOptions:
+      heapSize: 2Gi
     storageConfig:
       cassandraDataVolumeClaimSpec:
         storageClassName: rook-ceph-block
