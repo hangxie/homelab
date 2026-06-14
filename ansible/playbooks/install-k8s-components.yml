@@ -68,19 +68,17 @@
         state: present
 
     # Time sync: chrony replaces systemd-timesyncd so kubelet/etcd see consistent clocks.
-    - name: Stop and mask systemd-timesyncd
-      systemd:
-        name: systemd-timesyncd
-        state: stopped
-        enabled: false
-        masked: true
-      failed_when: false
-
     - name: Enable and start chrony
       systemd:
         name: chrony
         state: started
         enabled: true
+
+    - name: Purge systemd-timesyncd
+      apt:
+        name: systemd-timesyncd
+        state: absent
+        purge: yes
 
     - name: Disable swap
       command: swapoff -a
