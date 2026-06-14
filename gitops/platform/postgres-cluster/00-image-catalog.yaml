@@ -1,0 +1,11 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: ImageCatalog
+metadata:
+  name: postgres-cluster-images
+  namespace: postgres-cluster
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  images:
+    - major: 16
+      image: ghcr.io/cloudnative-pg/postgresql:16.4
