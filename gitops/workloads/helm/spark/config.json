@@ -1,5 +1,5 @@
 {
-  "chart_repo": "registry-1.docker.io/bitnamicharts",
-  "chart_name": "spark",
-  "chart_version": "9.4.0"
+  "chart_repo": "https://kubeflow.github.io/spark-operator",
+  "chart_name": "spark-operator",
+  "chart_version": "2.5.0"
 }

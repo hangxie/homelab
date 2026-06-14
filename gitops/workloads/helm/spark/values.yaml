@@ -1,44 +1,35 @@
-image:
-  repository: bitnamilegacy/spark
-
-global:
-  security:
-    allowInsecureImages: true
-
-master:
+# Kubeflow Spark Operator replaces the old Bitnami standalone
+# master/worker cluster. Spark workers are executor pods created by
+# SparkApplication resources; the executor image is declared per job.
+controller:
   resources:
     requests:
-      cpu: 250m
-      memory: 1Gi
-  extraEnvVarsSecret: spark-s3
-  extraVolumes:
-    - name: spark-defaults
-      configMap:
-        name: spark-defaults
-  extraVolumeMounts:
-    - name: spark-defaults
-      mountPath: /opt/bitnami/spark/conf/spark-defaults.conf
-      subPath: spark-defaults.conf
+      cpu: 100m
+      memory: 512Mi
 
-worker:
-  replicaCount: 2
+webhook:
+  enable: true
   resources:
     requests:
-      cpu: 500m
-      memory: 2Gi
-  extraEnvVarsSecret: spark-s3
-  extraVolumes:
-    - name: spark-defaults
-      configMap:
-        name: spark-defaults
-  extraVolumeMounts:
-    - name: spark-defaults
-      mountPath: /opt/bitnami/spark/conf/spark-defaults.conf
-      subPath: spark-defaults.conf
+      cpu: 50m
+      memory: 256Mi
 
-metrics:
-  enabled: true
-  serviceMonitor:
-    enabled: true
+spark:
+  # The ApplicationSet deploys this chart into namespace spark, and Spark
+  # jobs are expected to live there unless another namespace is added here.
+  jobNamespaces:
+    - spark
+  serviceAccount:
+    create: true
+    name: spark
+
+prometheus:
+  metrics:
+    enable: true
+  podMonitor:
+    create: true
     labels:
       release: prometheus-stack
+
+certManager:
+  enable: true
