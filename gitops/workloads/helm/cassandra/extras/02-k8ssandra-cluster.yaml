@@ -17,9 +17,10 @@ spec:
         cpu: "1"
         memory: 4Gi
       limits:
-        memory 4Gi
-    jvmOptions:
-      heapSize: 2Gi
+        memory: 4Gi
+    config:
+      jvmOptions:
+        heapSize: 2Gi
     storageConfig:
       cassandraDataVolumeClaimSpec:
         storageClassName: rook-ceph-block
