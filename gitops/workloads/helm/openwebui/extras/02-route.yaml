@@ -3,6 +3,12 @@ kind: HTTPRoute
 metadata:
   name: open-webui
   namespace: openwebui
+  labels:
+    # Without at least one author-supplied label, Argo CD's server-side diff
+    # leaves `labels: {}` in the predicted state after stripping the instance
+    # tracking label, while the normalized live drops `labels` entirely —
+    # producing a phantom OutOfSync.
+    app.kubernetes.io/name: open-webui
 spec:
   parentRefs:
     - name: default-gateway
