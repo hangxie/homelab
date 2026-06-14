@@ -5,9 +5,6 @@ replicaCount: 1
 # and the HTTPRoute / bootstrap Job continue to address `open-webui`.
 fullnameOverride: open-webui
 
-annotations:
-  argocd.argoproj.io/sync-options: ServerSideDiff=false
-
 # v14 defaults these subcharts to enabled. Inference uses external llama-cpp
 # and ray-vllm-serve; websockets are unused. No Ollama server exists in the
 # stack, so the in-app Ollama integration is disabled via ENABLE_OLLAMA_API
