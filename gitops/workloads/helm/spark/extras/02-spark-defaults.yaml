@@ -1,6 +1,7 @@
-# Hadoop S3A defaults baked into spark-defaults.conf. Mounted on master
-# and worker pods at /opt/bitnami/spark/conf/spark-defaults.conf via
-# extraVolumes / extraVolumeMounts in values.yaml.
+# Hadoop S3A defaults baked into spark-defaults.conf. SparkApplication
+# resources opt in with `spec.sparkConfigMap: spark-defaults`; the
+# operator mounts it at /etc/spark/conf and sets SPARK_CONF_DIR for
+# driver and executor pods.
 #
 # Credentials are not in this file; AWS_ACCESS_KEY_ID and
 # AWS_SECRET_ACCESS_KEY come in as env vars (see spark-s3 ExternalSecret),
