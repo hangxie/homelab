@@ -4,3 +4,6 @@
 # namespaces. The single mysql instance lives at gitops/workloads/raw/mysql/.
 #
 # https://github.com/mysql/mysql-operator/blob/trunk/helm/mysql-operator/values.yaml
+
+envs:
+  k8sClusterDomain: cluster.local
