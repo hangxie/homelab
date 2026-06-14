@@ -13,6 +13,7 @@ spec:
           # Mandatory — required for the cluster's data platform.
           - name: hdfs
           - name: ray
+          - name: redis
           # Optional — comment a line out to disable that workload.
           # Pruning is automatic: a disabled workload's resources
           # (including PVCs) are deleted on the next Argo sync.
