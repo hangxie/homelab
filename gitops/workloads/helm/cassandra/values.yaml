@@ -1,24 +1,8 @@
-replicaCount: 3
-
-image:
-  repository: bitnamilegacy/cassandra
-
-dbUser:
-  user: cassandra
-  existingSecret: cassandra-admin
-
 global:
-  storageClass: rook-ceph-block
+  clusterScoped: false
 
-persistence:
-  enabled: true
-  size: 10Gi
+controlPlane: true
+disableCrdUpgraderJob: true
 
-metrics:
-  enabled: true
-  image:
-    repository: bitnamilegacy/cassandra-exporter
-  serviceMonitor:
-    enabled: true
-    labels:
-      release: prometheus-stack
+cass-operator:
+  disableCertManagerCheck: true

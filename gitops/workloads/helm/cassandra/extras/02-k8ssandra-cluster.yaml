@@ -1,0 +1,33 @@
+apiVersion: k8ssandra.io/v1alpha1
+kind: K8ssandraCluster
+metadata:
+  name: cassandra
+  namespace: cassandra
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  auth: true
+  cassandra:
+    serverType: cassandra
+    serverVersion: "5.0.5"
+    superuserSecretRef:
+      name: cassandra-admin
+    storageConfig:
+      cassandraDataVolumeClaimSpec:
+        storageClassName: rook-ceph-block
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+    telemetry:
+      prometheus:
+        enabled: true
+        commonLabels:
+          release: prometheus-stack
+    datacenters:
+      - metadata:
+          name: dc1
+        size: 3
+        racks:
+          - name: default

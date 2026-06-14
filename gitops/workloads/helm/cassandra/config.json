@@ -1,5 +1,5 @@
 {
-  "chart_repo": "registry-1.docker.io/bitnamicharts",
-  "chart_name": "cassandra",
-  "chart_version": "12.0.0"
+  "chart_repo": "https://helm.k8ssandra.io/stable",
+  "chart_name": "k8ssandra-operator",
+  "chart_version": "1.32.1"
 }
