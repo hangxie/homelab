@@ -19,6 +19,7 @@ spec:
           # (including PVCs) are deleted on the next Argo sync.
           - name: dbeaver
           - name: llama-cpp
+          - name: mysql
   template:
     metadata:
       name: 'wl-{{ .name }}'

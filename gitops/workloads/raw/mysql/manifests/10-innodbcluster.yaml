@@ -1,0 +1,23 @@
+# InnoDBCluster: 3-instance MySQL Group Replication managed by the Oracle
+# MySQL Operator, fronted by 1 MySQL Router. Clients connect via the
+# mysql-cluster.mysql.svc service on port 3306 (read/write, follows the
+# elected primary). Authenticates against mysql-root, synced from Vault
+# path mysql/root by the ExternalSecret in this directory.
+apiVersion: mysql.oracle.com/v2
+kind: InnoDBCluster
+metadata:
+  name: mysql-cluster
+  namespace: mysql
+spec:
+  secretName: mysql-root
+  tlsUseSelfSigned: true
+  instances: 3
+  router:
+    instances: 1
+  datadirVolumeClaimTemplate:
+    storageClassName: rook-ceph-block
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 10Gi

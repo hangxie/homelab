@@ -21,7 +21,6 @@ spec:
                 - name: cassandra
                 - name: headlamp
                 - name: jupyter
-                - name: mysql
                 - name: openwebui
                 - name: spark
                 - name: superset
