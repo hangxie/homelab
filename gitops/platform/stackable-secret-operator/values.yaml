@@ -1,0 +1,4 @@
+# Stackable secret operator. Required by Hive S3 credentials through
+# SecretClass/k8sSearch.
+serviceAccount:
+  create: true

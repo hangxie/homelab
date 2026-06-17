@@ -32,6 +32,7 @@ root Application
     ├── metrics-server (60)
     ├── prometheus-stack (70)
     ├── loki / tempo / alloy (80)
+    ├── stackable commons/secret/listener operators (84/86/87)
     ├── nfd (88) → nvidia-device-plugin (92)
     ├── kuberay-operator (90)
     ├── redis-operator (95)
@@ -51,7 +52,7 @@ workloads come from explicit `elements` lists in `workloads-helm.yaml` and
 ### Persistent stores
 
 - **HashiCorp Vault** (external) — only persistent source of truth besides Git. Auth via AppRole with `secret_id_ttl=0` and `secret_id_num_uses=0`.
-- **Rook-Ceph** — block (`rook-ceph-block`, default), CephFS (`rook-cephfs`, RWX), and an object store consumed by Loki via an `ExternalSecret`-driven copy of the Rook-produced RGW Secret.
+- **Rook-Ceph** — block (`rook-ceph-block`, default), CephFS (`rook-cephfs`, RWX), and an object store consumed through `ExternalSecret`-driven copies of Rook-produced RGW Secrets.
 - **CloudNativePG** — three-instance Postgres cluster at `postgres-cluster-rw.postgres-cluster`. Airflow, Superset, Hive, and Jupyter create their users/databases with Sync-hook Jobs at wave -1; superuser credentials flow from Vault into a `postgres-cluster-superuser` Secret.
 
 ### TLS

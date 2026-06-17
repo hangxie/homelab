@@ -1,0 +1,4 @@
+# Stackable listener operator. Required by Hive to expose the metastore
+# listener as a cluster-internal Service.
+serviceAccount:
+  create: true

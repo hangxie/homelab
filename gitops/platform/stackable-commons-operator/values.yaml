@@ -1,0 +1,4 @@
+# Stackable commons operator. Required by Stackable product operators for
+# shared CRDs such as S3Connection/S3Bucket.
+serviceAccount:
+  create: true
