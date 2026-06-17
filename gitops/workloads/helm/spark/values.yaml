@@ -27,9 +27,7 @@ prometheus:
   metrics:
     enable: true
   podMonitor:
-    create: true
-    labels:
-      release: prometheus-stack
+    create: false
 
 certManager:
   enable: true

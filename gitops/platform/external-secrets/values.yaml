@@ -7,8 +7,3 @@ webhook:
 
 certController:
   replicaCount: 2
-
-serviceMonitor:
-  enabled: true
-  additionalLabels:
-    release: prometheus-stack

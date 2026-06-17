@@ -9,8 +9,3 @@ worker:
     - key: gpu
       operator: Exists
       effect: NoSchedule
-
-prometheus:
-  enable: true
-  labels:
-    release: prometheus-stack

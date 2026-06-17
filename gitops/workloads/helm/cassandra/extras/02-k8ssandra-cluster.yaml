@@ -31,9 +31,7 @@ spec:
             storage: 10Gi
     telemetry:
       prometheus:
-        enabled: true
-        commonLabels:
-          release: prometheus-stack
+        enabled: false
     datacenters:
       - metadata:
           name: dc1

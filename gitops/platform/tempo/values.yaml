@@ -16,8 +16,3 @@ securityContext:
   runAsGroup: 10001
   fsGroup: 10001
   runAsNonRoot: true
-
-serviceMonitor:
-  enabled: true
-  additionalLabels:
-    release: prometheus-stack

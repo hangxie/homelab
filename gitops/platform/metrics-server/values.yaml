@@ -3,8 +3,3 @@ replicas: 2
 args:
   - --kubelet-insecure-tls
   - --kubelet-preferred-address-types=InternalIP
-
-serviceMonitor:
-  enabled: true
-  additionalLabels:
-    release: prometheus-stack

@@ -56,9 +56,3 @@ resultsCache:
 
 gateway:
   enabled: true
-
-monitoring:
-  serviceMonitor:
-    enabled: true
-    labels:
-      release: prometheus-stack
