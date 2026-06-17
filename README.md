@@ -30,7 +30,7 @@ root Application
     ├── external-secrets (30) → external-secrets-stores (35)
     ├── rook-ceph (40) → rook-ceph-cluster (50)
     ├── metrics-server (60)
-    ├── prometheus-stack (70)
+    ├── grafana / kube-state-metrics / mimir (70)
     ├── loki / tempo / alloy (80)
     ├── stackable commons/secret/listener operators (84/86/87)
     ├── nfd (88) → nvidia-device-plugin (92)
@@ -247,7 +247,7 @@ ansible-playbook -i ansible/inventory.ini ansible/bootstrap-k8s.yml
 ```
 
 Survives: VM identities, IPs, host packages, Vault data, this repo.
-Destroys: every byte inside the cluster (Postgres, Ceph, Prometheus, models, Loki logs, etc.).
+Destroys: every byte inside the cluster (Postgres, Ceph, Mimir metrics, Loki logs, Tempo traces, models, etc.).
 Time: ~15–20 min Ansible + ~10–15 min Argo CD first-sync.
 
 ### Nuke (re-cut from infrastructure up)

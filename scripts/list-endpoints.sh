@@ -87,10 +87,13 @@ while IFS=$'\t' read -r ns name hostname; do
         llama-cpp/llama-cpp)
             print_row "${url}/v1" "-" "(no auth)"
             ;;
-        monitoring/grafana)
-            print_secret_user_pass_row "$url" monitoring grafana-admin username password admin
+        grafana/grafana)
+            print_secret_user_pass_row "$url" grafana grafana-admin username password admin
             ;;
-        monitoring/alertmanager|monitoring/prometheus|ray/ray-dashboard|spark/spark-history)
+        mimir/mimir)
+            print_row "$url" "-" "(no auth)"
+            ;;
+        ray/ray-dashboard|spark/spark-history)
             print_row "$url" "-" "(no auth)"
             ;;
         openwebui/open-webui)

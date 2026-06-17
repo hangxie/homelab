@@ -11,5 +11,5 @@ spec:
     - "mimir.homelab.xiehang.com"
   rules:
     - backendRefs:
-        - name: mimir-nginx
+        - name: mimir-gateway
           port: 80
