@@ -1,12 +1,4 @@
-# Stackable Hive metastore. Database/credentials supplied via env from
-# extras/ ExternalSecrets; init Job creates the hive Postgres user/db.
-clusterConfig:
-  database:
-    connString: jdbc:postgresql://postgres-cluster-rw.postgres-cluster.svc:5432/hive
-    user: hive
-    dbType: postgres
-
-replicas: 2
-
+# The chart deploys only the Stackable hive-operator. The HiveCluster CR and
+# its supporting secrets live in extras/.
 serviceAccount:
   create: true

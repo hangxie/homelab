@@ -1,0 +1,30 @@
+apiVersion: hive.stackable.tech/v1alpha1
+kind: HiveCluster
+metadata:
+  name: hive-metastore
+  namespace: hive
+spec:
+  image:
+    productVersion: 4.2.0
+  clusterConfig:
+    database:
+      connString: jdbc:postgresql://postgres-cluster-rw.postgres-cluster.svc:5432/hive
+      credentialsSecret: hive-db-credentials
+      dbType: postgres
+    s3:
+      inline:
+        host: rook-ceph-rgw-object-store.rook-ceph.svc
+        port: 80
+        region:
+          name: us-east-1
+        accessStyle: Path
+        credentials:
+          secretClass: hive-s3
+  metastore:
+    config:
+      warehouseDir: s3a://hive/warehouse/
+    roleConfig:
+      listenerClass: cluster-internal
+    roleGroups:
+      default:
+        replicas: 1
