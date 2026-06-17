@@ -1,0 +1,30 @@
+admin:
+  existingSecret: grafana-admin
+  userKey: username
+  passwordKey: password
+
+defaultDashboardsTimezone: browser
+
+sidecar:
+  dashboards:
+    enabled: true
+    searchNamespace: ALL
+    label: grafana_dashboard
+    labelValue: "1"
+  datasources:
+    enabled: true
+    searchNamespace: ALL
+    label: grafana_datasource
+    labelValue: "1"
+  alerts:
+    enabled: true
+    searchNamespace: ALL
+    label: grafana_alert
+    labelValue: "1"
+
+persistence:
+  enabled: true
+  storageClassName: rook-ceph-block
+  size: 5Gi
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
