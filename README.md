@@ -36,6 +36,7 @@ root Application
     ├── kuberay-operator (90)
     ├── redis-operator (95)
     ├── mysql-operator (97)
+    ├── scylla-operator (99)
     ├── gateway-routes (100)
     ├── postgres-cnpg (105) → postgres-cluster (108)
     └── workloads-helm / workloads-raw (110; ApplicationSets)

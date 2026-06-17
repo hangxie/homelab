@@ -1,0 +1,9 @@
+# ScyllaDB Operator Helm values.
+#
+# The ScyllaDB Operator must run in the scylla-operator namespace and watches
+# ScyllaCluster resources across namespaces. The database cluster itself lives
+# at gitops/workloads/helm/scylladb/.
+#
+# https://github.com/scylladb/scylla-operator/blob/master/helm/scylla-operator/values.yaml
+replicas: 2
+webhookServerReplicas: 2
