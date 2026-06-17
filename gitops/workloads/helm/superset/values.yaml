@@ -19,10 +19,10 @@ bootstrapScript: |
   #!/bin/bash
   set -e
   if [ -x "/app/.venv/bin/python" ] && command -v uv >/dev/null 2>&1; then
-    uv pip install --quiet --python /app/.venv/bin/python psycopg2-binary==2.9.6
+    uv pip install --quiet --python /app/.venv/bin/python psycopg2-binary==2.9.10
     /app/.venv/bin/python -c "import psycopg2"
   else
-    python -m pip install --quiet psycopg2-binary==2.9.6
+    python -m pip install --quiet psycopg2-binary==2.9.10
     python -c "import psycopg2"
   fi
   if [ ! -f ~/bootstrap ]; then echo "Running Superset with uid $(id -u)" > ~/bootstrap; fi
