@@ -21,6 +21,4 @@ racks:
         memory: 4Gi
 
 serviceMonitor:
-  create: true
-  labels:
-    release: prometheus-stack
+  create: false

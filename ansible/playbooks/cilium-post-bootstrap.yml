@@ -25,16 +25,6 @@
         - kube_api_vip_ready.rc == 0
         - "'ok' in kube_api_vip_ready.stdout"
 
-    - name: Wait for Prometheus ServiceMonitor CRD
-      command: kubectl wait --for=condition=Established crd/servicemonitors.monitoring.coreos.com --timeout=120s
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      retries: 5
-      delay: 10
-      register: sm_crd_wait
-      changed_when: false
-      until: sm_crd_wait.rc == 0
-
     - name: Capture Cilium config before post-bootstrap upgrade
       command: kubectl -n kube-system get configmap cilium-config -o json
       environment:
@@ -66,20 +56,16 @@
                       storageClass: rook-ceph-block
           prometheus:
             serviceMonitor:
-              enabled: true
-              labels:
-                release: prometheus-stack
+              enabled: false
           operator:
             replicas: 2
             prometheus:
               enabled: true
               serviceMonitor:
-                enabled: true
-                labels:
-                  release: prometheus-stack
+                enabled: false
             dashboards:
               enabled: true
-              namespace: monitoring
+              namespace: grafana
           hubble:
             enabled: true
             relay:
@@ -99,15 +85,13 @@
                 - icmp
                 - "httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction"
               serviceMonitor:
-                enabled: true
-                labels:
-                  release: prometheus-stack
+                enabled: false
               dashboards:
                 enabled: true
-                namespace: monitoring
+                namespace: grafana
           dashboards:
             enabled: true
-            namespace: monitoring
+            namespace: grafana
         wait: true
         timeout: 600s
       register: cilium_post_bootstrap_helm
@@ -179,22 +163,9 @@
       changed_when: false
       until: hubble_ui_ready.rc == 0
 
-    - name: Verify ServiceMonitors are present
-      command: >
-        kubectl -n kube-system get servicemonitor
-        cilium-agent cilium-operator hubble
-        -o name
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      register: sm_list
-      changed_when: false
-      retries: 5
-      delay: 5
-      until: sm_list.rc == 0
-
     - name: Verify dashboard ConfigMaps are present
       command: >
-        kubectl -n monitoring get configmap -l grafana_dashboard=1
+        kubectl -n grafana get configmap -l grafana_dashboard=1
         -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
@@ -204,7 +175,5 @@
     - name: Show monitoring summary
       debug:
         msg:
-          - "ServiceMonitors:"
-          - "{{ sm_list.stdout_lines }}"
           - "Grafana dashboard ConfigMaps:"
           - "{{ dash_list.stdout_lines }}"

@@ -94,8 +94,3 @@ statsd:
 
 flower:
   enabled: false
-
-serviceMonitor:
-  enabled: true
-  additionalLabels:
-    release: prometheus-stack

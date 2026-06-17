@@ -13,9 +13,7 @@ cainjector:
 prometheus:
   enabled: true
   servicemonitor:
-    enabled: true
-    labels:
-      release: prometheus-stack
+    enabled: false
 
 extraArgs:
   # Bind the helper httpserver on every interface so the gateway can

@@ -30,7 +30,7 @@ spec:
     storageClass: rook-ceph-block
 
   monitoring:
-    enablePodMonitor: true
+    enablePodMonitor: false
 
   postgresql:
     parameters:

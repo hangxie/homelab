@@ -4,6 +4,4 @@ crds:
 replicaCount: 2
 
 monitoring:
-  podMonitorEnabled: true
-  podMonitorAdditionalLabels:
-    release: prometheus-stack
+  podMonitorEnabled: false

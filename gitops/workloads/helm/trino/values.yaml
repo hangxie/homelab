@@ -48,8 +48,3 @@ additionalCatalogs:
     connection-url=jdbc:mysql://mysql-cluster.mysql.svc:3306
     connection-user=root
     connection-password=${ENV:MYSQL_ROOT_PASSWORD}
-
-serviceMonitor:
-  enabled: true
-  labels:
-    release: prometheus-stack
