@@ -7,7 +7,8 @@ alloy:
         format = "logfmt"
       }
 
-      // Scrape kubelet pod logs and forward to Loki.
+      // ── Logs ─────────────────────────────────────────────────────────────────
+
       discovery.kubernetes "pods" {
         role = "pod"
       }
@@ -23,7 +24,8 @@ alloy:
         }
       }
 
-      // Forward OTLP traces to Tempo.
+      // ── Traces ───────────────────────────────────────────────────────────────
+
       otelcol.receiver.otlp "default" {
         grpc {}
         http {}
@@ -41,10 +43,611 @@ alloy:
         }
       }
 
+      // ── Metrics remote-write ──────────────────────────────────────────────────
+
+      prometheus.remote_write "mimir" {
+        endpoint {
+          url = "http://mimir-nginx.mimir/api/v1/push"
+        }
+      }
+
+      // ── Node metrics (Alloy runs as DaemonSet — one exporter per node) ────────
+
+      prometheus.exporter.unix "local" {
+        enable_collectors = ["cpu", "diskstats", "filesystem", "loadavg",
+                             "meminfo", "netdev", "netstat", "stat", "time", "uname"]
+      }
+
+      prometheus.scrape "node_exporter" {
+        targets         = prometheus.exporter.unix.local.targets
+        job_name        = "node-exporter"
+        scrape_interval = "60s"
+        forward_to      = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── Alloy self-metrics ─────────────────────────────────────────────────────
+
+      prometheus.exporter.self "alloy" {}
+
+      prometheus.scrape "alloy_self" {
+        targets    = prometheus.exporter.self.alloy.targets
+        job_name   = "alloy"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── Kubelet ───────────────────────────────────────────────────────────────
+
+      discovery.kubernetes "nodes" {
+        role = "node"
+      }
+
+      discovery.relabel "kubelet" {
+        targets = discovery.kubernetes.nodes.targets
+        rule {
+          target_label = "__address__"
+          replacement  = "kubernetes.default.svc:443"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_node_name"]
+          regex         = "(.+)"
+          target_label  = "__metrics_path__"
+          replacement   = "/api/v1/nodes/${1}/proxy/metrics"
+        }
+      }
+
+      prometheus.scrape "kubelet" {
+        targets    = discovery.relabel.kubelet.output
+        job_name   = "kubelet"
+        scheme     = "https"
+        bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        tls_config {
+          insecure_skip_verify = true
+        }
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── cAdvisor ──────────────────────────────────────────────────────────────
+
+      discovery.relabel "cadvisor" {
+        targets = discovery.kubernetes.nodes.targets
+        rule {
+          target_label = "__address__"
+          replacement  = "kubernetes.default.svc:443"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_node_name"]
+          regex         = "(.+)"
+          target_label  = "__metrics_path__"
+          replacement   = "/api/v1/nodes/${1}/proxy/metrics/cadvisor"
+        }
+      }
+
+      prometheus.scrape "cadvisor" {
+        targets    = discovery.relabel.cadvisor.output
+        job_name   = "kubernetes-cadvisor"
+        scheme     = "https"
+        bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        tls_config {
+          insecure_skip_verify = true
+        }
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── kube-state-metrics ────────────────────────────────────────────────────
+
+      discovery.kubernetes "ksm" {
+        role = "endpoints"
+        namespaces {
+          names = ["kube-system"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/name=kube-state-metrics"
+        }
+      }
+
+      prometheus.scrape "ksm" {
+        targets    = discovery.kubernetes.ksm.targets
+        job_name   = "kube-state-metrics"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── Cilium agent, operator, Hubble ────────────────────────────────────────
+
+      discovery.kubernetes "cilium_agent" {
+        role = "pod"
+        namespaces {
+          names = ["kube-system"]
+        }
+        selectors {
+          role  = "pod"
+          label = "k8s-app=cilium"
+        }
+      }
+
+      discovery.relabel "cilium_agent" {
+        targets = discovery.kubernetes.cilium_agent.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_host_ip"]
+          target_label  = "__address__"
+          replacement   = "${1}:9962"
+        }
+      }
+
+      prometheus.scrape "cilium_agent" {
+        targets    = discovery.relabel.cilium_agent.output
+        job_name   = "cilium-agent"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      discovery.kubernetes "cilium_operator" {
+        role = "endpoints"
+        namespaces {
+          names = ["kube-system"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "io.cilium/app=operator"
+        }
+      }
+
+      discovery.relabel "cilium_operator" {
+        targets = discovery.kubernetes.cilium_operator.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "prometheus"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "cilium_operator" {
+        targets    = discovery.relabel.cilium_operator.output
+        job_name   = "cilium-operator"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      discovery.kubernetes "hubble" {
+        role = "endpoints"
+        namespaces {
+          names = ["kube-system"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "k8s-app=hubble"
+        }
+      }
+
+      discovery.relabel "hubble" {
+        targets = discovery.kubernetes.hubble.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "prometheus"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "hubble" {
+        targets    = discovery.relabel.hubble.output
+        job_name   = "hubble"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── cert-manager ──────────────────────────────────────────────────────────
+
+      discovery.kubernetes "cert_manager" {
+        role = "endpoints"
+        namespaces {
+          names = ["cert-manager"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/name=cert-manager"
+        }
+      }
+
+      discovery.relabel "cert_manager" {
+        targets = discovery.kubernetes.cert_manager.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "http-metrics"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "cert_manager" {
+        targets    = discovery.relabel.cert_manager.output
+        job_name   = "cert-manager"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── external-secrets ──────────────────────────────────────────────────────
+
+      discovery.kubernetes "external_secrets" {
+        role = "endpoints"
+        namespaces {
+          names = ["external-secrets"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/name=external-secrets"
+        }
+      }
+
+      discovery.relabel "external_secrets" {
+        targets = discovery.kubernetes.external_secrets.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "metrics"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "external_secrets" {
+        targets    = discovery.relabel.external_secrets.output
+        job_name   = "external-secrets"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── metrics-server ────────────────────────────────────────────────────────
+
+      discovery.kubernetes "metrics_server" {
+        role = "endpoints"
+        namespaces {
+          names = ["kube-system"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/name=metrics-server"
+        }
+      }
+
+      discovery.relabel "metrics_server" {
+        targets = discovery.kubernetes.metrics_server.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "https"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "metrics_server" {
+        targets    = discovery.relabel.metrics_server.output
+        job_name   = "metrics-server"
+        scheme     = "https"
+        tls_config {
+          insecure_skip_verify = true
+        }
+        bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── Loki ──────────────────────────────────────────────────────────────────
+
+      discovery.kubernetes "loki" {
+        role = "endpoints"
+        namespaces {
+          names = ["loki"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/name=loki"
+        }
+      }
+
+      discovery.relabel "loki" {
+        targets = discovery.kubernetes.loki.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "http-metrics"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "loki" {
+        targets    = discovery.relabel.loki.output
+        job_name   = "loki"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── Tempo ─────────────────────────────────────────────────────────────────
+
+      discovery.kubernetes "tempo" {
+        role = "endpoints"
+        namespaces {
+          names = ["tempo"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/name=tempo"
+        }
+      }
+
+      discovery.relabel "tempo" {
+        targets = discovery.kubernetes.tempo.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "prom-metrics"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "tempo" {
+        targets    = discovery.relabel.tempo.output
+        job_name   = "tempo"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── CloudNativePG operator ─────────────────────────────────────────────────
+
+      discovery.kubernetes "cnpg_operator" {
+        role = "endpoints"
+        namespaces {
+          names = ["postgres-cnpg"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/name=cloudnative-pg"
+        }
+      }
+
+      discovery.relabel "cnpg_operator" {
+        targets = discovery.kubernetes.cnpg_operator.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "metrics"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "cnpg_operator" {
+        targets    = discovery.relabel.cnpg_operator.output
+        job_name   = "cnpg-operator"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── CNPG postgres-cluster pods ────────────────────────────────────────────
+
+      discovery.kubernetes "cnpg_cluster" {
+        role = "pod"
+        namespaces {
+          names = ["postgres-cluster"]
+        }
+        selectors {
+          role  = "pod"
+          label = "cnpg.io/cluster=postgres-cluster"
+        }
+      }
+
+      discovery.relabel "cnpg_cluster" {
+        targets = discovery.kubernetes.cnpg_cluster.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_port_name"]
+          regex         = "metrics"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "cnpg_cluster" {
+        targets    = discovery.relabel.cnpg_cluster.output
+        job_name   = "postgres-cluster"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── Rook-Ceph manager ─────────────────────────────────────────────────────
+
+      discovery.kubernetes "rook_ceph_mgr" {
+        role = "endpoints"
+        namespaces {
+          names = ["rook-ceph"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app=rook-ceph-mgr"
+        }
+      }
+
+      discovery.relabel "rook_ceph_mgr" {
+        targets = discovery.kubernetes.rook_ceph_mgr.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "http-metrics"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "rook_ceph_mgr" {
+        targets    = discovery.relabel.rook_ceph_mgr.output
+        job_name   = "rook-ceph"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── Ray ───────────────────────────────────────────────────────────────────
+
+      discovery.kubernetes "ray_head" {
+        role = "pod"
+        namespaces {
+          names = ["ray"]
+        }
+        selectors {
+          role  = "pod"
+          label = "ray.io/node-type=head"
+        }
+      }
+
+      discovery.relabel "ray_head" {
+        targets = discovery.kubernetes.ray_head.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_port_name"]
+          regex         = "metrics"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "ray_head" {
+        targets    = discovery.relabel.ray_head.output
+        job_name   = "ray-head"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      discovery.kubernetes "ray_workers" {
+        role = "pod"
+        namespaces {
+          names = ["ray"]
+        }
+        selectors {
+          role  = "pod"
+          label = "ray.io/node-type=worker"
+        }
+      }
+
+      discovery.relabel "ray_workers" {
+        targets = discovery.kubernetes.ray_workers.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_port_name"]
+          regex         = "metrics"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "ray_workers" {
+        targets    = discovery.relabel.ray_workers.output
+        job_name   = "ray-workers"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── Airflow ───────────────────────────────────────────────────────────────
+
+      discovery.kubernetes "airflow" {
+        role = "endpoints"
+        namespaces {
+          names = ["airflow"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "release=airflow,component=scheduler"
+        }
+      }
+
+      prometheus.scrape "airflow" {
+        targets    = discovery.kubernetes.airflow.targets
+        job_name   = "airflow"
+        metrics_path = "/metrics"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── Trino ─────────────────────────────────────────────────────────────────
+
+      discovery.kubernetes "trino" {
+        role = "endpoints"
+        namespaces {
+          names = ["trino"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app=trino,component=coordinator"
+        }
+      }
+
+      prometheus.scrape "trino" {
+        targets      = discovery.kubernetes.trino.targets
+        job_name     = "trino"
+        metrics_path = "/metrics"
+        forward_to   = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── Spark history ─────────────────────────────────────────────────────────
+
+      discovery.kubernetes "spark" {
+        role = "endpoints"
+        namespaces {
+          names = ["spark"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/name=spark"
+        }
+      }
+
+      discovery.relabel "spark" {
+        targets = discovery.kubernetes.spark.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "http"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "spark" {
+        targets      = discovery.relabel.spark.output
+        job_name     = "spark"
+        metrics_path = "/metrics/prometheus"
+        forward_to   = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── ScyllaDB ──────────────────────────────────────────────────────────────
+
+      discovery.kubernetes "scylladb" {
+        role = "endpoints"
+        namespaces {
+          names = ["scylladb"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/name=scylladb"
+        }
+      }
+
+      discovery.relabel "scylladb" {
+        targets = discovery.kubernetes.scylladb.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "prometheus"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "scylladb" {
+        targets    = discovery.relabel.scylladb.output
+        job_name   = "scylladb"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── NFD (node-feature-discovery) ──────────────────────────────────────────
+
+      discovery.kubernetes "nfd" {
+        role = "endpoints"
+        namespaces {
+          names = ["nfd"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/name=node-feature-discovery"
+        }
+      }
+
+      discovery.relabel "nfd" {
+        targets = discovery.kubernetes.nfd.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "metrics"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "nfd" {
+        targets    = discovery.relabel.nfd.output
+        job_name   = "nfd"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
 controller:
   type: daemonset
+  # Alloy needs cluster-wide read access for kubernetes discovery and
+  # kubelet/cadvisor proxied metrics.
+  podAnnotations:
+    prometheus.io/scrape: "false"
 
-serviceMonitor:
-  enabled: true
-  additionalLabels:
-    release: prometheus-stack
+rbac:
+  create: true
+
+# No serviceMonitor — Alloy scrapes itself via prometheus.exporter.self above.
