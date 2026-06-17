@@ -18,10 +18,11 @@ spec:
                 # Pruning is automatic: a disabled workload's resources
                 # (including PVCs) are deleted on the next Argo sync.
                 - name: airflow
-                - name: cassandra
+                # - name: cassandra
                 - name: headlamp
                 - name: jupyter
                 - name: openwebui
+                - name: scylladb
                 - name: spark
                 - name: superset
                 - name: trino

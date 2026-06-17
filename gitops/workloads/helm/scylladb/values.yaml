@@ -1,0 +1,26 @@
+fullnameOverride: scylladb
+
+developerMode: true
+
+# The homelab does not currently dedicate Scylla-labelled nodes or local disks.
+# Run on the standard Rook block storage class and let the default scheduler
+# place pods.
+datacenter: dc1
+racks:
+  - name: rack1
+    members: 3
+    storage:
+      storageClassName: rook-ceph-block
+      capacity: 10Gi
+    resources:
+      requests:
+        cpu: 1
+        memory: 4Gi
+      limits:
+        cpu: 1
+        memory: 4Gi
+
+serviceMonitor:
+  create: true
+  labels:
+    release: prometheus-stack
