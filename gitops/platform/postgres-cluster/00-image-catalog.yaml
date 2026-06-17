@@ -7,5 +7,5 @@ metadata:
     argocd.argoproj.io/sync-wave: "-1"
 spec:
   images:
-    - major: 16
-      image: ghcr.io/cloudnative-pg/postgresql:16.4
+    - major: 18
+      image: ghcr.io/cloudnative-pg/postgresql:18.3

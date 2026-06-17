@@ -11,7 +11,7 @@ spec:
     apiGroup: postgresql.cnpg.io
     kind: ImageCatalog
     name: postgres-cluster-images
-    major: 16
+    major: 18
   primaryUpdateStrategy: unsupervised
 
   bootstrap:
