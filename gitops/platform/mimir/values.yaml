@@ -1,0 +1,80 @@
+# Minimal single-replica deployment for homelab.
+# Disable zone-aware replication throughout (requires 3+ zones).
+# S3 credentials injected via mimir-s3 ExternalSecret.
+
+mimir:
+  structuredConfig:
+    common:
+      storage:
+        backend: s3
+        s3:
+          endpoint: rook-ceph-rgw-object-store.rook-ceph.svc:80
+          region: us-east-1
+          insecure: true
+          access_key_id: ${ACCESS_KEY_ID}
+          secret_access_key: ${SECRET_ACCESS_KEY}
+    blocks_storage:
+      s3:
+        bucket_name: mimir-blocks
+    ingester:
+      ring:
+        replication_factor: 1
+    store_gateway:
+      sharding_ring:
+        replication_factor: 1
+
+ingester:
+  replicas: 1
+  zoneAwareReplication:
+    enabled: false
+  extraEnvFrom:
+    - secretRef:
+        name: mimir-s3
+  persistentVolume:
+    storageClass: rook-ceph-block
+    size: 20Gi
+
+store_gateway:
+  replicas: 1
+  zoneAwareReplication:
+    enabled: false
+  extraEnvFrom:
+    - secretRef:
+        name: mimir-s3
+  persistentVolume:
+    storageClass: rook-ceph-block
+    size: 10Gi
+
+compactor:
+  replicas: 1
+  extraEnvFrom:
+    - secretRef:
+        name: mimir-s3
+  persistentVolume:
+    storageClass: rook-ceph-block
+    size: 10Gi
+
+distributor:
+  replicas: 1
+
+querier:
+  replicas: 1
+  extraEnvFrom:
+    - secretRef:
+        name: mimir-s3
+
+query_frontend:
+  replicas: 1
+
+# Disable alertmanager and ruler — Grafana built-in alerting is used instead.
+alertmanager:
+  enabled: false
+  replicas: 0
+
+ruler:
+  enabled: false
+  replicas: 0
+
+# Disable the MinIO dependency (using Ceph RGW instead).
+minio:
+  enabled: false
