@@ -90,9 +90,6 @@ while IFS=$'\t' read -r ns name hostname; do
         grafana/grafana)
             print_secret_user_pass_row "$url" grafana grafana-admin username password admin
             ;;
-        mimir/mimir)
-            print_row "$url" "-" "(no auth)"
-            ;;
         ray/ray-dashboard|spark/spark-history)
             print_row "$url" "-" "(no auth)"
             ;;
