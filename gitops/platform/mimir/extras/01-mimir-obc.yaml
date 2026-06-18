@@ -1,0 +1,14 @@
+# Provision the mimir-blocks bucket in the mimir namespace. Rook creates the
+# bucket and drops a Secret named mimir-blocks here with AWS_ACCESS_KEY_ID and
+# AWS_SECRET_ACCESS_KEY. sync-wave: "-1" ensures the Secret exists before the
+# Mimir StatefulSets start.
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: mimir-blocks
+  namespace: mimir
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  bucketName: mimir-blocks
+  storageClassName: rook-ceph-bucket

@@ -1,6 +1,6 @@
 # Minimal single-replica deployment for homelab.
 # Disable zone-aware replication throughout (requires 3+ zones).
-# S3 credentials injected via mimir-s3 ExternalSecret.
+# S3 credentials come from the mimir-blocks OBC Secret (mimir namespace).
 
 mimir:
   structuredConfig:
@@ -11,8 +11,8 @@ mimir:
           endpoint: rook-ceph-rgw-object-store.rook-ceph.svc:80
           region: us-east-1
           insecure: true
-          access_key_id: ${ACCESS_KEY_ID}
-          secret_access_key: ${SECRET_ACCESS_KEY}
+          access_key_id: ${AWS_ACCESS_KEY_ID}
+          secret_access_key: ${AWS_SECRET_ACCESS_KEY}
     blocks_storage:
       s3:
         bucket_name: mimir-blocks
@@ -29,7 +29,7 @@ ingester:
     enabled: false
   extraEnvFrom:
     - secretRef:
-        name: mimir-s3
+        name: mimir-blocks
   persistentVolume:
     storageClass: rook-ceph-block
     size: 20Gi
@@ -40,7 +40,7 @@ store_gateway:
     enabled: false
   extraEnvFrom:
     - secretRef:
-        name: mimir-s3
+        name: mimir-blocks
   persistentVolume:
     storageClass: rook-ceph-block
     size: 10Gi
@@ -49,7 +49,7 @@ compactor:
   replicas: 1
   extraEnvFrom:
     - secretRef:
-        name: mimir-s3
+        name: mimir-blocks
   persistentVolume:
     storageClass: rook-ceph-block
     size: 10Gi
@@ -61,7 +61,7 @@ querier:
   replicas: 1
   extraEnvFrom:
     - secretRef:
-        name: mimir-s3
+        name: mimir-blocks
 
 query_frontend:
   replicas: 1
