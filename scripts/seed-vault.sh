@@ -67,16 +67,18 @@ ensure_role() {
     secret_id_num_uses=0
 }
 
-# Walk the template, emitting "path field generate" triples. `generate` is
+# Walk the template, emitting "path field generate format" quads. `generate` is
 # "true" by default; entries that set `generate: false` (e.g. externally minted
 # credentials like Harbor robots) must be populated from vault or the secrets
 # file and will fail the run rather than fall through to random generation.
+# `format` defaults to "password"; set `format: fernet` for Fernet keys.
 extract_template_entries() {
   yq -r '
     .secrets[] as $s
     | (if $s.generate == false then "false" else "true" end) as $g
+    | ($s.format // "password") as $fmt
     | $s.fields[]? as $f
-    | "\($s.path) \($f) \($g)"
+    | "\($s.path) \($f) \($g) \($fmt)"
   ' "${TEMPLATE}"
 }
 
@@ -94,15 +96,22 @@ fetch_from_vault() {
   vault kv get -field="${field}" "${KV_MOUNT}/${path}" 2>/dev/null || true
 }
 
-# 32 random bytes encoded as url-safe base64 (44 chars including '=' padding).
-# Padding is preserved so cryptography.fernet.Fernet accepts the value as-is
-# for Airflow's fernet key; other consumers treat it as an opaque string.
+# 30 random bytes encoded as url-safe base64 (40 chars, no '=' padding).
+# 30 bytes is a multiple of 3, so base64 encoding needs no padding — the result
+# is double-click selectable as a single token.
 generate_random() {
+  openssl rand -base64 30 | tr -d '\n' | tr '/+' '_-'
+}
+
+# Fernet key: exactly 32 random bytes encoded as url-safe base64 (44 chars).
+# 32 bytes is NOT a multiple of 3, so one '=' padding char is required.
+# cryptography.fernet.Fernet decodes the key and requires exactly 32 bytes.
+generate_fernet_key() {
   openssl rand -base64 32 | tr -d '\n' | tr '/+' '_-'
 }
 
 resolve_value() {
-  local path="$1" field="$2" generate="$3" value
+  local path="$1" field="$2" generate="$3" format="${4:-password}" value
   for src in fetch_from_vault fetch_from_template; do
     value="$("${src}" "${path}" "${field}")"
     if [[ -n "${value}" ]]; then
@@ -122,12 +131,16 @@ resolve_value() {
     echo "         ${example}" >&2
     return 1
   fi
-  generate_random
+  if [[ "${format}" == "fernet" ]]; then
+    generate_fernet_key
+  else
+    generate_random
+  fi
 }
 
 write_kv_entries() {
   local current_path="" payload=() value
-  while read -r path field generate; do
+  while read -r path field generate format; do
     if [[ "${path}" != "${current_path}" ]]; then
       if [[ -n "${current_path}" ]]; then
         echo ">>> Writing ${KV_MOUNT}/${current_path}"
@@ -136,7 +149,7 @@ write_kv_entries() {
       current_path="${path}"
       payload=()
     fi
-    value="$(resolve_value "${path}" "${field}" "${generate}")"
+    value="$(resolve_value "${path}" "${field}" "${generate}" "${format}")"
     payload+=("${field}=${value}")
   done < <(extract_template_entries)
   if [[ -n "${current_path}" ]]; then
