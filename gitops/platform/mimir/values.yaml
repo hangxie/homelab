@@ -1,4 +1,4 @@
-# Minimal single-replica deployment for homelab.
+# Basic HA deployment for homelab.
 # Disable zone-aware replication throughout (requires 3+ zones).
 # S3 credentials come from the mimir-blocks OBC Secret (mimir namespace).
 
@@ -18,13 +18,13 @@ mimir:
         bucket_name: mimir-blocks
     ingester:
       ring:
-        replication_factor: 1
+        replication_factor: 2
     store_gateway:
       sharding_ring:
-        replication_factor: 1
+        replication_factor: 2
 
 ingester:
-  replicas: 1
+  replicas: 2
   zoneAwareReplication:
     enabled: false
   extraEnvFrom:
@@ -33,9 +33,16 @@ ingester:
   persistentVolume:
     storageClass: rook-ceph-block
     size: 20Gi
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: ingester
+          topologyKey: kubernetes.io/hostname
 
 store_gateway:
-  replicas: 1
+  replicas: 2
   zoneAwareReplication:
     enabled: false
   extraEnvFrom:
@@ -44,6 +51,13 @@ store_gateway:
   persistentVolume:
     storageClass: rook-ceph-block
     size: 10Gi
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: store-gateway
+          topologyKey: kubernetes.io/hostname
 
 compactor:
   replicas: 1
@@ -55,16 +69,37 @@ compactor:
     size: 10Gi
 
 distributor:
-  replicas: 1
+  replicas: 2
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: distributor
+          topologyKey: kubernetes.io/hostname
 
 querier:
-  replicas: 1
+  replicas: 2
   extraEnvFrom:
     - secretRef:
         name: mimir-blocks
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: querier
+          topologyKey: kubernetes.io/hostname
 
 query_frontend:
-  replicas: 1
+  replicas: 2
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: query-frontend
+          topologyKey: kubernetes.io/hostname
 
 # Disable alertmanager and ruler — Grafana built-in alerting is used instead.
 alertmanager:
@@ -78,3 +113,15 @@ ruler:
 # Disable the MinIO dependency (using Ceph RGW instead).
 minio:
   enabled: false
+
+kafka:
+  controller:
+    replicaCount: 2
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/component: controller
+                app.kubernetes.io/name: kafka
+            topologyKey: kubernetes.io/hostname

@@ -1,11 +1,24 @@
+replicas: 2
+
 tempo:
   storage:
     trace:
-      backend: local
-      local:
-        path: /var/tempo/traces
+      backend: s3
+      s3:
+        bucket: tempo-traces
+        endpoint: rook-ceph-rgw-object-store.rook-ceph.svc:80
+        region: us-east-1
+        insecure: true
+        access_key: ${AWS_ACCESS_KEY_ID}
+        secret_key: ${AWS_SECRET_ACCESS_KEY}
   retention: 168h
 
+# S3 credentials injected from the tempo-traces OBC Secret.
+extraEnvFrom:
+  - secretRef:
+      name: tempo-traces
+
+# WAL is written locally before being flushed to S3; each pod gets its own PVC.
 persistence:
   enabled: true
   storageClassName: rook-ceph-block
@@ -16,3 +29,11 @@ securityContext:
   runAsGroup: 10001
   fsGroup: 10001
   runAsNonRoot: true
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: tempo
+        topologyKey: kubernetes.io/hostname

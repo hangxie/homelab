@@ -1,7 +1,15 @@
-replicaCount: 1
+replicaCount: 2
 
 # Predictable resource names for the HTTPRoute backendRef.
 fullnameOverride: headlamp
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: headlamp
+        topologyKey: kubernetes.io/hostname
 
 config:
   # Use the in-cluster ServiceAccount only to discover the API server and
