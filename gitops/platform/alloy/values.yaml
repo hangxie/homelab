@@ -535,22 +535,31 @@ alloy:
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
-      // ── Trino ─────────────────────────────────────────────────────────────────
+      // ── ClickHouse ────────────────────────────────────────────────────────────
 
-      discovery.kubernetes "trino" {
+      discovery.kubernetes "clickhouse" {
         role = "endpoints"
         namespaces {
-          names = ["trino"]
+          names = ["clickhouse"]
         }
         selectors {
           role  = "endpoints"
-          label = "app=trino,component=coordinator"
+          label = "app.kubernetes.io/name=clickhouse,app.kubernetes.io/component=clickhouse"
         }
       }
 
-      prometheus.scrape "trino" {
-        targets      = discovery.kubernetes.trino.targets
-        job_name     = "trino"
+      discovery.relabel "clickhouse" {
+        targets = discovery.kubernetes.clickhouse.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "prometheus"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "clickhouse" {
+        targets      = discovery.relabel.clickhouse.output
+        job_name     = "clickhouse"
         metrics_path = "/metrics"
         forward_to   = [prometheus.remote_write.mimir.receiver]
       }

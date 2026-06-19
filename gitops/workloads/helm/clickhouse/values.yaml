@@ -1,0 +1,25 @@
+fullnameOverride: clickhouse-operator
+
+controller:
+  watchNamespaces:
+    - clickhouse
+
+manager:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+crd:
+  enable: true
+  keep: false
+
+metrics:
+  enable: false
+
+prometheus:
+  enable: false

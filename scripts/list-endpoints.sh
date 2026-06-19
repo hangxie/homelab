@@ -65,6 +65,9 @@ while IFS=$'\t' read -r ns name hostname; do
         argocd/argocd)
             print_secret_row "$url" argocd argocd-initial-admin-secret password admin
             ;;
+        clickhouse/clickhouse)
+            print_secret_user_pass_row "$url" clickhouse clickhouse-credentials username password default
+            ;;
         dbeaver/cloudbeaver|dbeaver/dbeaver)
             # CloudBeaver keeps an internal admin in its workspace PVC; this
             # internal-only tool intentionally stays on the first-login flow.
