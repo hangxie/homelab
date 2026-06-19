@@ -1,0 +1,5 @@
+{
+  "chart_repo": "ghcr.io/clickhouse",
+  "chart_name": "clickhouse-operator-helm",
+  "chart_version": "0.0.5"
+}

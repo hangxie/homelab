@@ -1,0 +1,27 @@
+apiVersion: clickhouse.com/v1alpha1
+kind: KeeperCluster
+metadata:
+  name: clickhouse
+  namespace: clickhouse
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 3
+  containerTemplate:
+    image:
+      repository: docker.io/clickhouse/clickhouse-keeper
+      tag: "25.7"
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+  dataVolumeClaimSpec:
+    storageClassName: rook-ceph-block
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 5Gi

@@ -19,13 +19,14 @@ spec:
                 # (including PVCs) are deleted on the next Argo sync.
                 - name: airflow
                 # - name: cassandra
+                - name: clickhouse
                 - name: headlamp
                 - name: jupyter
                 - name: openwebui
                 - name: scylladb
                 - name: spark
                 - name: superset
-                - name: trino
+                # - name: trino
           - git:
               repoURL: https://github.com/hangxie/homelab.git
               revision: main

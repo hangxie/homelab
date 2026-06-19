@@ -1,0 +1,35 @@
+apiVersion: clickhouse.com/v1alpha1
+kind: ClickHouseCluster
+metadata:
+  name: clickhouse
+  namespace: clickhouse
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  shards: 1
+  replicas: 2
+  keeperClusterRef:
+    name: clickhouse
+  containerTemplate:
+    image:
+      repository: docker.io/clickhouse/clickhouse-server
+      tag: "25.7"
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        memory: 4Gi
+  dataVolumeClaimSpec:
+    storageClassName: rook-ceph-block
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 20Gi
+  settings:
+    defaultUserPassword:
+      secret:
+        name: clickhouse-credentials
+        key: password
