@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openwebui-postgres-bootstrap
+  namespace: openwebui
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: psql
+          image: postgres:18
+          env:
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-superuser, key: password } }
+            - name: OPENWEBUI_PASSWORD
+              valueFrom: { secretKeyRef: { name: openwebui-db-credentials, key: password } }
+          command: [bash, -ec]
+          args:
+            - |
+              psql -h postgres-cluster-rw.postgres-cluster -U postgres \
+                   -v ON_ERROR_STOP=1 \
+                   -v OPENWEBUI_PASSWORD="${OPENWEBUI_PASSWORD}" <<SQL
+              SELECT format('CREATE USER openwebui WITH PASSWORD %L', :'OPENWEBUI_PASSWORD')
+                WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname='openwebui')\gexec
+              ALTER USER openwebui WITH PASSWORD :'OPENWEBUI_PASSWORD';
+              SELECT 'CREATE DATABASE openwebui OWNER openwebui'
+                WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='openwebui')\gexec
+              GRANT ALL PRIVILEGES ON DATABASE openwebui TO openwebui;
+              SQL

@@ -1,3 +1,5 @@
+replicas: 2
+
 admin:
   existingSecret: grafana-admin
   userKey: username
@@ -22,9 +24,36 @@ sidecar:
     label: grafana_alert
     labelValue: "1"
 
+# SQLite replaced by Postgres; PVC no longer holds application state.
+# Existing PVC is left intact (Prune=false) and can be removed manually.
 persistence:
-  enabled: true
-  storageClassName: rook-ceph-block
-  size: 5Gi
-  annotations:
-    argocd.argoproj.io/sync-options: Prune=false
+  enabled: false
+
+grafana.ini:
+  database:
+    type: postgres
+    host: postgres-cluster-rw.postgres-cluster.svc:5432
+    name: grafana
+    user: $__env{GF_DATABASE_USER}
+    password: $__env{GF_DATABASE_PASSWORD}
+    ssl_mode: disable
+
+env:
+  GF_DATABASE_USER:
+    valueFrom:
+      secretKeyRef:
+        name: grafana-db-credentials
+        key: username
+  GF_DATABASE_PASSWORD:
+    valueFrom:
+      secretKeyRef:
+        name: grafana-db-credentials
+        key: password
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: grafana
+        topologyKey: kubernetes.io/hostname

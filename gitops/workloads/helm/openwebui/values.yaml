@@ -1,4 +1,4 @@
-replicaCount: 1
+replicaCount: 2
 
 # v14 switched resources to the `open-webui.fullname` template
 # (`<release>-open-webui`). Pin the v6 names so the existing PVC is adopted
@@ -16,12 +16,10 @@ pipelines:
 websocket:
   enabled: false
 
+# SQLite replaced by Postgres; uploads stored in S3 (openwebui-data OBC).
+# Existing PVC is left intact (Prune=false) and can be removed manually.
 persistence:
-  enabled: true
-  storageClass: rook-ceph-block
-  size: 10Gi
-  annotations:
-    argocd.argoproj.io/sync-options: Prune=false
+  enabled: false
 
 openaiBaseApiUrls:
   - https://vllm.homelab.xiehang.com/v1
@@ -35,6 +33,37 @@ extraEnvVars:
   # subsequent signup lands in `pending` and needs admin approval.
   - name: DEFAULT_USER_ROLE
     value: pending
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: openwebui-db-credentials
+        key: connection
+  - name: STORAGE_PROVIDER
+    value: s3
+  - name: S3_ENDPOINT_URL
+    value: http://rook-ceph-rgw-object-store.rook-ceph.svc:80
+  - name: S3_REGION_NAME
+    value: us-east-1
+  - name: S3_BUCKET_NAME
+    value: openwebui-data
+  - name: S3_ACCESS_KEY_ID
+    valueFrom:
+      secretKeyRef:
+        name: openwebui-data
+        key: AWS_ACCESS_KEY_ID
+  - name: S3_SECRET_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: openwebui-data
+        key: AWS_SECRET_ACCESS_KEY
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: open-webui
+        topologyKey: kubernetes.io/hostname
 
 service:
   type: ClusterIP

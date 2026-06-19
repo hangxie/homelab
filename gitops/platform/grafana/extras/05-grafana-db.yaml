@@ -1,0 +1,85 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: grafana-db-credentials
+  namespace: grafana
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: grafana-db-credentials
+    creationPolicy: Owner
+  data:
+    - secretKey: username
+      remoteRef:
+        key: postgres-cnpg/grafana
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: postgres-cnpg/grafana
+        property: password
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: postgres-superuser
+  namespace: grafana
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: postgres-superuser
+    creationPolicy: Owner
+  data:
+    - secretKey: username
+      remoteRef:
+        key: postgres-cnpg/superuser
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: postgres-cnpg/superuser
+        property: password
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: grafana-postgres-bootstrap
+  namespace: grafana
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: psql
+          image: postgres:18
+          env:
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-superuser, key: password } }
+            - name: GRAFANA_PASSWORD
+              valueFrom: { secretKeyRef: { name: grafana-db-credentials, key: password } }
+          command: [bash, -ec]
+          args:
+            - |
+              psql -h postgres-cluster-rw.postgres-cluster -U postgres \
+                   -v ON_ERROR_STOP=1 \
+                   -v GRAFANA_PASSWORD="${GRAFANA_PASSWORD}" <<SQL
+              SELECT format('CREATE USER grafana WITH PASSWORD %L', :'GRAFANA_PASSWORD')
+                WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname='grafana')\gexec
+              ALTER USER grafana WITH PASSWORD :'GRAFANA_PASSWORD';
+              SELECT 'CREATE DATABASE grafana OWNER grafana'
+                WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='grafana')\gexec
+              GRANT ALL PRIVILEGES ON DATABASE grafana TO grafana;
+              SQL
