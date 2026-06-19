@@ -12,6 +12,8 @@ tempo:
         access_key: ${AWS_ACCESS_KEY_ID}
         secret_key: ${AWS_SECRET_ACCESS_KEY}
   retention: 168h
+  extraArgs:
+    config.expand-env: true
   extraEnvFrom:
     - secretRef:
         name: tempo-traces
