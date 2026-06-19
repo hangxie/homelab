@@ -12,11 +12,9 @@ tempo:
         access_key: ${AWS_ACCESS_KEY_ID}
         secret_key: ${AWS_SECRET_ACCESS_KEY}
   retention: 168h
-
-# S3 credentials injected from the tempo-traces OBC Secret.
-extraEnvFrom:
-  - secretRef:
-      name: tempo-traces
+  extraEnvFrom:
+    - secretRef:
+        name: tempo-traces
 
 # WAL is written locally before being flushed to S3; each pod gets its own PVC.
 persistence:
