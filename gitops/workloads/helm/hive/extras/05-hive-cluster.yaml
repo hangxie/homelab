@@ -5,6 +5,12 @@ metadata:
   namespace: hive
   annotations:
     argocd.argoproj.io/sync-wave: "1"
+    # The Stackable hive-operator self-registers the HiveCluster CRD at startup
+    # (it is not in the Helm chart). On a fresh cluster the CRD does not exist
+    # when Argo CD validates this Application, so skip the missing-resource
+    # dry-run; sync-wave 1 still applies this CR only after the operator
+    # Deployment (wave 0) is healthy and has registered the CRD.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   image:
     productVersion: 4.2.0
