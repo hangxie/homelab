@@ -6,6 +6,16 @@ executor: KubernetesExecutor
 createUserJob:
   applyCustomEnv: false
   ttlSecondsAfterFinished: null
+  # The chart ships this as a Helm post-install/post-upgrade hook, which Argo CD
+  # maps to PostSync. PostSync only runs after all resources are Healthy, but the
+  # scheduler/api-server never become Healthy until migrations are applied, so
+  # this hook would deadlock and never run. Render it as a plain Job and re-tag it
+  # as an Argo CD Sync hook (see migrateDatabaseJob for the full rationale).
+  useHelmHooks: false
+  jobAnnotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "0"
   defaultUser:
     enabled: true
     username: admin
@@ -41,6 +51,18 @@ createUserJob:
 migrateDatabaseJob:
   applyCustomEnv: false
   ttlSecondsAfterFinished: null
+  # The chart ships migrations as a Helm post-install/post-upgrade hook -> Argo CD
+  # PostSync. PostSync runs only after every resource is Healthy, but the
+  # scheduler/api-server/triggerer block in their `wait-for-airflow-migrations`
+  # init container until migrations exist. That is a deadlock: deployments wait on
+  # migrations, migrations wait on deployments being Healthy. Disable the Helm
+  # hooks and re-tag the rendered Job as an Argo CD Sync hook at wave -1 so it runs
+  # after the DB bootstrap (wave -2) and before the deployments (wave 0).
+  useHelmHooks: false
+  jobAnnotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
 
 apiSecretKeySecretName: airflow-api-secret-key
 jwtSecretName: airflow-jwt-secret
