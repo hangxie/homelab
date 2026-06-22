@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: llama-cpp-{{ .Values.slug }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app.kubernetes.io/name: llama-cpp-{{ .Values.slug }}
+  ports:
+    - { port: {{ .Values.port }}, targetPort: {{ .Values.port }} }
