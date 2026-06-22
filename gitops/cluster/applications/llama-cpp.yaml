@@ -1,0 +1,86 @@
+# Shared namespace infrastructure for all llama.cpp model instances.
+# Deploys in wave 108 so the PVC and secrets exist before model pods start.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: llama-cpp-shared
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "108"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: workloads
+  source:
+    repoURL: https://github.com/hangxie/homelab.git
+    targetRevision: main
+    path: gitops/workloads/raw/llama-cpp/shared
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: llama-cpp
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+---
+# Per-model ApplicationSet. Edit the elements list to add or remove models.
+# Each entry deploys one Deployment + Service + HTTPRoute into the llama-cpp namespace.
+# The shared PVC (llama-cpp-models, RWX) is mounted by all model pods.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: llama-cpp-models
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "110"
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - slug: llama-3b
+            modelSpec: "bartowski/Llama-3.2-3B-Instruct-GGUF/Llama-3.2-3B-Instruct-Q6_K.gguf"
+            hostname: "llama-cpp.homelab.xiehang.com"
+          # - slug: qwen-7b
+          #   modelSpec: "bartowski/Qwen2.5-7B-Instruct-GGUF/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+          #   hostname: "qwen-7b.homelab.xiehang.com"
+  template:
+    metadata:
+      name: 'llama-cpp-{{ .slug }}'
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: workloads
+      source:
+        repoURL: https://github.com/hangxie/homelab.git
+        targetRevision: main
+        path: gitops/helm-charts/llama-cpp-model
+        helm:
+          valuesObject:
+            slug: '{{ .slug }}'
+            modelSpec: '{{ .modelSpec }}'
+            hostname: '{{ .hostname }}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: llama-cpp
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 5m

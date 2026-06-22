@@ -1,0 +1,55 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: harbor-credentials
+  namespace: llama-cpp
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: harbor-credentials
+    creationPolicy: Owner
+  data:
+    - secretKey: username
+      remoteRef:
+        key: harbor/llm-models
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: harbor/llm-models
+        property: password
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: hf-token
+  namespace: llama-cpp
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: hf-token
+    creationPolicy: Owner
+  data:
+    - secretKey: token
+      remoteRef:
+        key: huggingface/api-token
+        property: token
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llama-cpp-models
+  namespace: llama-cpp
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: rook-cephfs
+  resources:
+    requests:
+      storage: 20Gi

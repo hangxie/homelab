@@ -18,7 +18,8 @@ spec:
           # Pruning is automatic: a disabled workload's resources
           # (including PVCs) are deleted on the next Argo sync.
           - name: dbeaver
-          - name: llama-cpp
+          # llama-cpp is managed by gitops/cluster/applications/llama-cpp.yaml
+          # - name: llama-cpp
           - name: mysql
   template:
     metadata:
