@@ -122,8 +122,8 @@ externally minted credentials marked `generate: false` in
 with the same `VAULT_TOKEN` used for seeding. Current entries:
 
 - `harbor/llm-models` — Harbor robot account used by Ray and llama-cpp init
-  containers, plus `llama-model.sh` / `vllm-model.sh`, to manage the model
-  cache.
+  containers, plus `kubectl llama-model` / `kubectl vllm-model`, to manage the
+  model cache.
 - `huggingface/api-token` — HuggingFace read token used by Ray and llama-cpp
   model-pull init containers. Anonymous HuggingFace downloads are not allowed.
 - `cloudflare/api-token` — scoped Cloudflare API token used by cert-manager's
@@ -134,7 +134,7 @@ Bearer-token enforcement is deferred until a dedicated API gateway is added.
 
 DBeaver/CloudBeaver is intentionally not Vault-seeded. It is an internal
 admin-only tool, and the first browser login creates the CloudBeaver admin in
-the workspace PVC. `scripts/list-endpoints.sh` reports that setup step instead
+the workspace PVC. `kubectl list-endpoints` reports that setup step instead
 of a Vault-backed credential.
 
 Headlamp is intentionally not Vault-seeded. It uses operator-issued
@@ -271,6 +271,34 @@ Destroys: VMs, disks, all cluster state.
 - Partial node replacement while a cluster is healthy — use `scripts/remove-worker.sh` ad-hoc.
 - Vault unavailable. The cluster cannot fully converge without Vault; restore Vault from its own backups.
 
+## kubectl plugins
+
+`kubectl-plugins/` contains operator utilities packaged as kubectl plugins.
+Symlink them into any directory on your `PATH`:
+
+```bash
+mkdir -p ~/.local/bin
+for f in kubectl-plugins/kubectl-*; do
+  ln -sf "$(pwd)/$f" ~/.local/bin/
+done
+
+# Add to PATH if not already present (add to ~/.bashrc or ~/.zshrc to persist)
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Verify discovery:
+
+```bash
+kubectl plugin list
+```
+
+| Plugin | Invocation | Purpose |
+|---|---|---|
+| `kubectl-df_pvc` | `kubectl df-pvc <storage-class>` | Disk usage for all PVCs in a storage class |
+| `kubectl-list_endpoints` | `kubectl list-endpoints` | All HTTPRoute URLs with credentials |
+| `kubectl-llama_model` | `kubectl llama-model list\|delete` | Manage GGUF models on the llama-cpp PVC |
+| `kubectl-vllm_model` | `kubectl vllm-model verify\|list\|delete` | Manage vLLM models on PVC and Harbor |
+
 ## Repo layout
 
 - `terraform/` — Proxmox VMs, disks, cloud-init, and generated `ansible/inventory.ini`; passes `kube_api_vip` to Ansible.
@@ -279,4 +307,5 @@ Destroys: VMs, disks, all cluster state.
 - `gitops/platform/` — Helm values and supporting CRs for platform components.
 - `gitops/workloads/helm/<name>/` — `config.json` (`chart_repo`, `chart_name`, `chart_version` only; validated by `gitops/workloads/.schema.json`), `values.yaml`, `extras/` (ExternalSecrets, init Jobs, HTTPRoutes).
 - `gitops/workloads/raw/<name>/` — `manifests/` of raw YAML.
-- `scripts/` — operator utilities (Vault seed/nuke, endpoint credential listing, PVC inspection, model cache verification/removal, node removal, redeploy, Proxmox GPU passthrough).
+- `scripts/` — operator utilities (Vault seed/nuke, node removal, redeploy, Proxmox GPU passthrough).
+- `kubectl-plugins/` — kubectl plugins for cluster inspection and model cache management (see [kubectl plugins](#kubectl-plugins)).

@@ -10,15 +10,15 @@ HARBOR_SECRET_NAME="${LLAMA_HARBOR_SECRET_NAME:-harbor-credentials}"
 
 usage() {
     cat <<'EOF'
-Usage: llama-model.sh <subcommand> [args]
+Usage: kubectl llama-model <subcommand> [args]
 
 Subcommands:
   list / status                           List GGUFs currently on the PVC and show Harbor cache status when available
   delete / remove <hf-repo>/<file.gguf>   Delete a GGUF from the PVC and Harbor cache when credentials exist
 
 Examples:
-  llama-model.sh list
-  llama-model.sh delete unsloth/Qwen2.5-Coder-7B-Instruct-GGUF/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf
+  kubectl llama-model list
+  kubectl llama-model delete unsloth/Qwen2.5-Coder-7B-Instruct-GGUF/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf
 
 Environment:
   LLAMA_PVC_NAME=<name>           PVC name; default llama-cpp-models

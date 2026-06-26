@@ -10,7 +10,7 @@ RAY_IMAGE="hangxie/ray-vllm:v0.1.0"
 
 usage() {
     cat <<'EOF'
-Usage: vllm-model.sh <subcommand> [args]
+Usage: kubectl vllm-model <subcommand> [args]
 
 Subcommands:
   verify / check <model-id>   Check integrity and PVC/Harbor drift for a model
@@ -18,9 +18,9 @@ Subcommands:
   delete / remove <model-id>  Remove a model from both PVC and Harbor
 
 Examples:
-  vllm-model.sh verify Qwen/Qwen3-4B-AWQ
-  vllm-model.sh list
-  vllm-model.sh delete Qwen/Qwen3-4B-AWQ
+  kubectl vllm-model verify Qwen/Qwen3-4B-AWQ
+  kubectl vllm-model list
+  kubectl vllm-model delete Qwen/Qwen3-4B-AWQ
 
 Environment:
   VLLM_NAMESPACE=<name>  Kubernetes namespace; default ray
@@ -380,8 +380,8 @@ report_model_drift() {
 cmd_verify() {
     local MODEL_ID="${1}"
     if [[ -z "${MODEL_ID}" ]]; then
-        echo "Usage: $0 verify <model-id>"
-        echo "  e.g.: $0 verify Qwen/Qwen3-8B-AWQ"
+        echo "Usage: kubectl vllm-model verify <model-id>"
+        echo "  e.g.: kubectl vllm-model verify Qwen/Qwen3-8B-AWQ"
         exit 1
     fi
 
@@ -528,8 +528,8 @@ EOF
 cmd_delete() {
     local MODEL_ID="${1}"
     if [[ -z "${MODEL_ID}" ]]; then
-        echo "Usage: $0 delete <model-id>"
-        echo "  e.g.: $0 delete Qwen/Qwen3-8B-AWQ"
+        echo "Usage: kubectl vllm-model delete <model-id>"
+        echo "  e.g.: kubectl vllm-model delete Qwen/Qwen3-8B-AWQ"
         exit 1
     fi
 

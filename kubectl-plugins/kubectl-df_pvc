@@ -3,7 +3,7 @@
 set -uo pipefail
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: $0 <storage-class>"
+    echo "Usage: kubectl df-pvc <storage-class>"
     echo "       Storage classes can be listed with: kubectl get sc"
     exit 1
 fi
