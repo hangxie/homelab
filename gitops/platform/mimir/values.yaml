@@ -117,6 +117,8 @@ minio:
 kafka:
   controller:
     replicaCount: 2
+    persistence:
+      size: 20Gi
     affinity:
       podAntiAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
