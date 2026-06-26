@@ -2,6 +2,11 @@
 # Disable zone-aware replication throughout (requires 3+ zones).
 # S3 credentials come from the mimir-blocks OBC Secret (mimir namespace).
 
+metaMonitoring:
+  dashboards:
+    enabled: true
+    namespace: grafana
+
 mimir:
   structuredConfig:
     common:

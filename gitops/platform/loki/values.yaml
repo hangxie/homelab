@@ -56,3 +56,10 @@ resultsCache:
 
 gateway:
   enabled: true
+
+monitoring:
+  dashboards:
+    enabled: true
+    namespace: grafana
+    labels:
+      grafana_dashboard: "1"

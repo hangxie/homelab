@@ -55,3 +55,80 @@ affinity:
           matchLabels:
             app.kubernetes.io/name: grafana
         topologyKey: kubernetes.io/hostname
+
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: infrastructure
+        orgId: 1
+        folder: Infrastructure
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/infrastructure
+      - name: kubernetes
+        orgId: 1
+        folder: Kubernetes
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/kubernetes
+      - name: platform
+        orgId: 1
+        folder: Platform
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/platform
+      - name: observability
+        orgId: 1
+        folder: Observability
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/observability
+
+dashboards:
+  infrastructure:
+    node-exporter-full:
+      gnetId: 1860
+      datasource: Mimir
+  kubernetes:
+    k8s-views-global:
+      gnetId: 15760
+      datasource: Mimir
+    k8s-views-namespaces:
+      gnetId: 15761
+      datasource: Mimir
+    k8s-views-nodes:
+      gnetId: 15762
+      datasource: Mimir
+    k8s-views-pods:
+      gnetId: 15763
+      datasource: Mimir
+  platform:
+    argocd:
+      gnetId: 14584
+      datasource: Mimir
+    rook-ceph-cluster:
+      url: https://raw.githubusercontent.com/rook/rook/v1.20.0/deploy/examples/monitoring/grafana/Ceph%20Cluster%20Dashboard.json
+      datasource: Mimir
+    rook-ceph-osd:
+      url: https://raw.githubusercontent.com/rook/rook/v1.20.0/deploy/examples/monitoring/grafana/Ceph%20OSD%20Single%20Dashboard.json
+      datasource: Mimir
+    rook-ceph-pool:
+      url: https://raw.githubusercontent.com/rook/rook/v1.20.0/deploy/examples/monitoring/grafana/Ceph%20Pools%20Dashboard.json
+      datasource: Mimir
+  observability:
+    grafana-alloy:
+      gnetId: 13659
+      datasource: Mimir
+    tempo:
+      gnetId: 23242
+      revision: 1
+      datasource: Mimir
