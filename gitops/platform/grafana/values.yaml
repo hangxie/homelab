@@ -92,6 +92,14 @@ dashboardProviders:
         editable: true
         options:
           path: /var/lib/grafana/dashboards/observability
+      - name: workloads
+        orgId: 1
+        folder: Workloads
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/workloads
 
 dashboards:
   infrastructure:
@@ -131,4 +139,32 @@ dashboards:
     tempo:
       gnetId: 23242
       revision: 1
+      datasource: Mimir
+  workloads:
+    airflow:
+      gnetId: 21483
+      datasource: Mimir
+    cassandra:
+      gnetId: 5408
+      datasource: Mimir
+    clickhouse:
+      gnetId: 14192
+      datasource: Mimir
+    hdfs:
+      gnetId: 12236
+      datasource: Mimir
+    mysql:
+      gnetId: 14057
+      datasource: Mimir
+    ray:
+      gnetId: 14708
+      datasource: Mimir
+    redis:
+      gnetId: 763
+      datasource: Mimir
+    spark:
+      gnetId: 7890
+      datasource: Mimir
+    trino:
+      gnetId: 20208
       datasource: Mimir
