@@ -16,6 +16,13 @@ createUserJob:
     argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "0"
+  # The Job is a Sync hook, but its ServiceAccount is a plain resource that
+  # defaults to wave 0 -- the same wave as the Job. Pull the SA into an earlier
+  # wave so it always exists before the hook pod is created (see
+  # migrateDatabaseJob.serviceAccount for the full rationale).
+  serviceAccount:
+    annotations:
+      argocd.argoproj.io/sync-wave: "-1"
   defaultUser:
     enabled: true
     username: admin
@@ -63,6 +70,15 @@ migrateDatabaseJob:
     argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "-1"
+  # The migrate Job is a Sync hook at wave -1, but its ServiceAccount renders as a
+  # plain resource at the default wave 0 -- i.e. after the hook. Argo CD then runs
+  # the hook Job before the SA exists, so pod creation fails with
+  # "serviceaccount ... not found" and the sync deadlocks on the never-completing
+  # hook. Move the SA to wave -2 (with the DB bootstrap) so it is always present
+  # before the migration hook runs.
+  serviceAccount:
+    annotations:
+      argocd.argoproj.io/sync-wave: "-2"
 
 apiSecretKeySecretName: airflow-api-secret-key
 jwtSecretName: airflow-jwt-secret
