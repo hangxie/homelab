@@ -31,9 +31,13 @@
       # Argo CD reconciles platform Applications asynchronously after the root app
       # is applied, so this is the scoped replacement for the old global gate. The
       # helm upgrade below is atomic (wait: true) and fails outright if these are
-      # missing: SPIRE's PVC needs the rook-ceph-block StorageClass, and the Cilium
-      # dashboards are created in the grafana namespace. (The Hubble route applied
-      # later needs no gate — it attaches to the gateway whenever it appears.)
+      # missing: SPIRE's PVC is provisioned by rook-ceph, and the Cilium dashboards
+      # are created in the grafana namespace. (The Hubble route applied later needs
+      # no gate — it attaches to the gateway whenever it appears.) The rook-ceph
+      # StorageClass object appears before the Ceph cluster can actually bind a
+      # volume, so gate on the CephCluster reporting Ready: otherwise the helm wait
+      # can expire while spire-server is still Pending on its PVC during a cold
+      # bootstrap, which surfaces as "context deadline exceeded".
       # ESO occasionally leaves an ExternalSecret Ready=False after a startup race
       # even though the Secret was created correctly, so nudge those each retry to
       # unblock resources gated on them.
@@ -47,6 +51,8 @@
             kubectl -n "$ns" annotate externalsecret "$name" "force-sync=$(date +%s)" --overwrite >/dev/null
           done
         kubectl get storageclass rook-ceph-block >/dev/null 2>&1 || exit 1
+        [ "$(kubectl -n rook-ceph get cephcluster \
+              -o jsonpath='{.items[0].status.phase}' 2>/dev/null)" = "Ready" ] || exit 1
         kubectl get namespace grafana >/dev/null 2>&1
       args:
         executable: /bin/bash
