@@ -84,6 +84,14 @@ apiSecretKeySecretName: airflow-api-secret-key
 jwtSecretName: airflow-jwt-secret
 fernetKeySecretName: airflow-fernet-key
 
+# The migrate (wave -1) and create-user (wave 0) Jobs run as Sync hooks and mount
+# this airflow config ConfigMap, which otherwise renders as a plain resource at
+# the default wave 0 -- after the migrate hook. The hook pod then hangs with
+# "configmap wl-airflow-config not found". Pull the ConfigMap into an earlier wave
+# so it always exists before any hook Job runs.
+airflowConfigAnnotations:
+  argocd.argoproj.io/sync-wave: "-3"
+
 data:
   metadataConnection:
     user: airflow
