@@ -13,6 +13,7 @@ sidecar:
     searchNamespace: ALL
     label: grafana_dashboard
     labelValue: "1"
+    folderAnnotation: k8s-sidecar-target-directory
   datasources:
     enabled: true
     searchNamespace: ALL
