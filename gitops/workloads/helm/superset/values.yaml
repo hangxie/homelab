@@ -1,15 +1,10 @@
 postgresql:
   enabled: false
 
+# Use the cluster-wide Redis (redis-operator) instead of an embedded sub-chart.
+# Connection details live under supersetNode.connections below.
 redis:
-  enabled: true
-  image:
-    repository: bitnamilegacy/redis
-  master:
-    persistence:
-      enabled: true
-      storageClass: rook-ceph-block
-      size: 8Gi
+  enabled: false
 
 # The upstream apache/superset image ships without the `postgres` extra, so a
 # Postgres metadata DB connection fails at boot with
@@ -35,6 +30,16 @@ supersetNode:
     db_port: "5432"
     db_user: superset
     db_name: superset
+    # Central redis-operator instance. The -master service follows the master
+    # on Sentinel failover (operator re-points its redis-role=master selector).
+    redis_host: redis-replication-master.redis.svc
+    redis_port: "6379"
+    # The chart has no existingSecret hook for the Redis password and only
+    # emits password-aware config when this value is truthy. The real password
+    # is injected at runtime via the REDIS_PASSWORD entry in extraEnvRaw (an
+    # explicit env that overrides the plaintext value the chart bakes into its
+    # -env Secret), so this is just a non-secret placeholder flag.
+    redis_password: from-extraenvraw
 
 supersetWorker:
   replicas:
@@ -72,6 +77,12 @@ extraEnvRaw:
     valueFrom:
       secretKeyRef:
         name: superset-admin
+        key: password
+  # Overrides the placeholder redis_password baked into the chart's -env Secret.
+  - name: REDIS_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: superset-redis
         key: password
 
 init:
