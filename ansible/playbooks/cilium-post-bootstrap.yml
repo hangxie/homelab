@@ -105,6 +105,8 @@
             dashboards:
               enabled: true
               namespace: grafana
+              annotations:
+                k8s-sidecar-target-directory: /tmp/dashboards/Networking
           hubble:
             enabled: true
             relay:
@@ -128,9 +130,13 @@
               dashboards:
                 enabled: true
                 namespace: grafana
+                annotations:
+                  k8s-sidecar-target-directory: /tmp/dashboards/Networking
           dashboards:
             enabled: true
             namespace: grafana
+            annotations:
+              k8s-sidecar-target-directory: /tmp/dashboards/Networking
         wait: true
         timeout: 600s
       register: cilium_post_bootstrap_helm

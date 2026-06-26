@@ -6,6 +6,8 @@ metaMonitoring:
   dashboards:
     enabled: true
     namespace: grafana
+    annotations:
+      k8s-sidecar-target-directory: /tmp/dashboards/Mimir
 
 mimir:
   structuredConfig:
