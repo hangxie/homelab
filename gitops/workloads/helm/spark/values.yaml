@@ -1,5 +1,4 @@
-# Kubeflow Spark Operator replaces the old Bitnami standalone
-# master/worker cluster. Spark workers are executor pods created by
+# Kubeflow Spark Operator. Spark workers are executor pods created by
 # SparkApplication resources; the executor image is declared per job.
 controller:
   resources:
