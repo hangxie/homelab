@@ -1,8 +1,10 @@
 ---
-# Post-bootstrap Cilium configuration. Runs after Argo CD has converged the
-# platform dependencies that the first Cilium install deliberately avoids:
-# rook-ceph storage, Prometheus ServiceMonitor CRDs, and the monitoring
-# namespace.
+# Post-bootstrap Cilium configuration. The first Cilium install deliberately
+# omits features that depend on platform services Argo CD only reconciles after
+# the root app is applied: rook-ceph storage (SPIRE's PVC), the grafana namespace
+# (dashboards), and the default gateway (Hubble route). This play waits for those
+# specific resources itself rather than relying on a global platform-convergence
+# gate during bootstrap.
 
 - name: Enable Cilium post-bootstrap features and observability
   hosts: localhost
@@ -24,6 +26,37 @@
       until:
         - kube_api_vip_ready.rc == 0
         - "'ok' in kube_api_vip_ready.stdout"
+
+    - name: Nudge stale ExternalSecrets and wait for Cilium's platform prerequisites
+      # Argo CD reconciles platform Applications asynchronously after the root app
+      # is applied, so this is the scoped replacement for the old global gate. The
+      # helm upgrade below is atomic (wait: true) and fails outright if these are
+      # missing: SPIRE's PVC needs the rook-ceph-block StorageClass, and the Cilium
+      # dashboards are created in the grafana namespace. (The Hubble route applied
+      # later needs no gate — it attaches to the gateway whenever it appears.)
+      # ESO occasionally leaves an ExternalSecret Ready=False after a startup race
+      # even though the Secret was created correctly, so nudge those each retry to
+      # unblock resources gated on them.
+      shell: |
+        set -o pipefail
+        kubectl get externalsecret -A \
+          -o jsonpath='{range .items[*]}{.metadata.namespace}|{.metadata.name}|{.status.conditions[0].type}|{.status.conditions[0].status}{"\n"}{end}' \
+        | awk -F'|' '$3=="Ready" && $4=="False" {print $1, $2}' \
+        | while read -r ns name; do
+            [[ -n "$ns" && -n "$name" ]] || continue
+            kubectl -n "$ns" annotate externalsecret "$name" "force-sync=$(date +%s)" --overwrite >/dev/null
+          done
+        kubectl get storageclass rook-ceph-block >/dev/null 2>&1 || exit 1
+        kubectl get namespace grafana >/dev/null 2>&1
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: platform_prereqs
+      retries: 60
+      delay: 30
+      until: platform_prereqs.rc == 0
+      changed_when: false
 
     - name: Capture Cilium config before post-bootstrap upgrade
       command: kubectl -n kube-system get configmap cilium-config -o json

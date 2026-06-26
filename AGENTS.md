@@ -14,7 +14,7 @@ See `README.md` for architecture, bootstrap flow, and rebuild modes.
 ## Ownership (don't cross)
 
 - Terraform → infra only. No K8s objects.
-- Ansible → bootstrap only. Stops after `apply-root-app.yml` reports all apps Synced/Healthy. Exception: Cilium (full lifecycle).
+- Ansible → bootstrap only. Applies the root app, then hands reconciliation to Argo CD; `cilium-post-bootstrap.yml` waits only for the specific platform resources its own steps depend on. Exception: Cilium (full lifecycle).
 - Argo CD → everything else in-cluster, including its own chart/config.
 - Vault → only persistent source of truth besides Git. Secrets enter via `ExternalSecret` against `vault-homelab` — never literal Secret manifests.
 

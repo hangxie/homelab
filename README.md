@@ -9,7 +9,7 @@ Terraform → Proxmox VMs / disks / cloud-init
    ↓
 Ansible  → OS, kubeadm, API VIP, Cilium (full lifecycle), NVIDIA host stack,
            minimal Argo CD + AppProjects, one Vault bootstrap Secret,
-           root Application gate for root/platform apps
+           apply root Application (Argo CD then reconciles on its own)
    ↓
 Argo CD  → everything else, including its own chart/config
 ```
@@ -17,7 +17,7 @@ Argo CD  → everything else, including its own chart/config
 ### Ownership
 
 - **Terraform** never touches Kubernetes objects.
-- **Ansible** owns bootstrap only. It waits for the root and platform Applications to become Synced/Healthy, then applies Cilium post-bootstrap features. Workload Applications are left for Argo CD to reconcile after bootstrap.
+- **Ansible** owns bootstrap only. It applies the root Application and hands reconciliation to Argo CD, then applies Cilium post-bootstrap features — waiting only for the specific platform resources those features depend on. Platform and workload Applications are otherwise left for Argo CD to reconcile after bootstrap.
 - **Argo CD** reconciles all other in-cluster state via the root Application and the workload ApplicationSets. The one deliberate exception is Cilium, which Ansible owns end-to-end.
 
 ### Argo CD shape
