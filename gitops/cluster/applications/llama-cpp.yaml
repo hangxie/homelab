@@ -1,12 +1,12 @@
 # Shared namespace infrastructure for all llama.cpp model instances.
-# Deploys in wave 108 so the PVC and secrets exist before model pods start.
+# Deploys in wave 150 so the PVC and secrets exist before model pods start.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: llama-cpp-shared
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "108"
+    argocd.argoproj.io/sync-wave: "150"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -41,7 +41,7 @@ metadata:
   name: llama-cpp-models
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "110"
+    argocd.argoproj.io/sync-wave: "160"
 spec:
   goTemplate: true
   generators:

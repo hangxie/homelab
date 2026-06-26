@@ -4,7 +4,7 @@ metadata:
   name: workloads-raw
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "110"
+    argocd.argoproj.io/sync-wave: "160"
 spec:
   goTemplate: true
   generators:

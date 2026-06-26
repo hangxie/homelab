@@ -4,7 +4,7 @@ metadata:
   name: mysql-operator
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "97"
+    argocd.argoproj.io/sync-wave: "110"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

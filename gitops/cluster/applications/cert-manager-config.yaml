@@ -4,7 +4,7 @@ metadata:
   name: cert-manager-config
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "25"
+    argocd.argoproj.io/sync-wave: "11"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

@@ -26,26 +26,27 @@ Argo CD  → everything else, including its own chart/config
 root Application
 └── gitops/cluster/applications/      (App-of-Apps; explicit sync waves)
     ├── argocd                        (no wave; self-manages)
-    ├── cert-manager (20) → cert-manager-config (25)
-    ├── external-secrets (30) → external-secrets-stores (35)
-    ├── rook-ceph (40) → rook-ceph-cluster (50)
-    ├── metrics-server (60)
-    ├── grafana / kube-state-metrics / mimir (70)
-    ├── loki / tempo / alloy (80)
-    ├── stackable commons/secret/listener operators (84/86/87)
-    ├── nfd (88) → nvidia-device-plugin (92)
+    ├── cert-manager (10) → cert-manager-config (11)
+    ├── external-secrets (20) → external-secrets-stores (21)
+    ├── rook-ceph (30) → ceph-csi-drivers (31) → rook-ceph-cluster (32)
+    ├── metrics-server (40)
+    ├── grafana / kube-state-metrics / mimir (50)
+    ├── loki / tempo / alloy (60)
+    ├── stackable commons/secret/listener operators (70/71/72)
+    ├── nfd (80) → nvidia-device-plugin (81)
     ├── kuberay-operator (90)
-    ├── redis-operator (95)
-    ├── mysql-operator (97)
-    ├── scylla-operator (99)
-    ├── gateway-routes (100)
-    ├── postgres-cnpg (105) → postgres-cluster (108)
-    └── workloads-helm / workloads-raw (110; ApplicationSets)
+    ├── redis-operator (100)
+    ├── mysql-operator (110)
+    ├── scylla-operator (120)
+    ├── gateway-routes (130)
+    ├── postgres-cnpg (140) → postgres-cluster (141)
+    ├── llama-cpp-shared (150) → llama-cpp-models (160; ApplicationSet)
+    └── workloads-helm / workloads-raw (160; ApplicationSets)
         ├── gitops/workloads/helm/*  (config.json + values.yaml + extras/)
         └── gitops/workloads/raw/*   (manifests/)
 ```
 
-ApplicationSet-generated workloads sync concurrently within wave 110. Enabled
+ApplicationSet-generated workloads sync concurrently within wave 160. Enabled
 workloads come from explicit `elements` lists in `workloads-helm.yaml` and
 `workloads-raw.yaml`; commenting out a line disables and prunes that workload.
 
