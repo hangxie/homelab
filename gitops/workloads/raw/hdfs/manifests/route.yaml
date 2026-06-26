@@ -1,0 +1,15 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hdfs
+  namespace: hdfs
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+  hostnames:
+    - "hdfs.homelab.xiehang.com"
+  rules:
+    - backendRefs:
+        - name: namenode
+          port: 9870

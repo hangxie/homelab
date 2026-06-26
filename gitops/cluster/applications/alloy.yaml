@@ -19,6 +19,9 @@ spec:
     - repoURL: https://github.com/hangxie/homelab.git
       targetRevision: main
       ref: values
+    - repoURL: https://github.com/hangxie/homelab.git
+      targetRevision: main
+      path: gitops/platform/alloy/extras
   destination:
     server: https://kubernetes.default.svc
     namespace: alloy
