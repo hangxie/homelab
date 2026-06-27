@@ -1,0 +1,8 @@
+mysql:
+  host: "mysql-cluster.mysql.svc"
+  port: 3306
+  user: "monitoring"
+  pass: ""
+  existingPasswordSecret:
+    name: "mysql-monitoring-credentials"
+    key: "password"

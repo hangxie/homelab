@@ -1,0 +1,5 @@
+{
+  "chart_repo": "https://prometheus-community.github.io/helm-charts",
+  "chart_name": "prometheus-mysql-exporter",
+  "chart_version": "2.14.0"
+}

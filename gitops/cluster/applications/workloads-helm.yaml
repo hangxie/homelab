@@ -27,6 +27,7 @@ spec:
                 - name: spark
                 - name: superset
                 - name: trino
+                - name: mysqld-exporter
           - git:
               repoURL: https://github.com/hangxie/homelab.git
               revision: main

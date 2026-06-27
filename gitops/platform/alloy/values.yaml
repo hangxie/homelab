@@ -803,6 +803,34 @@ alloy:
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
+      // ── mysqld-exporter ───────────────────────────────────────────────────────
+
+      discovery.kubernetes "mysqld_exporter" {
+        role = "endpoints"
+        namespaces {
+          names = ["mysqld-exporter"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/name=prometheus-mysql-exporter"
+        }
+      }
+
+      discovery.relabel "mysqld_exporter" {
+        targets = discovery.kubernetes.mysqld_exporter.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "mysql-exporter"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "mysql" {
+        targets    = discovery.relabel.mysqld_exporter.output
+        job_name   = "mysql"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
 controller:
   type: daemonset
   # Alloy needs cluster-wide read access for kubernetes discovery and
