@@ -136,7 +136,7 @@ apiServer:
     failureThreshold: 30
 
 statsd:
-  enabled: false
+  enabled: true
 
 flower:
   enabled: false

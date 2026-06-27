@@ -536,14 +536,22 @@ alloy:
         }
         selectors {
           role  = "endpoints"
-          label = "release=airflow,component=scheduler"
+          label = "release=airflow,component=statsd"
+        }
+      }
+
+      discovery.relabel "airflow" {
+        targets = discovery.kubernetes.airflow.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_number"]
+          regex         = "9102"
+          action        = "keep"
         }
       }
 
       prometheus.scrape "airflow" {
-        targets    = discovery.kubernetes.airflow.targets
+        targets    = discovery.relabel.airflow.output
         job_name   = "airflow"
-        metrics_path = "/metrics"
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
