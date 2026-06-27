@@ -625,6 +625,18 @@ alloy:
           regex         = "prometheus"
           action        = "keep"
         }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_scylla_cluster"]
+          target_label  = "cluster"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_scylla_datacenter"]
+          target_label  = "dc"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_scylla_rack"]
+          target_label  = "rack"
+        }
       }
 
       prometheus.scrape "scylladb" {
@@ -658,6 +670,117 @@ alloy:
       prometheus.scrape "nfd" {
         targets    = discovery.relabel.nfd.output
         job_name   = "nfd"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── Kubernetes API server ─────────────────────────────────────────────────
+
+      prometheus.scrape "apiserver" {
+        targets      = [{"__address__" = "kubernetes.default.svc:443"}]
+        job_name     = "apiserver"
+        scheme       = "https"
+        metrics_path = "/metrics"
+        bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        tls_config {
+          insecure_skip_verify = true
+        }
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── CoreDNS ───────────────────────────────────────────────────────────────
+
+      discovery.kubernetes "coredns" {
+        role = "pod"
+        namespaces {
+          names = ["kube-system"]
+        }
+        selectors {
+          role  = "pod"
+          label = "k8s-app=kube-dns"
+        }
+      }
+
+      discovery.relabel "coredns" {
+        targets = discovery.kubernetes.coredns.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_port_number"]
+          regex         = "9153"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "coredns" {
+        targets    = discovery.relabel.coredns.output
+        job_name   = "coredns"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── ArgoCD ────────────────────────────────────────────────────────────────
+
+      discovery.kubernetes "argocd" {
+        role = "pod"
+        namespaces {
+          names = ["argocd"]
+        }
+        selectors {
+          role  = "pod"
+          label = "app.kubernetes.io/part-of=argocd"
+        }
+      }
+
+      discovery.relabel "argocd" {
+        targets = discovery.kubernetes.argocd.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_port_name"]
+          regex         = "metrics"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "argocd" {
+        targets    = discovery.relabel.argocd.output
+        job_name   = "argocd"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── Mimir (self-monitoring) ───────────────────────────────────────────────
+
+      discovery.kubernetes "mimir_self" {
+        role = "pod"
+        namespaces {
+          names = ["mimir"]
+        }
+        selectors {
+          role  = "pod"
+          label = "app.kubernetes.io/name=mimir"
+        }
+      }
+
+      discovery.relabel "mimir_self" {
+        targets = discovery.kubernetes.mimir_self.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_port_number"]
+          regex         = "8080"
+          action        = "keep"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+          separator     = "/"
+          target_label  = "job"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+          target_label  = "component"
+        }
+      }
+
+      prometheus.scrape "mimir_self" {
+        targets    = discovery.relabel.mimir_self.output
+        job_name   = "mimir"
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
