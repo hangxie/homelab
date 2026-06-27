@@ -181,12 +181,12 @@ alloy:
       }
 
       discovery.kubernetes "cilium_operator" {
-        role = "endpoints"
+        role = "pod"
         namespaces {
           names = ["kube-system"]
         }
         selectors {
-          role  = "endpoints"
+          role  = "pod"
           label = "io.cilium/app=operator"
         }
       }
@@ -194,7 +194,7 @@ alloy:
       discovery.relabel "cilium_operator" {
         targets = discovery.kubernetes.cilium_operator.targets
         rule {
-          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          source_labels = ["__meta_kubernetes_pod_container_port_name"]
           regex         = "prometheus"
           action        = "keep"
         }
@@ -221,7 +221,7 @@ alloy:
         targets = discovery.kubernetes.hubble.targets
         rule {
           source_labels = ["__meta_kubernetes_endpoint_port_name"]
-          regex         = "prometheus"
+          regex         = "hubble-metrics"
           action        = "keep"
         }
       }
@@ -249,7 +249,7 @@ alloy:
         targets = discovery.kubernetes.cert_manager.targets
         rule {
           source_labels = ["__meta_kubernetes_endpoint_port_name"]
-          regex         = "http-metrics"
+          regex         = "tcp-prometheus-servicemonitor"
           action        = "keep"
         }
       }
@@ -263,12 +263,12 @@ alloy:
       // ── external-secrets ──────────────────────────────────────────────────────
 
       discovery.kubernetes "external_secrets" {
-        role = "endpoints"
+        role = "pod"
         namespaces {
           names = ["external-secrets"]
         }
         selectors {
-          role  = "endpoints"
+          role  = "pod"
           label = "app.kubernetes.io/name=external-secrets"
         }
       }
@@ -276,7 +276,7 @@ alloy:
       discovery.relabel "external_secrets" {
         targets = discovery.kubernetes.external_secrets.targets
         rule {
-          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          source_labels = ["__meta_kubernetes_pod_container_port_name"]
           regex         = "metrics"
           action        = "keep"
         }
@@ -366,7 +366,7 @@ alloy:
         targets = discovery.kubernetes.tempo.targets
         rule {
           source_labels = ["__meta_kubernetes_endpoint_port_name"]
-          regex         = "prom-metrics"
+          regex         = "tempo-prom-metrics"
           action        = "keep"
         }
       }
@@ -380,12 +380,12 @@ alloy:
       // ── CloudNativePG operator ─────────────────────────────────────────────────
 
       discovery.kubernetes "cnpg_operator" {
-        role = "endpoints"
+        role = "pod"
         namespaces {
-          names = ["postgres-cnpg"]
+          names = ["cnpg-system"]
         }
         selectors {
-          role  = "endpoints"
+          role  = "pod"
           label = "app.kubernetes.io/name=cloudnative-pg"
         }
       }
@@ -393,7 +393,7 @@ alloy:
       discovery.relabel "cnpg_operator" {
         targets = discovery.kubernetes.cnpg_operator.targets
         rule {
-          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          source_labels = ["__meta_kubernetes_pod_container_port_name"]
           regex         = "metrics"
           action        = "keep"
         }
@@ -602,7 +602,7 @@ alloy:
         }
         selectors {
           role  = "endpoints"
-          label = "app.kubernetes.io/name=scylladb"
+          label = "app.kubernetes.io/name=scylla"
         }
       }
 
