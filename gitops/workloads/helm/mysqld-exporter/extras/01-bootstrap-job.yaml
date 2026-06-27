@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mysql-monitoring-user-bootstrap
+  namespace: mysqld-exporter
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mysql-bootstrap
+          image: mysql:8
+          env:
+            - name: MYSQL_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-root
+                  key: rootPassword
+            - name: MONITORING_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-monitoring-credentials
+                  key: password
+          command: [bash, -ec]
+          args:
+            - |
+              mysql -h mysql-cluster.mysql.svc -u root <<SQL
+              CREATE USER IF NOT EXISTS 'monitoring'@'%' IDENTIFIED BY '${MONITORING_PASSWORD}';
+              ALTER USER 'monitoring'@'%' IDENTIFIED BY '${MONITORING_PASSWORD}';
+              GRANT PROCESS, REPLICATION CLIENT ON *.* TO 'monitoring'@'%';
+              GRANT SELECT ON performance_schema.* TO 'monitoring'@'%';
+              FLUSH PRIVILEGES;
+              SQL
