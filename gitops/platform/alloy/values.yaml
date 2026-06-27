@@ -722,9 +722,9 @@ alloy:
       discovery.relabel "coredns" {
         targets = discovery.kubernetes.coredns.targets
         rule {
-          source_labels = ["__meta_kubernetes_pod_container_port_number"]
-          regex         = "9153"
-          action        = "keep"
+          source_labels = ["__meta_kubernetes_pod_ip"]
+          replacement   = "$1:9153"
+          target_label  = "__address__"
         }
       }
 
@@ -751,7 +751,7 @@ alloy:
         targets = discovery.kubernetes.argocd.targets
         rule {
           source_labels = ["__meta_kubernetes_pod_container_port_name"]
-          regex         = "metrics"
+          regex         = ".*metrics"
           action        = "keep"
         }
       }
