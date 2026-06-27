@@ -4,6 +4,22 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  name: hdfs-jmx-config
+  namespace: hdfs
+data:
+  config.yaml: |
+    startDelaySeconds: 0
+    ssl: false
+    rules:
+      - pattern: "Hadoop<service=NameNode, name=(.+)><>(.+)"
+        name: "hadoop_namenode_$1_$2"
+        labels:
+          service: namenode
+      - pattern: ".*"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
   name: hdfs-config
   namespace: hdfs
 data:
@@ -56,6 +72,11 @@ spec:
             runAsNonRoot: false
           volumeMounts:
             - { name: data, mountPath: /hadoop/dfs/name }
+        - name: jmx-exporter-init
+          image: bitnami/jmx-exporter:0.20.0
+          command: ["cp", "/opt/bitnami/jmx-exporter/jmx_prometheus_javaagent.jar", "/jmx/agent/"]
+          volumeMounts:
+            - { name: jmx-agent, mountPath: /jmx/agent }
       containers:
         - name: namenode
           image: apache/hadoop:3.4.0
@@ -72,15 +93,27 @@ spec:
                 /opt/hadoop/bin/hdfs namenode -format -nonInteractive
               fi
               exec /opt/hadoop/bin/hdfs namenode
+          env:
+            - name: HADOOP_NAMENODE_OPTS
+              value: "-javaagent:/jmx/agent/jmx_prometheus_javaagent.jar=9087:/jmx/config.yaml"
           ports:
             - { name: rpc, containerPort: 8020 }
             - { name: ui,  containerPort: 9870 }
+            - { name: jmx, containerPort: 9087 }
           volumeMounts:
-            - { name: data,   mountPath: /hadoop/dfs/name }
-            - { name: config, mountPath: /opt/hadoop/etc/hadoop }
+            - { name: data,       mountPath: /hadoop/dfs/name }
+            - { name: config,     mountPath: /opt/hadoop/etc/hadoop }
+            - { name: jmx-agent,  mountPath: /jmx/agent }
+            - name: jmx-config
+              mountPath: /jmx/config.yaml
+              subPath: config.yaml
       volumes:
         - name: config
           configMap: { name: hdfs-config }
+        - name: jmx-agent
+          emptyDir: {}
+        - name: jmx-config
+          configMap: { name: hdfs-jmx-config }
   volumeClaimTemplates:
     - metadata: { name: data }
       spec:
@@ -97,7 +130,8 @@ spec:
   selector: { app.kubernetes.io/name: namenode }
   ports:
     - { name: rpc, port: 8020, targetPort: rpc }
-    - { name: ui,  port: 9870, targetPort: ui }
+    - { name: ui,  port: 9870, targetPort: ui  }
+    - { name: jmx, port: 9087, targetPort: jmx }
 ---
 apiVersion: apps/v1
 kind: StatefulSet

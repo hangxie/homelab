@@ -831,6 +831,34 @@ alloy:
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
+      // ── HDFS namenode ─────────────────────────────────────────────────────────
+
+      discovery.kubernetes "hdfs" {
+        role = "endpoints"
+        namespaces {
+          names = ["hdfs"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/name=namenode"
+        }
+      }
+
+      discovery.relabel "hdfs" {
+        targets = discovery.kubernetes.hdfs.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "jmx"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "hdfs" {
+        targets    = discovery.relabel.hdfs.output
+        job_name   = "hdfs"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
 controller:
   type: daemonset
   # Alloy needs cluster-wide read access for kubernetes discovery and
