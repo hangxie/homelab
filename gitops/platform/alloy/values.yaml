@@ -859,6 +859,34 @@ alloy:
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
+      // ── Trino ─────────────────────────────────────────────────────────────────
+
+      discovery.kubernetes "trino_jmx" {
+        role = "endpoints"
+        namespaces {
+          names = ["trino"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/name=trino"
+        }
+      }
+
+      discovery.relabel "trino_jmx" {
+        targets = discovery.kubernetes.trino_jmx.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "jmx"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "trino" {
+        targets    = discovery.relabel.trino_jmx.output
+        job_name   = "trino"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
 controller:
   type: daemonset
   # Alloy needs cluster-wide read access for kubernetes discovery and

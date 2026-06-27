@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-jmx-config
+  namespace: trino
+data:
+  config.yaml: |
+    startDelaySeconds: 0
+    ssl: false
+    rules:
+      - pattern: "trino.execution<name=QueryManager><>(.+)"
+        name: "trino_query_manager_$1"
+      - pattern: "trino.execution<name=TaskManager><>(.+)"
+        name: "trino_task_manager_$1"
+      - pattern: "trino.memory<name=ClusterMemoryManager><>(.+)"
+        name: "trino_cluster_memory_$1"
+      - pattern: "trino.failuredetector<name=HeartbeatFailureDetector><>(.+)"
+        name: "trino_failure_detector_$1"
+      - pattern: ".*"

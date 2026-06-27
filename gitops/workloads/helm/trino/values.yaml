@@ -11,6 +11,25 @@ coordinator:
     requests:
       cpu: 500m
       memory: 2Gi
+  additionalJVMConfig:
+    - "-javaagent:/jmx/agent/jmx_prometheus_javaagent.jar=9087:/jmx/config.yaml"
+  additionalExposedPorts:
+    jmx:
+      internalPort: 9087
+      port: 9087
+      protocol: TCP
+  additionalVolumes:
+    - name: jmx-agent
+      emptyDir: {}
+    - name: jmx-config
+      configMap:
+        name: trino-jmx-config
+  additionalVolumeMounts:
+    - name: jmx-agent
+      mountPath: /jmx/agent
+    - name: jmx-config
+      mountPath: /jmx/config.yaml
+      subPath: config.yaml
 
 worker:
   replicas: 2
@@ -20,6 +39,25 @@ worker:
     requests:
       cpu: 1
       memory: 4Gi
+  additionalJVMConfig:
+    - "-javaagent:/jmx/agent/jmx_prometheus_javaagent.jar=9087:/jmx/config.yaml"
+  additionalExposedPorts:
+    jmx:
+      internalPort: 9087
+      port: 9087
+      protocol: TCP
+  additionalVolumes:
+    - name: jmx-agent
+      emptyDir: {}
+    - name: jmx-config
+      configMap:
+        name: trino-jmx-config
+  additionalVolumeMounts:
+    - name: jmx-agent
+      mountPath: /jmx/agent
+    - name: jmx-config
+      mountPath: /jmx/config.yaml
+      subPath: config.yaml
 
 server:
   workers: 2
@@ -48,3 +86,20 @@ additionalCatalogs:
     connection-url=jdbc:mysql://mysql-cluster.mysql.svc:3306
     connection-user=root
     connection-password=${ENV:MYSQL_ROOT_PASSWORD}
+
+# JMX exporter agent — copies JAR to shared emptyDir before Trino starts.
+initContainers:
+  coordinator:
+    - name: jmx-exporter-init
+      image: bitnami/jmx-exporter:0.20.0
+      command: ["cp", "/opt/bitnami/jmx-exporter/jmx_prometheus_javaagent.jar", "/jmx/agent/"]
+      volumeMounts:
+        - name: jmx-agent
+          mountPath: /jmx/agent
+  worker:
+    - name: jmx-exporter-init
+      image: bitnami/jmx-exporter:0.20.0
+      command: ["cp", "/opt/bitnami/jmx-exporter/jmx_prometheus_javaagent.jar", "/jmx/agent/"]
+      volumeMounts:
+        - name: jmx-agent
+          mountPath: /jmx/agent
