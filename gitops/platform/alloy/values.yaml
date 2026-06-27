@@ -46,6 +46,9 @@ alloy:
       // ── Metrics remote-write ──────────────────────────────────────────────────
 
       prometheus.remote_write "mimir" {
+        external_labels = {
+          cluster = "homelab",
+        }
         endpoint {
           url = "http://mimir-gateway.mimir/api/v1/push"
         }
@@ -353,6 +356,10 @@ alloy:
           regex         = "http-metrics"
           action        = "keep"
         }
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
       }
 
       prometheus.scrape "loki" {
@@ -380,6 +387,10 @@ alloy:
           source_labels = ["__meta_kubernetes_endpoint_port_name"]
           regex         = "tempo-prom-metrics"
           action        = "keep"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
         }
       }
 
