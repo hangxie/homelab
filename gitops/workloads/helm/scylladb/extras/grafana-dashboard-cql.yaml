@@ -2103,7 +2103,7 @@ data:
             {
                 "class": "ops_panel",
                 "datasource": "prometheus",
-                "description": "scylla_cql_inserts",
+                "description": "Counts the total number of CQL INSERT requests with/without conditions.",
                 "editable": true,
                 "error": false,
                 "fieldConfig": {
@@ -2188,7 +2188,7 @@ data:
             {
                 "class": "ops_panel",
                 "datasource": "prometheus",
-                "description": "scylla_cql_deletes",
+                "description": "Counts the total number of CQL DELETE requests with/without conditions.",
                 "editable": true,
                 "error": false,
                 "fieldConfig": {
@@ -2273,7 +2273,7 @@ data:
             {
                 "class": "ops_panel",
                 "datasource": "prometheus",
-                "description": "scylla_cql_updates",
+                "description": "Counts the total number of CQL UPDATE requests with/without conditions.",
                 "editable": true,
                 "error": false,
                 "fieldConfig": {
@@ -4626,7 +4626,7 @@ data:
                 "links": [],
                 "mode": "html",
                 "options": {
-                    "content": "<div style=\"color:#5780C1; border-bottom: 0px solid #5780C1;\">Scylla Monitoring version - __MONITOR_VERSION__</div> <div style=\"\"><a href=\"https://github.com/scylladb/scylla-monitoring/issues/new?body=scylla-version%3D[[scylla_version]]%0Amonitoring-version%3D[[monitoring_version]]%0Adashboard%3D${__dashboard.uid}\" target=\"_blank\">\n<input title=\"Report an issue with Scylla Monitoring\" type=\"button\" style=\"background-color:#306EE6;color:white;border-radius: 15px;font-size:14px;line-height:22px;padding:2px\" value=\"&nbsp;Report an issue on this page&nbsp;\"></a>&nbsp;&nbsp;&nbsp;&nbsp;<a href=\"/render/d/${__dashboard.uid}?orgId=1&from=${__from}&to=${__to}&width=1600&height=-1&kiosk\" target=\"_blank\" download=\"dashboard_${__dashboard.uid}-${__from:date:iso}.png\"><input title=\"Make a Screenshot\" type=\"button\" style=\"background-color:#306EE6;color:white;border-radius: 15px;font-size:14px;line-height:22px;padding:2px\" value=\"&nbsp;&nbsp;&nbsp;Screenshot&nbsp;&nbsp;&nbsp;\"></input></a></span></div>",
+                    "content": "<div style=\"color:#5780C1; border-bottom: 0px solid #5780C1;\">Scylla Monitoring version - 4.15.0</div> <div style=\"\"><a href=\"https://github.com/scylladb/scylla-monitoring/issues/new?body=scylla-version%3D[[scylla_version]]%0Amonitoring-version%3D[[monitoring_version]]%0Adashboard%3D${__dashboard.uid}\" target=\"_blank\">\n<input title=\"Report an issue with Scylla Monitoring\" type=\"button\" style=\"background-color:#306EE6;color:white;border-radius: 15px;font-size:14px;line-height:22px;padding:2px\" value=\"&nbsp;Report an issue on this page&nbsp;\"></a>&nbsp;&nbsp;&nbsp;&nbsp;<a href=\"/render/d/${__dashboard.uid}?orgId=1&from=${__from}&to=${__to}&width=1600&height=-1&kiosk\" target=\"_blank\" download=\"dashboard_${__dashboard.uid}-${__from:date:iso}.png\"><input title=\"Make a Screenshot\" type=\"button\" style=\"background-color:#306EE6;color:white;border-radius: 15px;font-size:14px;line-height:22px;padding:2px\" value=\"&nbsp;&nbsp;&nbsp;Screenshot&nbsp;&nbsp;&nbsp;\"></input></a></span></div>",
                     "mode": "html"
                 },
                 "span": 12,
@@ -4636,11 +4636,11 @@ data:
                 "type": "text"
             }
         ],
-        "refresh": "__REFRESH_INTERVAL__",
+        "refresh": "30s",
         "schemaVersion": 26,
         "style": "dark",
         "tags": [
-            "__SCYLLA_VERSION_DOT__"
+            "2026.1"
         ],
         "templating": {
             "list": [
@@ -4943,8 +4943,8 @@ data:
                     "allValue": null,
                     "class": "template_variable_custom",
                     "current": {
-                        "text": "__SCYLLA_VERSION_DASHED__",
-                        "value": "__SCYLLA_VERSION_DASHED__"
+                        "text": "2026-1",
+                        "value": "2026-1"
                     },
                     "error": null,
                     "hide": 2,
@@ -4955,11 +4955,11 @@ data:
                     "options": [
                         {
                             "selected": true,
-                            "text": "__SCYLLA_VERSION_DASHED__",
-                            "value": "__SCYLLA_VERSION_DASHED__"
+                            "text": "2026-1",
+                            "value": "2026-1"
                         }
                     ],
-                    "query": "__SCYLLA_VERSION_DASHED__",
+                    "query": "2026-1",
                     "skipUrlSync": false,
                     "type": "custom"
                 },
@@ -4967,8 +4967,8 @@ data:
                     "allValue": null,
                     "class": "template_variable_custom",
                     "current": {
-                        "text": "__SCYLLA_VERSION_DOT__",
-                        "value": "__SCYLLA_VERSION_DOT__"
+                        "text": "2026.1",
+                        "value": "2026.1"
                     },
                     "error": null,
                     "hide": 2,
@@ -4979,11 +4979,11 @@ data:
                     "options": [
                         {
                             "selected": true,
-                            "text": "__SCYLLA_VERSION_DOT__",
-                            "value": "__SCYLLA_VERSION_DOT__"
+                            "text": "2026.1",
+                            "value": "2026.1"
                         }
                     ],
-                    "query": "__SCYLLA_VERSION_DOT__",
+                    "query": "2026.1",
                     "skipUrlSync": false,
                     "type": "custom"
                 },
@@ -4991,8 +4991,8 @@ data:
                     "allValue": null,
                     "class": "monitor_version_var",
                     "current": {
-                        "text": "__MONITOR_VERSION__",
-                        "value": "__MONITOR_VERSION__"
+                        "text": "4.15.0",
+                        "value": "4.15.0"
                     },
                     "error": null,
                     "hide": 2,
@@ -5003,11 +5003,11 @@ data:
                     "options": [
                         {
                             "selected": true,
-                            "text": "__MONITOR_VERSION__",
-                            "value": "__MONITOR_VERSION__"
+                            "text": "4.15.0",
+                            "value": "4.15.0"
                         }
                     ],
-                    "query": "__MONITOR_VERSION__",
+                    "query": "4.15.0",
                     "skipUrlSync": false,
                     "type": "custom"
                 }
@@ -5045,6 +5045,6 @@ data:
         },
         "timezone": "utc",
         "title": "Scylla CQL",
-        "uid": "cql-__SCYLLA_VERSION_DASHED__",
+        "uid": "cql-2026-1",
         "version": 1
     }
