@@ -14,19 +14,25 @@ spec:
         app: spark-history-server
     spec:
       initContainers:
+        - name: copy-spark-jars
+          image: apache/spark:3.5.5
+          command: ["cp", "-r", "/opt/spark/jars/.", "/all-jars/"]
+          volumeMounts:
+            - name: all-jars
+              mountPath: /all-jars
         - name: download-s3-jars
           image: alpine:3
           command:
             - /bin/sh
             - -c
             - |
-              wget -q -O /extra-jars/hadoop-aws-3.3.4.jar \
+              wget -q -O /all-jars/hadoop-aws-3.3.4.jar \
                 https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar && \
-              wget -q -O /extra-jars/aws-java-sdk-bundle-1.12.262.jar \
+              wget -q -O /all-jars/aws-java-sdk-bundle-1.12.262.jar \
                 https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar
           volumeMounts:
-            - name: extra-jars
-              mountPath: /extra-jars
+            - name: all-jars
+              mountPath: /all-jars
       containers:
         - name: history-server
           image: apache/spark:3.5.5
@@ -39,14 +45,14 @@ spec:
             - secretRef:
                 name: spark-s3
           env:
-            - name: SPARK_CLASSPATH
-              value: /opt/spark/extra-jars/*
+            - name: SPARK_JARS_DIR
+              value: /all-jars
           volumeMounts:
             - name: spark-conf
               mountPath: /opt/spark/conf/spark-defaults.conf
               subPath: spark-defaults.conf
-            - name: extra-jars
-              mountPath: /opt/spark/extra-jars
+            - name: all-jars
+              mountPath: /all-jars
           resources:
             requests:
               cpu: 100m
@@ -55,7 +61,7 @@ spec:
         - name: spark-conf
           configMap:
             name: spark-defaults
-        - name: extra-jars
+        - name: all-jars
           emptyDir: {}
 ---
 apiVersion: v1
