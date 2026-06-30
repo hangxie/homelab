@@ -15,7 +15,8 @@ coordinator:
     - "-javaagent:/jmx/agent/jmx_prometheus_javaagent.jar=9087:/jmx/config.yaml"
   additionalExposedPorts:
     jmx:
-      internalPort: 9087
+      servicePort: 9087
+      name: jmx
       port: 9087
       protocol: TCP
   additionalVolumes:
@@ -43,7 +44,8 @@ worker:
     - "-javaagent:/jmx/agent/jmx_prometheus_javaagent.jar=9087:/jmx/config.yaml"
   additionalExposedPorts:
     jmx:
-      internalPort: 9087
+      servicePort: 9087
+      name: jmx
       port: 9087
       protocol: TCP
   additionalVolumes:
