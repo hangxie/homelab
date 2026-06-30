@@ -94,14 +94,14 @@ initContainers:
   coordinator:
     - name: jmx-exporter-init
       image: alpine:3
-      command: ["/bin/sh", "-c", "wget -q -O /jmx/agent/jmx_prometheus_javaagent.jar https://github.com/prometheus/jmx_exporter/releases/download/0.20.0/jmx_prometheus_javaagent-0.20.0.jar"]
+      command: ["/bin/sh", "-c", "wget -q -O /jmx/agent/jmx_prometheus_javaagent.jar https://github.com/prometheus/jmx_exporter/releases/download/v1.6.0/jmx_prometheus_javaagent-1.6.0.jar"]
       volumeMounts:
         - name: jmx-agent
           mountPath: /jmx/agent
   worker:
     - name: jmx-exporter-init
       image: alpine:3
-      command: ["/bin/sh", "-c", "wget -q -O /jmx/agent/jmx_prometheus_javaagent.jar https://github.com/prometheus/jmx_exporter/releases/download/0.20.0/jmx_prometheus_javaagent-0.20.0.jar"]
+      command: ["/bin/sh", "-c", "wget -q -O /jmx/agent/jmx_prometheus_javaagent.jar https://github.com/prometheus/jmx_exporter/releases/download/v1.6.0/jmx_prometheus_javaagent-1.6.0.jar"]
       volumeMounts:
         - name: jmx-agent
           mountPath: /jmx/agent
