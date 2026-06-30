@@ -73,8 +73,8 @@ spec:
           volumeMounts:
             - { name: data, mountPath: /hadoop/dfs/name }
         - name: jmx-exporter-init
-          image: bitnami/jmx-exporter:0.20.0
-          command: ["cp", "/opt/bitnami/jmx-exporter/jmx_prometheus_javaagent.jar", "/jmx/agent/"]
+          image: alpine:3
+          command: ["/bin/sh", "-c", "wget -q -O /jmx/agent/jmx_prometheus_javaagent.jar https://github.com/prometheus/jmx_exporter/releases/download/0.20.0/jmx_prometheus_javaagent-0.20.0.jar"]
           volumeMounts:
             - { name: jmx-agent, mountPath: /jmx/agent }
       containers:
