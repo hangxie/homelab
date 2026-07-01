@@ -47,12 +47,12 @@ spec:
   generators:
     - list:
         elements:
-          - slug: llama-3b
-            modelSpec: "bartowski/Llama-3.2-3B-Instruct-GGUF/Llama-3.2-3B-Instruct-Q6_K.gguf"
-            hostname: "llama-cpp.homelab.xiehang.com"
-          # - slug: qwen-7b
-          #   modelSpec: "bartowski/Qwen2.5-7B-Instruct-GGUF/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-          #   hostname: "qwen-7b.homelab.xiehang.com"
+          - slug: qwen3-0b6
+            modelSpec: "bartowski/Qwen_Qwen3-0.6B-GGUF/Qwen_Qwen3-0.6B-Q6_K.gguf"
+            hostname: "qwen3-0b6.homelab.xiehang.com"
+          - slug: gemma3-1b
+            modelSpec: "bartowski/google_gemma-3-1b-it-GGUF/google_gemma-3-1b-it-Q6_K.gguf"
+            hostname: "gemma3-1b.homelab.xiehang.com"
   template:
     metadata:
       name: 'llama-cpp-{{ .slug }}'
