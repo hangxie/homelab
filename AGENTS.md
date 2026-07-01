@@ -39,12 +39,12 @@ kubectl -n argocd get applications,applicationsets
 kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrite
 ```
 
-## Bug fix workflow
+## Change workflow (bug fixes and new features)
 
-1. **Disable Argo CD sync** for the affected app while troubleshooting: `kubectl -n argocd patch app <name> -p '{"spec":{"syncPolicy":null}}' --type=merge`
-2. **Diagnose and fix locally** — apply changes directly with `kubectl` until the app is running correctly.
-3. **Reflect the fix in code** — edit the GitOps manifests/values to match the working local state.
-4. **Branch → commit → PR** — create a new branch, write the commit message with the analysis and root cause, push, and open a PR.
+1. **Disable Argo CD sync** for the affected app while working: `kubectl -n argocd patch app <name> -p '{"spec":{"syncPolicy":null}}' --type=merge`
+2. **Validate locally** — apply changes directly with `kubectl` until the app is running correctly.
+3. **Reflect the change in code** — edit the GitOps manifests/values to match the working local state.
+4. **Branch → commit → PR** — create a new branch, write the commit message with the analysis and rationale, push, and open a PR.
 5. **Re-enable Argo CD sync** — note this in the PR description so the developer restores automated sync after merge.
 
 ## Gotchas
