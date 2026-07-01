@@ -100,6 +100,49 @@ metadata:
   name: ray-vllm-serve-script
   namespace: ray
 data:
+  sitecustomize.py: |
+    # Runs automatically in every Python process (PYTHONPATH=/home/ray).
+    # Patches Ray LLM's _infer_supports_vision / _set_model_architecture so
+    # that transformers 5.8.x incompatibilities (missing max_position_embeddings
+    # on Llama-3.2, missing vision_config on some configs) don't crash the
+    # LLMServer actor at startup.
+    import json as _json, os as _os
+    import transformers as _transformers
+    from ray.llm._internal.serve.core.configs.llm_config import LLMConfig as _LLMConfig
+
+    def _safe_infer_supports_vision(self, model_id_or_path):
+        try:
+            hf_config = _transformers.PretrainedConfig.from_pretrained(model_id_or_path)
+            self._supports_vision = hasattr(hf_config, "vision_config")
+        except Exception:
+            try:
+                with open(_os.path.join(model_id_or_path, "config.json")) as _f:
+                    self._supports_vision = "vision_config" in _json.load(_f)
+            except Exception:
+                self._supports_vision = False
+
+    def _safe_set_model_architecture(self, model_id_or_path=None, model_architecture=None):
+        if model_id_or_path:
+            try:
+                hf_config = _transformers.PretrainedConfig.from_pretrained(model_id_or_path)
+                if hf_config and getattr(hf_config, "architectures", None):
+                    self._model_architecture = hf_config.architectures[0]
+            except Exception:
+                try:
+                    with open(_os.path.join(model_id_or_path, "config.json")) as _f:
+                        archs = _json.load(_f).get("architectures", [])
+                    if archs:
+                        self._model_architecture = archs[0]
+                except Exception:
+                    pass
+        if model_architecture:
+            self._model_architecture = model_architecture
+
+    try:
+        _LLMConfig._infer_supports_vision = _safe_infer_supports_vision
+        _LLMConfig._set_model_architecture = _safe_set_model_architecture
+    except Exception:
+        pass
   serve.py: |
     """Ray Serve LLM app: builds one LLMConfig per model_id listed in the
     MODELS env var (comma-separated) and exposes them under a single
@@ -148,45 +191,6 @@ data:
 
     llm_configs = [_make_config(m) for m in MODELS]
     app = build_openai_app(LLMServingArgs(llm_configs=llm_configs))
-
-    # Patch Ray LLM's apply_checkpoint_info helpers to handle transformers version
-    # incompatibilities (e.g. PreTrainedConfig missing max_position_embeddings on
-    # Llama-3.2, missing vision_config on older configs). Falls back to reading
-    # config.json directly instead of relying on from_pretrained.
-    import json as _json, os as _os
-    import transformers as _transformers
-    from ray.llm._internal.serve.core.configs.llm_config import LLMConfig as _LLMConfig
-
-    def _safe_infer_supports_vision(self, model_id_or_path):
-        try:
-            hf_config = _transformers.PretrainedConfig.from_pretrained(model_id_or_path)
-            self._supports_vision = hasattr(hf_config, "vision_config")
-        except Exception:
-            try:
-                with open(_os.path.join(model_id_or_path, "config.json")) as _f:
-                    self._supports_vision = "vision_config" in _json.load(_f)
-            except Exception:
-                self._supports_vision = False
-
-    def _safe_set_model_architecture(self, model_id_or_path=None, model_architecture=None):
-        if model_id_or_path:
-            try:
-                hf_config = _transformers.PretrainedConfig.from_pretrained(model_id_or_path)
-                if hf_config and getattr(hf_config, "architectures", None):
-                    self._model_architecture = hf_config.architectures[0]
-            except Exception:
-                try:
-                    with open(_os.path.join(model_id_or_path, "config.json")) as _f:
-                        archs = _json.load(_f).get("architectures", [])
-                    if archs:
-                        self._model_architecture = archs[0]
-                except Exception:
-                    pass
-        if model_architecture:
-            self._model_architecture = model_architecture
-
-    _LLMConfig._infer_supports_vision = _safe_infer_supports_vision
-    _LLMConfig._set_model_architecture = _safe_set_model_architecture
 ---
 apiVersion: ray.io/v1
 kind: RayService
@@ -204,10 +208,9 @@ spec:
         runtime_env:
           env_vars:
             PYTHONPATH: /home/ray
-            MODELS: "Qwen/Qwen3-4B-AWQ"
-            MAX_MODEL_LEN: "10240"
-            MAX_NUM_BATCHED_TOKENS: "6144"
-            GPU_MEMORY_UTILIZATION: "0.90"
+            MODELS: "Qwen/Qwen2.5-Coder-1.5B-Instruct-AWQ,meta-llama/Llama-3.2-1B-Instruct"
+            MAX_MODEL_LEN: "4096"
+            GPU_MEMORY_UTILIZATION: "0.45"
             HF_HUB_OFFLINE: "1"
   rayClusterConfig:
     enableInTreeAutoscaling: true
@@ -239,7 +242,7 @@ spec:
       - groupName: gpu-worker
         replicas: 0
         minReplicas: 0
-        maxReplicas: 1
+        maxReplicas: 2
         rayStartParams:
           num-gpus: "1"
         template:
@@ -370,7 +373,8 @@ spec:
                 ports:
                   - { name: metrics, containerPort: 8080, protocol: TCP }
                 volumeMounts:
-                  - { name: serve-script, mountPath: /home/ray/serve.py, subPath: serve.py }
+                  - { name: serve-script, mountPath: /home/ray/serve.py,         subPath: serve.py }
+                  - { name: serve-script, mountPath: /home/ray/sitecustomize.py, subPath: sitecustomize.py }
                   - { name: dshm,         mountPath: /dev/shm }
                   - { name: llm-models,   mountPath: /mnt/models, readOnly: true }
             volumes:
