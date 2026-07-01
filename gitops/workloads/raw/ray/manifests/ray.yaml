@@ -106,43 +106,49 @@ data:
     # that transformers 5.8.x incompatibilities (missing max_position_embeddings
     # on Llama-3.2, missing vision_config on some configs) don't crash the
     # LLMServer actor at startup.
-    import json as _json, os as _os
-    import transformers as _transformers
-    from ray.llm._internal.serve.core.configs.llm_config import LLMConfig as _LLMConfig
+    #
+    # Guard: skip heavy imports in lightweight Ray processes (health-check,
+    # gcs_server, etc.) — importing transformers alone costs ~300 MB and will
+    # OOM the 256 Mi init container that runs `ray health-check`.
+    import sys as _sys
+    if 'health-check' not in _sys.argv:
+        import json as _json, os as _os
+        import transformers as _transformers
+        from ray.llm._internal.serve.core.configs.llm_config import LLMConfig as _LLMConfig
 
-    def _safe_infer_supports_vision(self, model_id_or_path):
-        try:
-            hf_config = _transformers.PretrainedConfig.from_pretrained(model_id_or_path)
-            self._supports_vision = hasattr(hf_config, "vision_config")
-        except Exception:
-            try:
-                with open(_os.path.join(model_id_or_path, "config.json")) as _f:
-                    self._supports_vision = "vision_config" in _json.load(_f)
-            except Exception:
-                self._supports_vision = False
-
-    def _safe_set_model_architecture(self, model_id_or_path=None, model_architecture=None):
-        if model_id_or_path:
+        def _safe_infer_supports_vision(self, model_id_or_path):
             try:
                 hf_config = _transformers.PretrainedConfig.from_pretrained(model_id_or_path)
-                if hf_config and getattr(hf_config, "architectures", None):
-                    self._model_architecture = hf_config.architectures[0]
+                self._supports_vision = hasattr(hf_config, "vision_config")
             except Exception:
                 try:
                     with open(_os.path.join(model_id_or_path, "config.json")) as _f:
-                        archs = _json.load(_f).get("architectures", [])
-                    if archs:
-                        self._model_architecture = archs[0]
+                        self._supports_vision = "vision_config" in _json.load(_f)
                 except Exception:
-                    pass
-        if model_architecture:
-            self._model_architecture = model_architecture
+                    self._supports_vision = False
 
-    try:
-        _LLMConfig._infer_supports_vision = _safe_infer_supports_vision
-        _LLMConfig._set_model_architecture = _safe_set_model_architecture
-    except Exception:
-        pass
+        def _safe_set_model_architecture(self, model_id_or_path=None, model_architecture=None):
+            if model_id_or_path:
+                try:
+                    hf_config = _transformers.PretrainedConfig.from_pretrained(model_id_or_path)
+                    if hf_config and getattr(hf_config, "architectures", None):
+                        self._model_architecture = hf_config.architectures[0]
+                except Exception:
+                    try:
+                        with open(_os.path.join(model_id_or_path, "config.json")) as _f:
+                            archs = _json.load(_f).get("architectures", [])
+                        if archs:
+                            self._model_architecture = archs[0]
+                    except Exception:
+                        pass
+            if model_architecture:
+                self._model_architecture = model_architecture
+
+        try:
+            _LLMConfig._infer_supports_vision = _safe_infer_supports_vision
+            _LLMConfig._set_model_architecture = _safe_set_model_architecture
+        except Exception:
+            pass
   serve.py: |
     """Ray Serve LLM app: builds one LLMConfig per model_id listed in the
     MODELS env var (comma-separated) and exposes them under a single
