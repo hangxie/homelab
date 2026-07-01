@@ -39,6 +39,13 @@ kubectl -n argocd get applications,applicationsets
 kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrite
 ```
 
+## Bug fix workflow
+
+1. **Disable Argo CD sync** for the affected app while troubleshooting: `kubectl -n argocd patch app <name> -p '{"spec":{"syncPolicy":null}}' --type=merge`
+2. **Diagnose and fix locally** — apply changes directly with `kubectl` until the app is running correctly.
+3. **Reflect the fix in code** — edit the GitOps manifests/values to match the working local state.
+4. **Branch → commit → PR** — create a new branch, write the commit message with the analysis and root cause, push, and open a PR. The operator/developer handles merge and re-sync from there.
+
 ## Gotchas
 
 - Root app uses `directory.recurse: false` — only `Application`/`ApplicationSet` manifests in `gitops/cluster/applications/`.
