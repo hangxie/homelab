@@ -35,6 +35,7 @@ terraform -chdir=terraform {init,apply,destroy}
 ansible-playbook -i ansible/inventory.ini ansible/bootstrap-k8s.yml
 ansible-playbook -i ansible/inventory.ini ansible/reset.yml
 scripts/seed-vault.sh                            # needs VAULT_ADDR + VAULT_TOKEN
+scripts/seed-certs.sh                            # needs CF_API_TOKEN or VAULT_ADDR+VAULT_TOKEN; issues cert if certs/ is empty
 kubectl -n argocd get applications,applicationsets
 kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrite
 ```
