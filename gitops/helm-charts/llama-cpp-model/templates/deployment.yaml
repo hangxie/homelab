@@ -12,11 +12,19 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: llama-cpp-{{ .Values.slug }}
+        llama-cpp.model: "true"
     spec:
       nodeSelector:
         feature.node.kubernetes.io/pci-0300_10de.present: "true"
       tolerations:
         - { key: gpu, operator: Equal, value: "true", effect: NoSchedule }
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  llama-cpp.model: "true"
+              topologyKey: kubernetes.io/hostname
       initContainers:
         - name: oras-installer
           image: ghcr.io/oras-project/oras:v1.2.2
