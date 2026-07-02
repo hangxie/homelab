@@ -1,0 +1,30 @@
+---
+# Seed homelab-wildcard TLS into gateway-system before Argo CD reconciles
+# cert-manager-config.  If certs/fullchain.pem + certs/privkey.pem are valid
+# (≥30d remaining) they are applied directly; otherwise a new certificate is
+# obtained from Let's Encrypt via certbot + Cloudflare DNS-01 and saved first.
+#
+# Pre-requisites for issuance:
+#   certbot + certbot-dns-cloudflare installed on the operator workstation
+#   CF_API_TOKEN exported  OR  VAULT_ADDR + VAULT_TOKEN available (reads from Vault)
+
+- name: Seed TLS certificate into cluster
+  hosts: localhost
+  gather_facts: false
+  vars:
+    repo_root: "{{ playbook_dir }}/../.."
+
+  tasks:
+    - name: Seed homelab-wildcard TLS certificate
+      command: "{{ repo_root }}/scripts/seed-certs.sh"
+      environment:
+        KUBECONFIG:    "{{ bootstrap_kubeconfig }}"
+        CF_API_TOKEN:  "{{ lookup('env', 'CF_API_TOKEN') }}"
+        VAULT_ADDR:    "{{ lookup('env', 'VAULT_ADDR') }}"
+        VAULT_TOKEN:   "{{ lookup('env', 'VAULT_TOKEN') }}"
+      register: seed_result
+      changed_when: "'applied' in seed_result.stdout"
+
+    - name: Show seed-certs output
+      debug:
+        msg: "{{ seed_result.stdout_lines }}"
