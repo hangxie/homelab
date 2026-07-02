@@ -369,11 +369,11 @@ spec:
                 image: hangxie/ray-vllm:v0.1.0
                 resources:
                   # GPU nodes have ~10 GiB total memory and ~3.4 GiB is held
-                  # by daemonsets, so the worker request must stay under ~7 GiB
-                  # or the pod fails to schedule. The higher limit leaves room
-                  # for transient vLLM CUDA compilation during cold starts.
-                  requests: { cpu: "2", memory: "4Gi", nvidia.com/gpu: "1" }
-                  limits:   { cpu: "4", memory: "7Gi", nvidia.com/gpu: "1" }
+                  # by daemonsets, leaving ~6.6 GiB for workloads. Both GPUs
+                  # are on the same node so up to 2 workers co-schedule here;
+                  # per-worker limit must stay at or below half of that headroom.
+                  requests: { cpu: "2", memory: "2Gi", nvidia.com/gpu: "1" }
+                  limits:   { cpu: "4", memory: "4Gi", nvidia.com/gpu: "1" }
                 env:
                   - { name: PYTHONPATH, value: /home/ray }
                 ports:
