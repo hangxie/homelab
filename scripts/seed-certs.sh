@@ -62,7 +62,7 @@ issue_cert() {
     log "Issuing new certificate from Let's Encrypt (Cloudflare DNS-01)..."
     command -v certbot >/dev/null 2>&1 \
         || { log "ERROR: certbot not found (brew install certbot)" >&2; exit 1; }
-    python3 -c "import certbot_dns_cloudflare" 2>/dev/null \
+    certbot plugins 2>/dev/null | grep -q dns-cloudflare \
         || { log "ERROR: certbot-dns-cloudflare not found (pip install certbot-dns-cloudflare)" >&2; exit 1; }
 
     local cf_token
