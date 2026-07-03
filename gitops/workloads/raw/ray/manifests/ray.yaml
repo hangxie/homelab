@@ -370,11 +370,11 @@ spec:
                 image: hangxie/ray-vllm:v0.1.0
                 resources:
                   # GPU nodes have 16 GiB RAM; ~1.5 GiB is held by daemonsets,
-                  # leaving ~14.5 GiB for workloads. Both GPUs are on the same
-                  # node so up to 2 workers co-schedule; 2 x 6 GiB = 12 GiB,
-                  # safely under the available headroom.
-                  requests: { cpu: "2", memory: "2Gi", nvidia.com/gpu: "1" }
-                  limits:   { cpu: "4", memory: "6Gi", nvidia.com/gpu: "1" }
+                  # leaving ~14.5 GiB for workloads. With llama-cpp anti-affinity
+                  # guaranteeing exactly one worker per node, 10 GiB is safe
+                  # (1.5 + 0.2 llama-cpp + 10 = 11.7 GiB < 16 GiB).
+                  requests: { cpu: "2", memory: "4Gi", nvidia.com/gpu: "1" }
+                  limits:   { cpu: "4", memory: "10Gi", nvidia.com/gpu: "1" }
                 env:
                   - { name: PYTHONPATH, value: /home/ray }
                 ports:
