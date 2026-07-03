@@ -228,7 +228,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: hangxie/ray-vllm:v0.1.0
+              image: rayproject/ray:2.55.1
               resources:
                 requests: { cpu: "2", memory: "4Gi" }
                 limits:   { cpu: "2", memory: "6Gi" }
