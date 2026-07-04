@@ -32,8 +32,44 @@ spec:
         factor: 2
         maxDuration: 5m
 ---
+# LiteLLM proxy — unified OpenAI-compatible endpoint across all llama.cpp models.
+# Deploys in wave 170 so the per-model Services exist before LiteLLM starts.
+# When adding or removing a model from llama-cpp-models, also update the
+# model_list in gitops/workloads/raw/llama-cpp/litellm/litellm.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: llama-cpp-litellm
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "170"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: workloads
+  source:
+    repoURL: https://github.com/hangxie/homelab.git
+    targetRevision: main
+    path: gitops/workloads/raw/llama-cpp/litellm
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: llama-cpp
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+---
 # Per-model ApplicationSet. Edit the elements list to add or remove models.
-# Each entry deploys one Deployment + Service + HTTPRoute into the llama-cpp namespace.
+# Each entry deploys one Deployment + Service into the llama-cpp namespace.
+# External access is via LiteLLM (llama-cpp-litellm above), not per-model routes.
 # The shared PVC (llama-cpp-models, RWX) is mounted by all model pods.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
@@ -49,10 +85,8 @@ spec:
         elements:
           - slug: qwen3-0b6
             modelSpec: "bartowski/Qwen_Qwen3-0.6B-GGUF/Qwen_Qwen3-0.6B-Q6_K.gguf"
-            hostname: "qwen3-0b6.homelab.xiehang.com"
           - slug: gemma3-1b
             modelSpec: "bartowski/google_gemma-3-1b-it-GGUF/google_gemma-3-1b-it-Q6_K.gguf"
-            hostname: "gemma3-1b.homelab.xiehang.com"
   template:
     metadata:
       name: 'llama-cpp-{{ .slug }}'
@@ -68,7 +102,6 @@ spec:
           valuesObject:
             slug: '{{ .slug }}'
             modelSpec: '{{ .modelSpec }}'
-            hostname: '{{ .hostname }}'
       destination:
         server: https://kubernetes.default.svc
         namespace: llama-cpp
