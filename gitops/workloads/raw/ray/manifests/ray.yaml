@@ -107,12 +107,13 @@ data:
     # on Llama-3.2, missing vision_config on some configs) don't crash the
     # LLMServer actor at startup.
     #
-    # Guard: skip heavy imports in lightweight Ray processes (health-check,
-    # gcs_server, etc.) — importing transformers alone costs ~300 MB and will
-    # OOM the 256 Mi init container that runs `ray health-check`.
-    import sys as _sys
-    if 'health-check' not in _sys.argv:
-        import json as _json, os as _os
+    # Guard: only run in Serve replica processes (identified by _RAY_LLM_PATCH=1
+    # in runtime_env). Dashboard subprocesses (MetricsHead etc.) do NOT have this
+    # var, so they skip the 300 MB transformers import entirely — preventing the
+    # 9-subprocess × 300 MB = 2.7 GB overhead that starves MetricsHead at startup.
+    import os as _os
+    if _os.environ.get('_RAY_LLM_PATCH') == '1':
+        import json as _json
         import transformers as _transformers
         from ray.llm._internal.serve.core.configs.llm_config import LLMConfig as _LLMConfig
 
@@ -149,6 +150,7 @@ data:
             _LLMConfig._set_model_architecture = _safe_set_model_architecture
         except Exception:
             pass
+
   serve.py: |
     """Ray Serve LLM app: builds one LLMConfig per model_id listed in the
     MODELS env var (comma-separated) and exposes them under a single
@@ -214,6 +216,7 @@ spec:
         runtime_env:
           env_vars:
             PYTHONPATH: /home/ray
+            _RAY_LLM_PATCH: "1"
             MODELS: "Qwen/Qwen2.5-Coder-1.5B-Instruct-AWQ,meta-llama/Llama-3.2-1B-Instruct"
             MAX_MODEL_LEN: "4096"
             GPU_MEMORY_UTILIZATION: "0.60"
