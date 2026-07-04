@@ -1,0 +1,165 @@
+#!/bin/bash
+
+set -uo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: kubectl df-bucket [storage-class] [--all-rgw]
+
+Report Ceph RGW bucket usage for ObjectBucketClaims in a bucket StorageClass.
+Defaults to storage class: rook-ceph-bucket
+
+Options:
+  --all-rgw        Also show RGW buckets that are not backed by a matching OBC
+  -h, --help       Show this help
+
+Environment:
+  ROOK_NAMESPACE       Namespace containing the Ceph tools pod (default: rook-ceph)
+  ROOK_TOOLS_TARGET    kubectl exec target for Ceph tools (default: deploy/rook-ceph-tools)
+  ROOK_OBJECT_STORE    RGW realm/zonegroup/zone to query (default: StorageClass objectStoreName)
+EOF
+}
+
+STORAGE_CLASS="rook-ceph-bucket"
+SHOW_ALL_RGW=false
+storage_class_set=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --all-rgw)
+            SHOW_ALL_RGW=true
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+        *)
+            if [[ "$storage_class_set" == true ]]; then
+                echo "Unexpected argument: $1" >&2
+                usage >&2
+                exit 1
+            fi
+            STORAGE_CLASS="$1"
+            storage_class_set=true
+            ;;
+    esac
+    shift
+done
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required" >&2
+    exit 1
+fi
+
+ROOK_NAMESPACE="${ROOK_NAMESPACE:-rook-ceph}"
+ROOK_TOOLS_TARGET="${ROOK_TOOLS_TARGET:-deploy/rook-ceph-tools}"
+ROOK_OBJECT_STORE="${ROOK_OBJECT_STORE:-}"
+
+obc_file=$(mktemp)
+stats_file=$(mktemp)
+trap 'rm -f "$obc_file" "$stats_file"' EXIT
+
+if [[ -z "$ROOK_OBJECT_STORE" ]]; then
+    ROOK_OBJECT_STORE=$(kubectl get storageclass "$STORAGE_CLASS" \
+        -o jsonpath='{.parameters.objectStoreName}' 2>/dev/null || true)
+fi
+
+rgw_args=()
+if [[ -n "$ROOK_OBJECT_STORE" ]]; then
+    rgw_args=(--rgw-realm "$ROOK_OBJECT_STORE" --rgw-zonegroup "$ROOK_OBJECT_STORE" --rgw-zone "$ROOK_OBJECT_STORE")
+fi
+
+if ! kubectl get objectbucketclaims.objectbucket.io -A -o json >"$obc_file"; then
+    echo "Failed to list ObjectBucketClaims" >&2
+    exit 1
+fi
+
+if ! kubectl exec -n "$ROOK_NAMESPACE" "$ROOK_TOOLS_TARGET" -- \
+    radosgw-admin bucket stats "${rgw_args[@]}" >"$stats_file"; then
+    echo "Failed to read RGW bucket stats from $ROOK_NAMESPACE/$ROOK_TOOLS_TARGET" >&2
+    exit 1
+fi
+
+if ! jq empty "$stats_file" >/dev/null 2>&1; then
+    echo "radosgw-admin bucket stats did not return valid JSON" >&2
+    exit 1
+fi
+
+printf "%-20s %-32s %-36s %-10s %-10s %-10s %-6s\n" \
+    "NAMESPACE" "OBC" "BUCKET" "OBJECTS" "USED" "ACTUAL" "USE%"
+printf "%-20s %-32s %-36s %-10s %-10s %-10s %-6s\n" \
+    "$(printf '%0.s-' {1..20})" \
+    "$(printf '%0.s-' {1..32})" \
+    "$(printf '%0.s-' {1..36})" \
+    "$(printf '%0.s-' {1..10})" \
+    "$(printf '%0.s-' {1..10})" \
+    "$(printf '%0.s-' {1..10})" \
+    "$(printf '%0.s-' {1..6})"
+
+jq -r \
+    --arg sc "$STORAGE_CLASS" \
+    --argjson show_all "$SHOW_ALL_RGW" \
+    --slurpfile stats "$stats_file" '
+    def stats:
+      $stats[0] | if type == "array" then . else [.] end;
+
+    def human($bytes):
+      if ($bytes | type) != "number" then "-"
+      elif $bytes >= 1099511627776 then "\((($bytes / 1099511627776) * 100 | round / 100))Ti"
+      elif $bytes >= 1073741824 then "\((($bytes / 1073741824) * 100 | round / 100))Gi"
+      elif $bytes >= 1048576 then "\((($bytes / 1048576) * 100 | round / 100))Mi"
+      elif $bytes >= 1024 then "\((($bytes / 1024) * 100 | round / 100))Ki"
+      else "\($bytes)B"
+      end;
+
+    def main_usage($stat):
+      $stat.usage["rgw.main"] // {};
+
+    def stat_for($bucket):
+      (stats | map(select(.bucket == $bucket)) | first) // null;
+
+    def obc_rows:
+      [
+        .items[]
+        | select(.spec.storageClassName == $sc)
+        | {
+            namespace: .metadata.namespace,
+            claim: .metadata.name,
+            bucket: (.spec.bucketName // ""),
+            phase: (.status.phase // "")
+          }
+      ];
+
+    def row($namespace; $claim; $bucket; $stat):
+      main_usage($stat) as $usage
+      | [
+          $namespace,
+          $claim,
+          (if $bucket == "" then "-" else $bucket end),
+          (if $stat == null then "-" else (($usage.num_objects // 0) | tostring) end),
+          (if $stat == null then "-" else human($usage.size // 0) end),
+          (if $stat == null then "-" else human($usage.size_actual // 0) end),
+          "N/A"
+        ]
+      | @tsv;
+
+    obc_rows as $obcs
+    | if $show_all then
+        stats[]
+        | . as $stat
+        | ($obcs | map(select(.bucket == $stat.bucket)) | first) as $obc
+        | row(($obc.namespace // "-"); ($obc.claim // "-"); $stat.bucket; $stat)
+      else
+        $obcs[]
+        | row(.namespace; .claim; .bucket; stat_for(.bucket))
+      end
+  ' "$obc_file" |
+while IFS=$'\t' read -r namespace claim bucket objects used actual pct; do
+    printf "%-20s %-32s %-36s %-10s %-10s %-10s %-6s\n" \
+        "$namespace" "$claim" "$bucket" "$objects" "$used" "$actual" "$pct"
+done
