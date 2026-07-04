@@ -228,7 +228,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: rayproject/ray:2.55.1
+              image: hangxie/ray-vllm:v0.1.0-head
               resources:
                 requests: { cpu: "2", memory: "4Gi" }
                 limits:   { cpu: "2", memory: "6Gi" }
@@ -240,7 +240,8 @@ spec:
                 - { name: serve,     containerPort: 8000 }
                 - { name: metrics,   containerPort: 8080 }
               volumeMounts:
-                - { name: serve-script, mountPath: /home/ray/serve.py, subPath: serve.py }
+                - { name: serve-script, mountPath: /home/ray/serve.py,         subPath: serve.py }
+                - { name: serve-script, mountPath: /home/ray/sitecustomize.py, subPath: sitecustomize.py }
                 - { name: dshm,         mountPath: /dev/shm }
           volumes:
             - { name: serve-script, configMap: { name: ray-vllm-serve-script } }
