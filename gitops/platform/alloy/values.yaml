@@ -904,6 +904,11 @@ controller:
   type: daemonset
   # Alloy needs cluster-wide read access for kubernetes discovery and
   # kubelet/cadvisor proxied metrics.
+  # Tolerate every taint so the node-exporter (prometheus.exporter.unix runs
+  # per-pod) covers all nodes — masters (control-plane) and GPU workers (gpu)
+  # are tainted, otherwise Node Exporter Full only shows the untainted workers.
+  tolerations:
+    - operator: Exists
   podAnnotations:
     prometheus.io/scrape: "false"
 
