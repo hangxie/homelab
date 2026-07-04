@@ -108,6 +108,7 @@ dashboards:
   infrastructure:
     node-exporter-full:
       gnetId: 1860
+      revision: 45
       datasource: Mimir
   kubernetes:
     k8s-views-global:
