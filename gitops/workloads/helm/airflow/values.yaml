@@ -132,6 +132,22 @@ apiServer:
     timeoutSeconds: 20
     failureThreshold: 30
 
+# Task logs land on the shared logs PVC and are pruned by the per-component
+# log-groomer sidecars. Lower retention from the chart default (15d) to 7d to
+# match the observability stack. Groomers run alongside these three components
+# under KubernetesExecutor (no persistent workers).
+scheduler:
+  logGroomerSidecar:
+    retentionDays: 7
+
+triggerer:
+  logGroomerSidecar:
+    retentionDays: 7
+
+dagProcessor:
+  logGroomerSidecar:
+    retentionDays: 7
+
 statsd:
   enabled: true
 
