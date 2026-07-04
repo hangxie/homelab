@@ -107,10 +107,7 @@ postgresql:
   enabled: false
 
 redis:
-  enabled: true
-  persistence:
-    enabled: true
-    storageClassName: rook-ceph-block
+  enabled: false
 
 dags:
   persistence:
