@@ -61,11 +61,24 @@ alloy:
                              "meminfo", "netdev", "netstat", "stat", "time", "uname"]
       }
 
+      // nodename from uname(2) is the pod hostname; override with the actual K8s node name.
+      prometheus.relabel "node_hostname" {
+        rule {
+          target_label = "nodename"
+          replacement  = env("K8S_NODE_NAME")
+        }
+        rule {
+          target_label = "instance"
+          replacement  = env("K8S_NODE_NAME")
+        }
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
       prometheus.scrape "node_exporter" {
         targets         = prometheus.exporter.unix.local.targets
-        job_name        = "node-exporter"
+        job_name        = "integrations/node_exporter"
         scrape_interval = "60s"
-        forward_to      = [prometheus.remote_write.mimir.receiver]
+        forward_to      = [prometheus.relabel.node_hostname.receiver]
       }
 
       // ── Alloy self-metrics ─────────────────────────────────────────────────────
