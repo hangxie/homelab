@@ -21,6 +21,7 @@ resource "proxmox_virtual_environment_vm" "node2" {
   name            = each.key
   node_name       = var.proxmox_nodes.node2.name
   started         = true
+  on_boot         = false
   boot_order      = var.vm.boot_order
   bios            = var.vm.bios
   machine         = var.vm.machine

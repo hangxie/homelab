@@ -4,6 +4,7 @@
   gather_facts: false
   vars:
     kubernetes_version: "1.36"
+    nerdctl_version: "2.1.2"
     pod_network_cidr: "10.10.0.0/16"
     service_network_cidr: "10.20.0.0/16"
     containerd_registry_hosts:
@@ -313,6 +314,49 @@
     - name: Install Helm
       command: /tmp/get_helm.sh
       when: helm_installed.rc != 0
+
+    # Install nerdctl
+    - name: Check if nerdctl is installed
+      command: nerdctl --version
+      register: nerdctl_installed
+      failed_when: false
+      changed_when: false
+
+    - name: Download nerdctl binary
+      get_url:
+        url: "https://github.com/containerd/nerdctl/releases/download/v{{ nerdctl_version }}/nerdctl-{{ nerdctl_version }}-linux-amd64.tar.gz"
+        dest: "/tmp/nerdctl-{{ nerdctl_version }}-linux-amd64.tar.gz"
+        mode: '0644'
+      when: nerdctl_installed.rc != 0
+
+    - name: Install nerdctl binary
+      unarchive:
+        src: "/tmp/nerdctl-{{ nerdctl_version }}-linux-amd64.tar.gz"
+        dest: /usr/local/bin
+        remote_src: true
+        include:
+          - nerdctl
+        mode: '0755'
+      when: nerdctl_installed.rc != 0
+
+    - name: Clean up nerdctl archive
+      file:
+        path: "/tmp/nerdctl-{{ nerdctl_version }}-linux-amd64.tar.gz"
+        state: absent
+      when: nerdctl_installed.rc != 0
+
+    - name: Create nerdctl config directory
+      file:
+        path: /etc/nerdctl
+        state: directory
+        mode: '0755'
+
+    - name: Configure nerdctl default namespace
+      copy:
+        dest: /etc/nerdctl/nerdctl.toml
+        content: |
+          namespace = "k8s.io"
+        mode: '0644'
 
     - name: Set network CIDRs as fact for other plays
       set_fact:
