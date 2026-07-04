@@ -29,6 +29,9 @@ mimir:
     store_gateway:
       sharding_ring:
         replication_factor: 2
+    limits:
+      ingestion_rate: 100000
+      ingestion_burst_size: 2000000
 
 ingester:
   replicas: 2
