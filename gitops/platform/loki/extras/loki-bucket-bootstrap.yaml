@@ -1,0 +1,39 @@
+# Loki uses a single CephObjectStoreUser (object-store-loki) for two buckets
+# (chunks + ruler), so an ObjectBucketClaim — which mints one bucket per user —
+# doesn't fit. Rook creates the RGW user but not the buckets, and Loki never
+# creates them itself, so this Job provisions them under the loki user's own
+# credentials. Idempotent: create-bucket on an already-owned bucket is a no-op.
+# sync-wave "-1" runs it after the loki-s3 ExternalSecret (wave "-2") and before
+# the Loki StatefulSets start.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: loki-bucket-bootstrap
+  namespace: loki
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mkbucket
+          image: amazon/aws-cli:2.15.0
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: loki-s3, key: ACCESS_KEY_ID } }
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: loki-s3, key: SECRET_ACCESS_KEY } }
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+          command: [sh, -ec]
+          args:
+            - |
+              EP=http://rook-ceph-rgw-object-store.rook-ceph.svc:80
+              for b in loki-chunks loki-ruler; do
+                aws --endpoint-url "$EP" s3api create-bucket --bucket "$b" || true
+              done
+              aws --endpoint-url "$EP" s3 ls

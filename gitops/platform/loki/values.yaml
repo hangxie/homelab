@@ -23,6 +23,13 @@ loki:
         object_store: s3
         schema: v13
         index: { prefix: index_, period: 24h }
+  # Delete logs older than 7 days. The compactor (runs in the backend target)
+  # applies retention; delete markers are written to the S3 chunk store.
+  limits_config:
+    retention_period: 168h
+  compactor:
+    retention_enabled: true
+    delete_request_store: s3
 
 write:
   replicas: 2
