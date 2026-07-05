@@ -356,12 +356,12 @@ alloy:
       // ── Loki ──────────────────────────────────────────────────────────────────
 
       discovery.kubernetes "loki" {
-        role = "endpoints"
+        role = "pod"
         namespaces {
           names = ["loki"]
         }
         selectors {
-          role  = "endpoints"
+          role  = "pod"
           label = "app.kubernetes.io/name=loki"
         }
       }
@@ -369,7 +369,7 @@ alloy:
       discovery.relabel "loki" {
         targets = discovery.kubernetes.loki.targets
         rule {
-          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          source_labels = ["__meta_kubernetes_pod_container_port_name"]
           regex         = "http-metrics"
           action        = "keep"
         }
@@ -378,8 +378,8 @@ alloy:
           target_label  = "namespace"
         }
         rule {
-          source_labels = ["__meta_kubernetes_service_name"]
-          target_label  = "service"
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+          target_label  = "component"
         }
       }
 
@@ -391,10 +391,11 @@ alloy:
 
       prometheus.relabel "loki" {
         rule {
-          source_labels = ["namespace", "service"]
+          source_labels = ["namespace", "component"]
           separator     = "/"
-          regex         = "(.+)/(.+)"
+          regex         = "(.+)/(read|write|backend)"
           target_label  = "job"
+          replacement   = "$1/loki-$2"
         }
         forward_to = [prometheus.remote_write.mimir.receiver]
       }

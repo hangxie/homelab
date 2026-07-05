@@ -129,7 +129,7 @@ minio:
 
 kafka:
   persistence:
-    size: 20Gi
+    size: 40Gi
   controller:
     replicaCount: 2
     affinity:
