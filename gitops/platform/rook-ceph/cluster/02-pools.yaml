@@ -1,3 +1,6 @@
+# RBD image metadata (omap) must live on a replicated pool — EC pools can't
+# hold omap. The RBD CSI StorageClass points `pool` here and `dataPool` at the
+# EC pool below, so only the bulk image data lands on erasure coding.
 apiVersion: ceph.rook.io/v1
 kind: CephBlockPool
 metadata:
@@ -7,6 +10,19 @@ spec:
   failureDomain: host
   replicated:
     size: 3
+---
+# EC 2+1 data pool for RBD image data. 2 data + 1 coding chunk = 66% usable,
+# tolerates one host failure. Rook enables allow_ec_overwrites automatically.
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: ec-blockpool
+  namespace: rook-ceph
+spec:
+  failureDomain: host
+  erasureCoded:
+    dataChunks: 2
+    codingChunks: 1
   parameters:
     compression_mode: aggressive
 ---
@@ -20,9 +36,18 @@ spec:
     replicated:
       size: 3
   dataPools:
+    # CephFS requires its default data pool to be replicated (stores file
+    # backtraces). Bulk file data is directed to the EC pool via the CSI
+    # StorageClass `pool` parameter (cephfs-ec).
     - name: replicated
       replicated:
         size: 3
+    - name: ec
+      erasureCoded:
+        dataChunks: 2
+        codingChunks: 1
+      parameters:
+        compression_mode: aggressive
   metadataServer:
     activeCount: 1
     activeStandby: true

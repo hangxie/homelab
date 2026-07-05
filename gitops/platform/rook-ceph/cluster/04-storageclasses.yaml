@@ -7,7 +7,9 @@ metadata:
 provisioner: rook-ceph.rbd.csi.ceph.com
 parameters:
   clusterID: rook-ceph
+  # RBD image headers live on the replicated pool; image data on the EC pool.
   pool: replicapool
+  dataPool: ec-blockpool
   imageFormat: "2"
   imageFeatures: layering
   csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
@@ -28,7 +30,9 @@ provisioner: rook-ceph.cephfs.csi.ceph.com
 parameters:
   clusterID: rook-ceph
   fsName: cephfs
-  pool: cephfs-replicated
+  # Bulk file data lands on the EC data pool (cephfs-ec); the replicated
+  # default pool (cephfs-replicated) only holds file backtraces.
+  pool: cephfs-ec
   csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
   csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
   csi.storage.k8s.io/controller-expand-secret-name: rook-csi-cephfs-provisioner
