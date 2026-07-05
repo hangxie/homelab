@@ -127,9 +127,8 @@ dashboards:
     k8s-views-nodes:
       gnetId: 15762
       datasource: Mimir
-    k8s-views-pods:
-      gnetId: 15763
-      datasource: Mimir
+    # k8s-views-pods is provisioned via extras/06-k8s-views-pods-dashboard.yaml
+    # so the datasource variable can default to Mimir (gnetId sets it to "Prometheus").
   platform:
     argocd:
       gnetId: 14584
