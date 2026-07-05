@@ -106,13 +106,18 @@ run_df_pod() {
 # CephFS device names are very long and wrap in df output; index from end.
 # Non-wrapped: $1=FS $2=Size $3=Used $4=Avail $5=Use% $6=Mounted (NF=6)
 # Wrapped continuation: $1=Size $2=Used $3=Avail $4=Use% $5=Mounted  (NF=5)
+# All four values come from df so they are always internally consistent.
+# When CephFS quotas are absent df reports the full pool; SIZE will then
+# differ from the PVC spec, which is itself a signal that quotas are not set.
 print_df_row() {
-    local ns="$1" pvc_name="$2" capacity="$3" df_line="$4"
-    local used avail pct
+    local ns="$1" pvc_name="$2" pvc_cap="$3" df_line="$4"
+    local size used avail pct
+    size=$(awk '{print $(NF-4)}' <<< "$df_line")
     used=$(awk '{print $(NF-3)}' <<< "$df_line")
     avail=$(awk '{print $(NF-2)}' <<< "$df_line")
     pct=$(awk  '{print $(NF-1)}' <<< "$df_line")
-    printf "%-20s %-40s %-10s %-10s %-10s %-6s\n" "$ns" "$pvc_name" "$capacity" "$used" "$avail" "$pct"
+    [[ -z "$size" ]] && size="$pvc_cap"
+    printf "%-20s %-40s %-10s %-10s %-10s %-6s\n" "$ns" "$pvc_name" "$size" "$used" "$avail" "$pct"
 }
 
 while IFS=$'\t' read -r ns pvc_name capacity; do
