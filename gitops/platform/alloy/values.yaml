@@ -92,16 +92,25 @@ alloy:
       }
 
       // ── Kubelet / cAdvisor ────────────────────────────────────────────────────
-      // Target the local node only. env() works in string-concat / replacement
-      // but not in the regex field of a keep rule in Alloy v1.x, so we skip
-      // discovery + relabeling and build the API-proxy URL directly.
+      // Each Alloy DaemonSet pod scrapes only its own node through the API proxy.
+      // env() works in replacement fields of relabeling rules but NOT in the
+      // regex field of a keep rule and NOT in static target dict __metrics_path__.
+      // Use discovery.relabel to set __metrics_path__ via replacement.
+
+      discovery.relabel "kubelet" {
+        targets = [{"__address__" = "kubernetes.default.svc:443"}]
+        rule {
+          target_label = "__metrics_path__"
+          replacement  = "/api/v1/nodes/" + env("K8S_NODE_NAME") + "/proxy/metrics"
+        }
+        rule {
+          target_label = "node"
+          replacement  = env("K8S_NODE_NAME")
+        }
+      }
 
       prometheus.scrape "kubelet" {
-        targets = [{
-          __address__      = "kubernetes.default.svc:443",
-          __metrics_path__ = "/api/v1/nodes/" + env("K8S_NODE_NAME") + "/proxy/metrics",
-          node             = env("K8S_NODE_NAME"),
-        }]
+        targets    = discovery.relabel.kubelet.output
         job_name   = "kubelet"
         scheme     = "https"
         bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
@@ -111,12 +120,20 @@ alloy:
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
+      discovery.relabel "cadvisor" {
+        targets = [{"__address__" = "kubernetes.default.svc:443"}]
+        rule {
+          target_label = "__metrics_path__"
+          replacement  = "/api/v1/nodes/" + env("K8S_NODE_NAME") + "/proxy/metrics/cadvisor"
+        }
+        rule {
+          target_label = "node"
+          replacement  = env("K8S_NODE_NAME")
+        }
+      }
+
       prometheus.scrape "cadvisor" {
-        targets = [{
-          __address__      = "kubernetes.default.svc:443",
-          __metrics_path__ = "/api/v1/nodes/" + env("K8S_NODE_NAME") + "/proxy/metrics/cadvisor",
-          node             = env("K8S_NODE_NAME"),
-        }]
+        targets    = discovery.relabel.cadvisor.output
         job_name   = "kubernetes-cadvisor"
         scheme     = "https"
         bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
