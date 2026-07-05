@@ -59,21 +59,20 @@ spec:
           periodSeconds: 15
           failureThreshold: 5
   storage:
-    useAllNodes: false
+    # No node enumeration — the OSD topology is derived, not duplicated.
+    # Rook applies this device selection to every node, but an OSD only
+    # materializes where BOTH conditions hold, and both come straight from
+    # terraform.tfvars (the single source of truth):
+    #   1. The scsi1 data disk exists — only non-GPU workers are given a
+    #      second disk; masters and GPU workers have scsi0 only.
+    #   2. The OSD pod can schedule there — placement.osd below tolerates
+    #      neither the control-plane taint (masters) nor gpu=true:NoSchedule
+    #      (GPU workers), so both are excluded automatically.
+    # Adding/removing a data-disk worker in terraform needs no change here.
+    useAllNodes: true
     useAllDevices: false
-    # Worker inventory carries rook_ceph_devices via inventory.ini; the
-    # cluster mirrors that on the matching worker hosts.
-    nodes:
-      - name: worker-0
-        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
-      - name: worker-1
-        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
-      - name: worker-2
-        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
-      - name: worker-3
-        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
-      - name: worker-4
-        devices: [{ name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" }]
+    devices:
+      - name: "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1"
   placement:
     all:
       tolerations: []
