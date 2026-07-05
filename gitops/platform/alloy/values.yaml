@@ -377,11 +377,25 @@ alloy:
           source_labels = ["__meta_kubernetes_namespace"]
           target_label  = "namespace"
         }
+        rule {
+          source_labels = ["__meta_kubernetes_service_name"]
+          target_label  = "service"
+        }
       }
 
       prometheus.scrape "loki" {
         targets    = discovery.relabel.loki.output
         job_name   = "loki"
+        forward_to = [prometheus.relabel.loki.receiver]
+      }
+
+      prometheus.relabel "loki" {
+        rule {
+          source_labels = ["namespace", "service"]
+          separator     = "/"
+          regex         = "(.+)/(.+)"
+          target_label  = "job"
+        }
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
