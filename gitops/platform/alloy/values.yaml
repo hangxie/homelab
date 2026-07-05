@@ -107,12 +107,17 @@ alloy:
           target_label = "node"
           replacement  = env("K8S_NODE_NAME")
         }
+        rule {
+          target_label = "service"
+          replacement  = "kubelet"
+        }
       }
 
       prometheus.scrape "kubelet" {
-        targets    = discovery.relabel.kubelet.output
-        job_name   = "kubelet"
-        scheme     = "https"
+        targets          = discovery.relabel.kubelet.output
+        job_name         = "kubelet"
+        scheme           = "https"
+        honor_timestamps = false
         bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
         tls_config {
           insecure_skip_verify = true
@@ -130,12 +135,17 @@ alloy:
           target_label = "node"
           replacement  = env("K8S_NODE_NAME")
         }
+        rule {
+          target_label = "service"
+          replacement  = "kubelet"
+        }
       }
 
       prometheus.scrape "cadvisor" {
-        targets    = discovery.relabel.cadvisor.output
-        job_name   = "kubernetes-cadvisor"
-        scheme     = "https"
+        targets          = discovery.relabel.cadvisor.output
+        job_name         = "kubernetes-cadvisor"
+        scheme           = "https"
+        honor_timestamps = false
         bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
         tls_config {
           insecure_skip_verify = true
