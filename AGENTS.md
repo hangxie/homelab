@@ -42,7 +42,12 @@ kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrit
 
 ## Change workflow (bug fixes and new features)
 
-1. **Disable Argo CD sync** for the affected app while working: `kubectl -n argocd patch app <name> -p '{"spec":{"syncPolicy":null}}' --type=merge`
+1. **Disable Argo CD sync** for the affected app while working. If the affected app is managed by the `root` App of Apps, disable the root app's selfHeal first so it cannot restore the child app's syncPolicy:
+   ```bash
+   kubectl -n argocd patch app root -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":false}}}}' --type=merge
+   kubectl -n argocd patch app <name> -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":false}}}}' --type=merge
+   ```
+   Re-enable both after the PR is merged (step 5).
 2. **Validate locally** — apply changes directly with `kubectl` until the app is running correctly.
 3. **Reflect the change in code** — edit the GitOps manifests/values to match the working local state.
 4. **Branch → commit → PR** — create a new branch, write the commit message with the analysis and rationale, push, and open a PR.
