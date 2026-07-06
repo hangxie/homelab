@@ -461,7 +461,7 @@ alloy:
           action        = "keep"
         }
         rule {
-          source_labels = ["__meta_kubernetes_pod_namespace"]
+          source_labels = ["__meta_kubernetes_namespace"]
           target_label  = "namespace"
         }
       }
@@ -493,7 +493,7 @@ alloy:
           action        = "keep"
         }
         rule {
-          source_labels = ["__meta_kubernetes_pod_namespace"]
+          source_labels = ["__meta_kubernetes_namespace"]
           target_label  = "namespace"
         }
         rule {
