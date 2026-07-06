@@ -460,6 +460,10 @@ alloy:
           regex         = "metrics"
           action        = "keep"
         }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_namespace"]
+          target_label  = "namespace"
+        }
       }
 
       prometheus.scrape "cnpg_operator" {
@@ -487,6 +491,14 @@ alloy:
           source_labels = ["__meta_kubernetes_pod_container_port_name"]
           regex         = "metrics"
           action        = "keep"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
         }
       }
 
