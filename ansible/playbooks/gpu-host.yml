@@ -156,7 +156,6 @@
       systemd:
         name: containerd
         state: restarted
-      when: nvidia_driver_packages is not defined or not (nvidia_driver_packages is changed)
 
 - name: Taint GPU nodes
   hosts: localhost

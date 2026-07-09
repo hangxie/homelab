@@ -1,5 +1,13 @@
 # Constrain the device plugin DaemonSet to NFD-labeled NVIDIA GPU nodes.
 # The plugin's pod tolerates gpu=true:NoSchedule so it runs on GPU workers.
+# Mount the host driver root at /driver-root so the plugin can load libnvidia-ml.so.1.
+# Without this helm value the chart does not add the hostPath volume and NVML init fails.
+nvidiaDriverRoot: "/"
+
+gdrcopyEnabled: false
+gdsEnabled: false
+mofedEnabled: false
+
 config:
   default: default
   map:
