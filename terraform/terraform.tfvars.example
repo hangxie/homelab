@@ -34,9 +34,9 @@ vm = {
 }
 
 nodes = {
-  "master-0" = { hypervisor = "node2", ip = "192.168.0.210", cores = 4, memory = 8192, disks = ["40"] }
-  "master-1" = { hypervisor = "node2", ip = "192.168.0.211", cores = 4, memory = 8192, disks = ["40"] }
-  "master-2" = { hypervisor = "node2", ip = "192.168.0.212", cores = 4, memory = 8192, disks = ["40"] }
+  "master-0" = { hypervisor = "node2", ip = "192.168.0.210", cores = 6, memory = 12288, disks = ["40", "10"] }
+  "master-1" = { hypervisor = "node2", ip = "192.168.0.211", cores = 6, memory = 12288, disks = ["40", "10"] }
+  "master-2" = { hypervisor = "node2", ip = "192.168.0.212", cores = 6, memory = 12288, disks = ["40", "10"] }
   "worker-0" = { hypervisor = "node2", ip = "192.168.0.220", cores = 8, memory = 16384, disks = ["100", "400"] }
   "worker-1" = { hypervisor = "node2", ip = "192.168.0.221", cores = 8, memory = 16384, disks = ["100", "400"] }
   "worker-2" = { hypervisor = "node2", ip = "192.168.0.222", cores = 8, memory = 16384, disks = ["100", "400"] }

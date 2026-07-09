@@ -63,6 +63,7 @@
             local:
               extraArgs:
                 listen-metrics-urls: "http://0.0.0.0:2381"
+                quota-backend-bytes: "8589934592"
           scheduler:
             extraArgs:
               bind-address: "0.0.0.0"
@@ -77,6 +78,24 @@
           apiVersion: kubelet.config.k8s.io/v1beta1
           kind: KubeletConfiguration
           imageMaximumGCAge: 168h
+
+    - name: Prepare dedicated etcd disk
+      ansible.builtin.include_tasks: prep-etcd-disk.yml
+
+    - name: Clear stale etcd data before fresh init
+      ansible.builtin.find:
+        paths: /var/lib/etcd
+        file_type: any
+        hidden: true
+      register: etcd_contents
+      when: not kubeadm_init.stat.exists
+
+    - name: Remove stale etcd data
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ etcd_contents.files }}"
+      when: not kubeadm_init.stat.exists
 
     - name: Initialize the cluster
       command: kubeadm init --config=/tmp/kubeadm-config.yaml --upload-certs --ignore-preflight-errors=Port-6443

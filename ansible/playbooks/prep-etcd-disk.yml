@@ -1,0 +1,35 @@
+- name: Check if /var/lib/etcd is already a mountpoint
+  ansible.builtin.command: mountpoint -q /var/lib/etcd
+  register: etcd_mounted
+  changed_when: false
+  failed_when: false
+
+- name: Check if etcd disk already has a filesystem
+  ansible.builtin.command: blkid /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+  register: etcd_disk_blkid
+  changed_when: false
+  failed_when: false
+  when: etcd_mounted.rc != 0
+
+- name: Format etcd disk with ext4
+  ansible.builtin.command: mkfs.ext4 -L etcd /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+  when:
+    - etcd_mounted.rc != 0
+    - etcd_disk_blkid.rc != 0
+
+- name: Create /var/lib/etcd directory
+  ansible.builtin.file:
+    path: /var/lib/etcd
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Mount etcd disk and persist in fstab
+  ansible.builtin.mount:
+    path: /var/lib/etcd
+    src: LABEL=etcd
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted
+  when: etcd_mounted.rc != 0

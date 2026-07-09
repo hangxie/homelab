@@ -54,10 +54,28 @@
         - /etc/kubernetes/manifests/kube-controller-manager.yaml
         - /etc/kubernetes/manifests/kube-scheduler.yaml
         - /etc/kubernetes/manifests/etcd.yaml
-        - /var/lib/etcd
       when:
         - not node_already_joined
         - partial_join_artifacts.results | selectattr('stat.exists') | list | length > 0
+
+    - name: Prepare dedicated etcd disk
+      ansible.builtin.include_tasks: prep-etcd-disk.yml
+      when: not node_already_joined
+
+    - name: Clear stale etcd data before join
+      ansible.builtin.find:
+        paths: /var/lib/etcd
+        file_type: any
+        hidden: true
+      register: etcd_join_contents
+      when: not node_already_joined
+
+    - name: Remove stale etcd data
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ etcd_join_contents.files }}"
+      when: not node_already_joined
 
     - name: Check for stale etcd member on primary master
       shell: |
