@@ -16,6 +16,9 @@ spec:
   dnsNames:
     - "*.homelab.xiehang.com"
     - "homelab.xiehang.com"
+  privateKey:
+    algorithm: ECDSA
+    size: 256
   issuerRef:
     name: letsencrypt-prod
     kind: ClusterIssuer
