@@ -1,24 +1,200 @@
 ---
-# Apply gitops/cluster/root-app.yaml and hand reconciliation to Argo CD, which
-# converges root, platform, and workload Applications on its own (ordered by
-# sync-waves). Bootstrap intentionally does NOT block on platform convergence
-# here: the only post-apply step that needs specific platform resources is
-# cilium-post-bootstrap, which waits for exactly those resources itself.
+# Bootstrap root in sync-disabled mode to avoid reconciliation fan-out that
+# overloads etcd on a cold cluster. Waves 10–32 are sequenced manually here;
+# cilium-post-bootstrap re-applies root-app.yaml to restore automated sync.
 
-- name: Apply root Application
+- name: Apply root Application and sequence essential platform bootstrap
   hosts: localhost
   gather_facts: false
   vars:
     repo_root: "{{ playbook_dir }}/../.."
+    apps: "{{ repo_root }}/gitops/cluster/applications"
 
   tasks:
-    - name: Apply root Application
-      command: kubectl apply -f {{ repo_root }}/gitops/cluster/root-app.yaml
+    - name: Write root app manifest with sync disabled
+      copy:
+        content: |
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: root
+            namespace: argocd
+            finalizers:
+              - resources-finalizer.argocd.argoproj.io
+          spec:
+            project: default
+            source:
+              repoURL: https://github.com/hangxie/homelab.git
+              targetRevision: main
+              path: gitops/cluster/applications
+              directory:
+                recurse: false
+            destination:
+              server: https://kubernetes.default.svc
+              namespace: argocd
+        dest: /tmp/root-app-bootstrap.yaml
+
+    - name: Apply root Application (sync disabled — bootstrap phase)
+      command: kubectl apply -f /tmp/root-app-bootstrap.yaml
       environment:
         KUBECONFIG: "{{ bootstrap_kubeconfig }}"
 
-    - name: Root Application applied
+    - name: Apply wave 10 — cert-manager
+      command: kubectl apply -f {{ apps }}/cert-manager.yaml
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+
+    - name: Wait for cert-manager — Synced and Healthy
+      shell: |
+        sync=$(kubectl -n argocd get app cert-manager \
+          -o jsonpath='{.status.sync.status}' 2>/dev/null)
+        health=$(kubectl -n argocd get app cert-manager \
+          -o jsonpath='{.status.health.status}' 2>/dev/null)
+        [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: _wait
+      until: _wait.rc == 0
+      retries: 40
+      delay: 15
+      changed_when: false
+
+    - name: Apply wave 11 — cert-manager-config
+      command: kubectl apply -f {{ apps }}/cert-manager-config.yaml
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+
+    - name: Wait for cert-manager-config — Synced and Healthy
+      shell: |
+        sync=$(kubectl -n argocd get app cert-manager-config \
+          -o jsonpath='{.status.sync.status}' 2>/dev/null)
+        health=$(kubectl -n argocd get app cert-manager-config \
+          -o jsonpath='{.status.health.status}' 2>/dev/null)
+        [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: _wait
+      until: _wait.rc == 0
+      retries: 20
+      delay: 15
+      changed_when: false
+
+    - name: Apply wave 20 — external-secrets
+      command: kubectl apply -f {{ apps }}/external-secrets.yaml
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+
+    - name: Wait for external-secrets — Synced and Healthy
+      shell: |
+        sync=$(kubectl -n argocd get app external-secrets \
+          -o jsonpath='{.status.sync.status}' 2>/dev/null)
+        health=$(kubectl -n argocd get app external-secrets \
+          -o jsonpath='{.status.health.status}' 2>/dev/null)
+        [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: _wait
+      until: _wait.rc == 0
+      retries: 40
+      delay: 15
+      changed_when: false
+
+    - name: Apply wave 21 — external-secrets-stores
+      command: kubectl apply -f {{ apps }}/external-secrets-stores.yaml
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+
+    - name: Wait for external-secrets-stores — Synced and Healthy
+      shell: |
+        sync=$(kubectl -n argocd get app external-secrets-stores \
+          -o jsonpath='{.status.sync.status}' 2>/dev/null)
+        health=$(kubectl -n argocd get app external-secrets-stores \
+          -o jsonpath='{.status.health.status}' 2>/dev/null)
+        [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: _wait
+      until: _wait.rc == 0
+      retries: 20
+      delay: 15
+      changed_when: false
+
+    - name: Apply wave 30 — rook-ceph
+      command: kubectl apply -f {{ apps }}/rook-ceph.yaml
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+
+    - name: Wait for rook-ceph — Synced and Healthy
+      shell: |
+        sync=$(kubectl -n argocd get app rook-ceph \
+          -o jsonpath='{.status.sync.status}' 2>/dev/null)
+        health=$(kubectl -n argocd get app rook-ceph \
+          -o jsonpath='{.status.health.status}' 2>/dev/null)
+        [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: _wait
+      until: _wait.rc == 0
+      retries: 40
+      delay: 15
+      changed_when: false
+
+    - name: Apply wave 31 — ceph-csi-drivers
+      command: kubectl apply -f {{ apps }}/ceph-csi-drivers.yaml
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+
+    - name: Wait for ceph-csi-drivers — Synced and Healthy
+      shell: |
+        sync=$(kubectl -n argocd get app ceph-csi-drivers \
+          -o jsonpath='{.status.sync.status}' 2>/dev/null)
+        health=$(kubectl -n argocd get app ceph-csi-drivers \
+          -o jsonpath='{.status.health.status}' 2>/dev/null)
+        [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: _wait
+      until: _wait.rc == 0
+      retries: 20
+      delay: 15
+      changed_when: false
+
+    - name: Apply wave 32 — rook-ceph-cluster
+      command: kubectl apply -f {{ apps }}/rook-ceph-cluster.yaml
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+
+    - name: Wait for rook-ceph-cluster — Synced
+      # CephCluster readiness is gated separately in cilium-post-bootstrap.
+      shell: |
+        sync=$(kubectl -n argocd get app rook-ceph-cluster \
+          -o jsonpath='{.status.sync.status}' 2>/dev/null)
+        [ "$sync" = "Synced" ]
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: _wait
+      until: _wait.rc == 0
+      retries: 20
+      delay: 15
+      changed_when: false
+
+    - name: Essential platform waves applied
       debug:
         msg:
-          - "Root Application applied; Argo CD now owns reconciliation."
-          - "cilium-post-bootstrap waits for the platform resources Cilium needs."
+          - "Waves 10–32 (cert-manager → rook-ceph-cluster) applied and synced."
+          - "Root app remains sync-disabled; cilium-post-bootstrap re-enables it"
+          - "once CephCluster is Ready and remaining platform gates pass."

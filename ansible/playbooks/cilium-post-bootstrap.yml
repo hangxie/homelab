@@ -1,10 +1,7 @@
 ---
-# Post-bootstrap Cilium configuration. The first Cilium install deliberately
-# omits features that depend on platform services Argo CD only reconciles after
-# the root app is applied: rook-ceph storage (SPIRE's PVC), the grafana namespace
-# (dashboards), and the default gateway (Hubble route). This play waits for those
-# specific resources itself rather than relying on a global platform-convergence
-# gate during bootstrap.
+# Post-bootstrap Cilium configuration. Re-enables root app automated sync
+# (disabled during bootstrap to avoid etcd fan-out), then waits for platform
+# prerequisites before upgrading Cilium with SPIRE, Hubble, and dashboards.
 
 - name: Enable Cilium post-bootstrap features and observability
   hosts: localhost
@@ -26,6 +23,15 @@
       until:
         - kube_api_vip_ready.rc == 0
         - "'ok' in kube_api_vip_ready.stdout"
+
+    - name: Re-enable root app automated sync
+      # Restores syncPolicy on root so Argo CD picks up waves 40+ (including
+      # grafana, which the prerequisites gate below requires).
+      command: kubectl apply -f {{ repo_root }}/gitops/cluster/root-app.yaml
+      vars:
+        repo_root: "{{ playbook_dir }}/../.."
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Nudge stale ExternalSecrets and wait for Cilium's platform prerequisites
       # Argo CD reconciles platform Applications asynchronously after the root app
