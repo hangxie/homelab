@@ -157,16 +157,24 @@
         != (cilium_config_after.stdout | from_json).data
 
     - name: Wait for Cilium agent rollout
-      command: kubectl -n kube-system rollout status daemonset/cilium --timeout=600s
+      command: kubectl -n kube-system rollout status daemonset/cilium --timeout=120s
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
+      retries: 10
+      delay: 30
+      register: cilium_agent_rollout
       changed_when: false
+      until: cilium_agent_rollout.rc == 0
 
     - name: Wait for Cilium operator rollout
       command: kubectl -n kube-system rollout status deployment/cilium-operator --timeout=300s
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
+      retries: 3
+      delay: 30
+      register: cilium_operator_rollout
       changed_when: false
+      until: cilium_operator_rollout.rc == 0
 
     - name: Wait for SPIRE server to be ready
       command: kubectl -n cilium-spire rollout status statefulset/spire-server --timeout=300s
