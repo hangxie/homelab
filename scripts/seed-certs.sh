@@ -28,6 +28,7 @@ FULLCHAIN="$CERT_DIR/fullchain.pem"
 PRIVKEY="$CERT_DIR/privkey.pem"
 DOMAIN="homelab.xiehang.com"
 NAMESPACE="gateway-system"
+CERT_NAME="homelab-wildcard"
 SECRET_NAME="homelab-wildcard-tls"
 EMAIL="xiehang@gmail.com"
 RENEW_THRESHOLD_DAYS=30
@@ -105,6 +106,18 @@ seed_cluster() {
         --namespace "$NAMESPACE" \
         --cert="$FULLCHAIN" --key="$PRIVKEY" \
         --dry-run=client -o yaml | kubectl apply -f -
+    # Stamp cert-manager issuer annotations so cert-manager treats this secret
+    # as already issued by letsencrypt-prod and skips re-issuance.
+    kubectl -n "$NAMESPACE" annotate secret "$SECRET_NAME" \
+        "cert-manager.io/certificate-name=${CERT_NAME}" \
+        "cert-manager.io/issuer-name=letsencrypt-prod" \
+        "cert-manager.io/issuer-kind=ClusterIssuer" \
+        "cert-manager.io/issuer-group=cert-manager.io" \
+        "cert-manager.io/alt-names=*.${DOMAIN},${DOMAIN}" \
+        "cert-manager.io/common-name=*.${DOMAIN}" \
+        "cert-manager.io/ip-sans=" \
+        "cert-manager.io/uri-sans=" \
+        --overwrite
     log "Secret ${NAMESPACE}/${SECRET_NAME} applied."
 }
 
