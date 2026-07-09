@@ -61,29 +61,7 @@
       delay: 15
       changed_when: false
 
-    - name: Apply wave 11 — cert-manager-config
-      command: kubectl apply -f {{ apps }}/cert-manager-config.yaml
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
-
-    - name: Wait for cert-manager-config — Synced and Healthy
-      shell: |
-        sync=$(kubectl -n argocd get app cert-manager-config \
-          -o jsonpath='{.status.sync.status}' 2>/dev/null)
-        health=$(kubectl -n argocd get app cert-manager-config \
-          -o jsonpath='{.status.health.status}' 2>/dev/null)
-        [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
-      args:
-        executable: /bin/bash
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
-      register: _wait
-      until: _wait.rc == 0
-      retries: 20
-      delay: 15
-      changed_when: false
-
-    - name: Apply wave 20 — external-secrets
+    - name: Apply wave 11 — external-secrets
       command: kubectl apply -f {{ apps }}/external-secrets.yaml
       environment:
         KUBECONFIG: "{{ bootstrap_kubeconfig }}"
@@ -105,7 +83,7 @@
       delay: 15
       changed_when: false
 
-    - name: Apply wave 21 — external-secrets-stores
+    - name: Apply wave 12 — external-secrets-stores
       command: kubectl apply -f {{ apps }}/external-secrets-stores.yaml
       environment:
         KUBECONFIG: "{{ bootstrap_kubeconfig }}"
@@ -115,6 +93,28 @@
         sync=$(kubectl -n argocd get app external-secrets-stores \
           -o jsonpath='{.status.sync.status}' 2>/dev/null)
         health=$(kubectl -n argocd get app external-secrets-stores \
+          -o jsonpath='{.status.health.status}' 2>/dev/null)
+        [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: _wait
+      until: _wait.rc == 0
+      retries: 20
+      delay: 15
+      changed_when: false
+
+    - name: Apply wave 13 — cert-manager-config
+      command: kubectl apply -f {{ apps }}/cert-manager-config.yaml
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+
+    - name: Wait for cert-manager-config — Synced and Healthy
+      shell: |
+        sync=$(kubectl -n argocd get app cert-manager-config \
+          -o jsonpath='{.status.sync.status}' 2>/dev/null)
+        health=$(kubectl -n argocd get app cert-manager-config \
           -o jsonpath='{.status.health.status}' 2>/dev/null)
         [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
       args:
@@ -195,6 +195,6 @@
     - name: Essential platform waves applied
       debug:
         msg:
-          - "Waves 10–32 (cert-manager → rook-ceph-cluster) applied and synced."
+          - "Waves 10–32 (cert-manager → external-secrets → cert-manager-config → rook-ceph-cluster) applied and synced."
           - "Root app remains sync-disabled; cilium-post-bootstrap re-enables it"
           - "once CephCluster is Ready and remaining platform gates pass."
