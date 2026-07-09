@@ -83,6 +83,16 @@
       delay: 15
       changed_when: false
 
+    - name: Wait for external-secrets webhook deployment to be fully ready
+      command: kubectl -n external-secrets rollout status deployment/external-secrets-webhook --timeout=120s
+      environment:
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      register: _wait
+      until: _wait.rc == 0
+      retries: 10
+      delay: 15
+      changed_when: false
+
     - name: Apply wave 12 — external-secrets-stores
       command: kubectl apply -f {{ apps }}/external-secrets-stores.yaml
       environment:
