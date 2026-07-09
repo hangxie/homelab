@@ -1,5 +1,17 @@
 replicas: 2
 
+# Default liveness grace (60s + 10*10s) is too short for first-boot DB
+# migrations on this cluster's storage; kubelet was killing the container
+# mid-migration, causing an endless crash loop.
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: grafana
+  initialDelaySeconds: 60
+  periodSeconds: 15
+  timeoutSeconds: 30
+  failureThreshold: 40
+
 admin:
   existingSecret: grafana-admin
   userKey: username
