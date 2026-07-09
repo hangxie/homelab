@@ -1,7 +1,9 @@
 ---
-# Post-bootstrap Cilium configuration. Re-enables root app automated sync
-# (disabled during bootstrap to avoid etcd fan-out), then waits for platform
-# prerequisites before upgrading Cilium with SPIRE, Hubble, and dashboards.
+# Post-bootstrap Cilium configuration. Upgrades Cilium with SPIRE, Hubble, and
+# dashboards, then re-enables root app automated sync (disabled during bootstrap
+# to avoid etcd fan-out). Grafana namespace is pre-created here so the Cilium
+# helm upgrade can place dashboard ConfigMaps without triggering a full wave-40+
+# reconciliation burst before the upgrade completes.
 
 - name: Enable Cilium post-bootstrap features and observability
   hosts: localhost
@@ -24,29 +26,31 @@
         - kube_api_vip_ready.rc == 0
         - "'ok' in kube_api_vip_ready.stdout"
 
-    - name: Re-enable root app automated sync
-      # Restores syncPolicy on root so Argo CD picks up waves 40+ (including
-      # grafana, which the prerequisites gate below requires).
-      command: kubectl apply -f {{ repo_root }}/gitops/cluster/root-app.yaml
-      vars:
-        repo_root: "{{ playbook_dir }}/../.."
+    - name: Pre-create grafana namespace for Cilium dashboard ConfigMaps
+      # Cilium helm places dashboard ConfigMaps in the grafana namespace. Creating
+      # it here avoids re-enabling root app sync (which would fan-out all wave-40+
+      # apps simultaneously) just to get the namespace. Grafana itself deploys into
+      # this pre-existing namespace after root sync is re-enabled post-upgrade.
+      command: kubectl create namespace grafana --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: grafana_ns_manifest
+      changed_when: false
+
+    - name: Apply grafana namespace
+      command: kubectl apply -f -
+      args:
+        stdin: "{{ grafana_ns_manifest.stdout }}"
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Nudge stale ExternalSecrets and wait for Cilium's platform prerequisites
-      # Argo CD reconciles platform Applications asynchronously after the root app
-      # is applied, so this is the scoped replacement for the old global gate. The
-      # helm upgrade below is atomic (wait: true) and fails outright if these are
-      # missing: SPIRE's PVC is provisioned by rook-ceph, and the Cilium dashboards
-      # are created in the grafana namespace. (The Hubble route applied later needs
-      # no gate — it attaches to the gateway whenever it appears.) The rook-ceph
-      # StorageClass object appears before the Ceph cluster can actually bind a
-      # volume, so gate on the CephCluster reporting Ready: otherwise the helm wait
-      # can expire while spire-server is still Pending on its PVC during a cold
-      # bootstrap, which surfaces as "context deadline exceeded".
-      # ESO occasionally leaves an ExternalSecret Ready=False after a startup race
-      # even though the Secret was created correctly, so nudge those each retry to
-      # unblock resources gated on them.
+      # SPIRE's PVC requires rook-ceph storage to be available. The rook-ceph
+      # StorageClass appears before the Ceph cluster can bind a volume, so gate on
+      # CephCluster Ready to avoid the helm wait expiring while spire-server is
+      # Pending on its PVC. ESO occasionally leaves an ExternalSecret Ready=False
+      # after a startup race even though the Secret was created correctly, so nudge
+      # those each retry to unblock resources gated on them.
       shell: |
         set -o pipefail
         kubectl get externalsecret -A \
@@ -59,7 +63,6 @@
         kubectl get storageclass rook-ceph-block >/dev/null 2>&1 || exit 1
         [ "$(kubectl -n rook-ceph get cephcluster \
               -o jsonpath='{.items[0].status.phase}' 2>/dev/null)" = "Ready" ] || exit 1
-        kubectl get namespace grafana >/dev/null 2>&1
       args:
         executable: /bin/bash
       environment:
@@ -221,6 +224,15 @@
       register: hubble_ui_ready
       changed_when: false
       until: hubble_ui_ready.rc == 0
+
+    - name: Re-enable root app automated sync
+      # Cilium, SPIRE, and Hubble are all healthy at this point. Re-enabling now
+      # lets Argo CD fan-out waves 40+ without racing the helm upgrade.
+      command: kubectl apply -f {{ repo_root }}/gitops/cluster/root-app.yaml
+      vars:
+        repo_root: "{{ playbook_dir }}/../.."
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Apply Hubble UI HTTPRoute
       kubernetes.core.k8s:
