@@ -136,9 +136,20 @@ apiServer:
 # log-groomer sidecars. Lower retention from the chart default (15d) to 7d to
 # match the observability stack. Groomers run alongside these three components
 # under KubernetesExecutor (no persistent workers).
+#
+# Default scheduler startupProbe grace (6 * 10s = 60s) is also too short on
+# this cluster: the `airflow jobs check` probe command itself sometimes takes
+# close to its 20s timeout under load, and the scheduler's first heartbeat
+# after boot can land right around the 60s mark. Kubelet was killing the
+# container before it ever became healthy, causing an endless crash loop.
+# Match apiServer's failureThreshold for the same ~300s grace.
 scheduler:
   logGroomerSidecar:
     retentionDays: 7
+  startupProbe:
+    periodSeconds: 10
+    timeoutSeconds: 20
+    failureThreshold: 30
 
 triggerer:
   logGroomerSidecar:
