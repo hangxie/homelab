@@ -16199,7 +16199,7 @@ data:
               "steppedLine": false,
               "targets": [
                 {
-                  "expr": "histogram_quantile(0.99, sum by (le) (job:loki_request_duration_seconds_bucket:sum_rate{job=~\"($namespace)/(loki|enterprise-logs)-write\", cluster=~\"$cluster\"})) * 1e3",
+                  "expr": "histogram_quantile(0.99, sum by (le) (rate(loki_request_duration_seconds_bucket{cluster=~\"$cluster\",job=~\"($namespace)/(loki|enterprise-logs)-write\"}[$__rate_interval]))) * 1e3",
                   "format": "time_series",
                   "intervalFactor": 2,
                   "legendFormat": "99th Percentile",
@@ -16207,7 +16207,7 @@ data:
                   "step": 10
                 },
                 {
-                  "expr": "histogram_quantile(0.50, sum by (le) (job:loki_request_duration_seconds_bucket:sum_rate{job=~\"($namespace)/(loki|enterprise-logs)-write\", cluster=~\"$cluster\"})) * 1e3",
+                  "expr": "histogram_quantile(0.50, sum by (le) (rate(loki_request_duration_seconds_bucket{cluster=~\"$cluster\",job=~\"($namespace)/(loki|enterprise-logs)-write\"}[$__rate_interval]))) * 1e3",
                   "format": "time_series",
                   "intervalFactor": 2,
                   "legendFormat": "50th Percentile",
@@ -16215,7 +16215,7 @@ data:
                   "step": 10
                 },
                 {
-                  "expr": "1e3 * sum(job:loki_request_duration_seconds_sum:sum_rate{job=~\"($namespace)/(loki|enterprise-logs)-write\", cluster=~\"$cluster\"}) / sum(job:loki_request_duration_seconds_count:sum_rate{job=~\"($namespace)/(loki|enterprise-logs)-write\", cluster=~\"$cluster\"})",
+                  "expr": "1e3 * sum(rate(loki_request_duration_seconds_sum{cluster=~\"$cluster\",job=~\"($namespace)/(loki|enterprise-logs)-write\"}[$__rate_interval])) / sum(rate(loki_request_duration_seconds_count{cluster=~\"$cluster\",job=~\"($namespace)/(loki|enterprise-logs)-write\"}[$__rate_interval]))",
                   "format": "time_series",
                   "intervalFactor": 2,
                   "legendFormat": "Average",
