@@ -321,21 +321,72 @@ spec:
                       [ -z "${MODEL_ID}" ] && continue
                       DEST="/mnt/models/${MODEL_ID}"
                       LOCK="/mnt/models/.pull.lock.$(slug "${MODEL_ID}")"
+                      HARBOR_TAG="$(slug "${MODEL_ID}")"
+                      HARBOR_REF="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${HARBOR_TAG}:latest"
 
                       (
                         exec 9>"${LOCK}"
                         flock -w 3600 -x 9 || { echo "ERROR: lock not acquired for ${MODEL_ID}" >&2; exit 1; }
 
+                        harbor_has_model() {
+                          HARBOR_REPO="${HARBOR_TAG}" python - <<'PY'
+                    import base64
+                    import os
+                    import sys
+                    import urllib.error
+                    import urllib.request
+
+                    registry = os.environ["HARBOR_REGISTRY"]
+                    project = os.environ["HARBOR_PROJECT"]
+                    repo = os.environ["HARBOR_REPO"]
+                    username = os.environ["HARBOR_USERNAME"]
+                    password = os.environ["HARBOR_PASSWORD"]
+                    url = f"https://{registry}/v2/{project}/{repo}/manifests/latest"
+                    request = urllib.request.Request(
+                        url,
+                        headers={
+                            "Accept": "application/vnd.oci.image.manifest.v1+json",
+                            "Authorization": "Basic "
+                            + base64.b64encode(f"{username}:{password}".encode()).decode(),
+                        },
+                    )
+                    try:
+                        with urllib.request.urlopen(request, timeout=20) as response:
+                            sys.exit(0 if response.status == 200 else 1)
+                    except urllib.error.HTTPError as exc:
+                        sys.exit(1 if exc.code == 404 else 2)
+                    except Exception:
+                        sys.exit(2)
+                    PY
+                        }
+                        push_to_harbor() {
+                          echo "Pushing to Harbor: ${HARBOR_REF}"
+                          (
+                            cd "${DEST}"
+                            # Word-split $FILES intentionally so each file becomes a separate oras arg.
+                            FILES=$(find . -maxdepth 1 -type f | sed 's|^\./||' | tr '\n' ' ')
+                            if [ -z "${FILES}" ]; then
+                              echo "ERROR: no files found under ${DEST}" >&2
+                              exit 1
+                            fi
+                            echo "${HARBOR_PASSWORD}" | oras push -u "${HARBOR_USERNAME}" --password-stdin \
+                                 "${HARBOR_REF}" ${FILES}
+                          )
+                        }
+
                         if [ -f "${DEST}/config.json" ]; then
-                          echo "PVC ok: ${MODEL_ID}"
+                          if harbor_has_model; then
+                            echo "PVC and Harbor ok: ${MODEL_ID}"
+                            exit 0
+                          fi
+                          echo "PVC ok but Harbor cache missing: ${MODEL_ID}"
+                          push_to_harbor || { echo "ERROR: Harbor push failed for ${HARBOR_REF}" >&2; exit 1; }
+                          echo "Pushed to Harbor: ${HARBOR_REF}"
                           exit 0
                         fi
 
                         mkdir -p "${DEST}"
                         chmod -R 777 "/mnt/models/$(dirname "${MODEL_ID}")"
-
-                        HARBOR_TAG="$(slug "${MODEL_ID}")"
-                        HARBOR_REF="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${HARBOR_TAG}:latest"
 
                         echo "Attempting Harbor pull: ${HARBOR_REF}"
                         if echo "${HARBOR_PASSWORD}" | oras pull -u "${HARBOR_USERNAME}" --password-stdin \
@@ -354,13 +405,8 @@ spec:
                         hf download "${MODEL_ID}" --local-dir "${DEST}"
                         [ -f "${DEST}/config.json" ] || { echo "ERROR: HF download incomplete" >&2; exit 1; }
 
-                        echo "Pushing to Harbor: ${HARBOR_REF}"
-                        cd "${DEST}"
-                        # Word-split $FILES intentionally so each file becomes a separate oras arg.
-                        FILES=$(find . -maxdepth 1 -type f | sed 's|^\./||' | tr '\n' ' ')
-                        echo "${HARBOR_PASSWORD}" | oras push -u "${HARBOR_USERNAME}" --password-stdin \
-                             "${HARBOR_REF}" ${FILES} \
-                          || echo "WARN: Harbor push failed; model is on PVC" >&2
+                        push_to_harbor || { echo "ERROR: Harbor push failed for ${HARBOR_REF}" >&2; exit 1; }
+                        echo "Pushed to Harbor: ${HARBOR_REF}"
                       ) || exit 1
                     done
 
