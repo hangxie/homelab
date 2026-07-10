@@ -23,14 +23,15 @@ kube_api_vip = "192.168.0.218"
 
 # VM setting
 vm = {
-  bios           = "ovmf"
-  bridge         = "vmbr0"
-  boot_order     = ["scsi0", "ide2"]
-  cloud_image_id = "local:iso/debian-13-genericcloud-amd64.img"
-  disk_storage   = "local-lvm"
-  gateway        = "192.168.0.1"
-  machine        = "q35"
-  scsi_hardware  = "virtio-scsi-pci"
+  bios              = "ovmf"
+  bridge            = "vmbr0"
+  boot_order        = ["scsi0", "ide2"]
+  cloud_image_id    = "local:iso/debian-13-genericcloud-amd64.img"
+  sys_disk_storage  = "local-lvm"
+  data_disk_storage = "ceph"
+  gateway           = "192.168.0.1"
+  machine           = "q35"
+  scsi_hardware     = "virtio-scsi-pci"
 }
 
 nodes = {

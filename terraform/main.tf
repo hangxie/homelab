@@ -46,7 +46,7 @@ resource "proxmox_virtual_environment_vm" "node2" {
   dynamic "disk" {
     for_each = each.value.disks
     content {
-      datastore_id = var.vm.disk_storage
+      datastore_id = disk.key == 0 ? var.vm.sys_disk_storage : var.vm.data_disk_storage
       interface    = "scsi${disk.key}"
       size         = disk.value
       file_id      = disk.key == 0 ? var.vm.cloud_image_id : null
@@ -63,7 +63,7 @@ resource "proxmox_virtual_environment_vm" "node2" {
   }
 
   efi_disk {
-    datastore_id = var.vm.disk_storage
+    datastore_id = var.vm.sys_disk_storage
   }
 
   network_device {
@@ -73,7 +73,7 @@ resource "proxmox_virtual_environment_vm" "node2" {
   serial_device {}
 
   initialization {
-    datastore_id = var.vm.disk_storage
+    datastore_id = var.vm.sys_disk_storage
     dns {
       servers = ["8.8.8.8", "1.1.1.1"]
     }

@@ -24,14 +24,15 @@ variable "ssh_public_key_file" {
 variable "vm" {
   description = "Virtual machine's settings"
   type = object({
-    bios           = string
-    bridge         = string
-    boot_order     = list(string)
-    gateway        = string
-    machine        = string
-    scsi_hardware  = string
-    cloud_image_id = string
-    disk_storage   = string
+    bios              = string
+    bridge            = string
+    boot_order        = list(string)
+    gateway           = string
+    machine           = string
+    scsi_hardware     = string
+    cloud_image_id    = string
+    sys_disk_storage  = string
+    data_disk_storage = string
   })
 }
 
