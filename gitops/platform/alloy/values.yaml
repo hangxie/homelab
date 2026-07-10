@@ -935,7 +935,7 @@ alloy:
 
       prometheus.scrape "trino" {
         targets    = discovery.relabel.trino_jmx.output
-        job_name   = "trino"
+        job_name   = "jmx"
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
