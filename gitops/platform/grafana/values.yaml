@@ -188,5 +188,5 @@ dashboards:
       gnetId: 7890
       datasource: Mimir
     trino:
-      gnetId: 20208
+      gnetId: 14845
       datasource: Mimir
