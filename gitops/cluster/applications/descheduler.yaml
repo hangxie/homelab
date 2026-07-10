@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: descheduler
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "45"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://kubernetes-sigs.github.io/descheduler/
+      chart: descheduler
+      targetRevision: 0.36.0
+      helm:
+        valueFiles:
+          - $values/gitops/platform/descheduler/values.yaml
+    - repoURL: https://github.com/hangxie/homelab.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
