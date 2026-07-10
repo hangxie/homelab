@@ -178,9 +178,12 @@ dashboards:
     mysql:
       gnetId: 14057
       datasource: Mimir
-    ray:
-      gnetId: 14708
-      datasource: Mimir
+    # Ray's own dashboards (cluster overview, serve, serve-deployment) are
+    # vendored directly from the Ray source tree and provisioned via the
+    # sidecar from gitops/workloads/raw/ray/manifests/, since they match
+    # the ray_* metric names Ray actually exports. gnetId 14708 was an
+    # unrelated dashboard that happened to be named "ray" and had no
+    # matching metrics.
     redis:
       gnetId: 763
       datasource: Mimir
