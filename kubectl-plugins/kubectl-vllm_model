@@ -29,6 +29,10 @@ Environment:
 EOF
 }
 
+harbor_repo_name() {
+    echo "${1}" | tr '[:upper:]/.+_' '[:lower:]----' | tr -cd 'a-z0-9-' | tr -s '-'
+}
+
 ensure_namespace_and_pvc() {
     kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1
     cat <<EOF | kubectl apply -f - >/dev/null 2>&1
@@ -139,7 +143,7 @@ EOF
 validate_harbor_model() {
     local MODEL_ID="${1}"
     local HARBOR_TAG
-    HARBOR_TAG="$(echo "${MODEL_ID}" | tr '[:upper:]/.+' '[:lower:]---' | tr -cd 'a-z0-9-')"
+    HARBOR_TAG="$(harbor_repo_name "${MODEL_ID}")"
 
     local HARBOR_USERNAME HARBOR_PASSWORD
     HARBOR_USERNAME=$(kubectl get secret harbor-credentials -n "${NAMESPACE}" -o jsonpath='{.data.username}' | base64 -d)
@@ -270,7 +274,7 @@ collect_harbor_model_files() {
     local MODEL_ID="${1}"
     local OUTFILE="${2}"
     local HARBOR_TAG
-    HARBOR_TAG="$(echo "${MODEL_ID}" | tr '[:upper:]/.+' '[:lower:]---' | tr -cd 'a-z0-9-')"
+    HARBOR_TAG="$(harbor_repo_name "${MODEL_ID}")"
 
     local HARBOR_USERNAME HARBOR_PASSWORD
     HARBOR_USERNAME=$(kubectl get secret harbor-credentials -n "${NAMESPACE}" -o jsonpath='{.data.username}' | base64 -d)
@@ -516,7 +520,7 @@ EOF
     while IFS= read -r pvc; do
         [[ -z "${pvc}" ]] && continue
         local harbor_tag
-        harbor_tag="$(echo "${pvc}" | tr '[:upper:]/.+' '[:lower:]---' | tr -cd 'a-z0-9-')"
+        harbor_tag="$(harbor_repo_name "${pvc}")"
         if echo "${HARBOR_MODELS}" | grep -qx "${harbor_tag}"; then
             printf "%-45s  %s\n" "${pvc}" "${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${harbor_tag}:latest"
         else
@@ -551,7 +555,7 @@ cmd_delete() {
     fi
 
     local HARBOR_TAG HARBOR_REF MODEL_SLUG JOB_NAME
-    HARBOR_TAG="$(echo "${MODEL_ID}" | tr '[:upper:]/.+' '[:lower:]---' | tr -cd 'a-z0-9-')"
+    HARBOR_TAG="$(harbor_repo_name "${MODEL_ID}")"
     HARBOR_REF="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${HARBOR_TAG}:latest"
     MODEL_SLUG="$(echo "${MODEL_ID}" | tr '[:upper:]/' '[:lower:]-' | tr -cd 'a-z0-9-')"
     JOB_NAME="vllm-delete-$(echo "${MODEL_SLUG}" | cut -c1-50)"

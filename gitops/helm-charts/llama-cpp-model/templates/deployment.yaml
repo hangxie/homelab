@@ -5,6 +5,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: llama-cpp-{{ .Values.slug }}
@@ -65,6 +67,7 @@ spec:
               MARKER="${DEST}.size"
               HARBOR_SLUG="$(echo "${MODEL_SPEC}" | tr '[:upper:]/.+_' '[:lower:]----' | tr -cd 'a-z0-9-' | tr -s '-')"
               HARBOR_REF="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/gguf-${HARBOR_SLUG}:latest"
+              HARBOR_REPO="gguf-${HARBOR_SLUG}"
 
               # CephFS-aware lock; use a per-model lockfile so concurrent pods
               # for different models do not serialize unnecessarily.
@@ -73,10 +76,54 @@ spec:
               flock -w 3600 -x 9 || { echo "ERROR: lock not acquired in 1h" >&2; exit 1; }
 
               file_size() { stat -c %s "$1" 2>/dev/null || wc -c < "$1" | tr -d ' '; }
+              harbor_has_model() {
+                HARBOR_REPO="${HARBOR_REPO}" python - <<'PY'
+              import base64
+              import os
+              import sys
+              import urllib.error
+              import urllib.request
+
+              registry = os.environ["HARBOR_REGISTRY"]
+              project = os.environ["HARBOR_PROJECT"]
+              repo = os.environ["HARBOR_REPO"]
+              username = os.environ["HARBOR_USERNAME"]
+              password = os.environ["HARBOR_PASSWORD"]
+              url = f"https://{registry}/v2/{project}/{repo}/manifests/latest"
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      "Accept": "application/vnd.oci.image.manifest.v1+json",
+                      "Authorization": "Basic "
+                      + base64.b64encode(f"{username}:{password}".encode()).decode(),
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      sys.exit(0 if response.status == 200 else 1)
+              except urllib.error.HTTPError as exc:
+                  sys.exit(1 if exc.code == 404 else 2)
+              except Exception:
+                  sys.exit(2)
+              PY
+              }
+              push_to_harbor() {
+                echo "Pushing to Harbor: ${HARBOR_REF}"
+                (
+                  cd "${DEST_DIR}"
+                  echo "${HARBOR_PASSWORD}" | oras push -u "${HARBOR_USERNAME}" --password-stdin "${HARBOR_REF}" "${HF_FILE}" "${HF_FILE}.size"
+                )
+              }
 
               if [ -s "${DEST}" ] && [ -s "${MARKER}" ] \
                  && [ "$(file_size "${DEST}")" = "$(cat "${MARKER}" | tr -d ' ')" ]; then
-                echo "Already on PVC: ${MODEL_SPEC}"
+                if harbor_has_model; then
+                  echo "Already on PVC and Harbor: ${MODEL_SPEC}"
+                  exit 0
+                fi
+                echo "PVC ok but Harbor cache missing: ${MODEL_SPEC}"
+                push_to_harbor || { echo "ERROR: Harbor push failed for ${HARBOR_REF}" >&2; exit 1; }
+                echo "Pushed to Harbor: ${HARBOR_REF}"
                 exit 0
               fi
 
@@ -111,12 +158,11 @@ spec:
 
               printf '%s\n' "$(file_size "${DEST}")" > "${MARKER}"
 
-              echo "Pushing to Harbor: ${HARBOR_REF}"
-              cd "${DEST_DIR}"
-              if echo "${HARBOR_PASSWORD}" | oras push -u "${HARBOR_USERNAME}" --password-stdin "${HARBOR_REF}" "${HF_FILE}" "${HF_FILE}.size"; then
+              if push_to_harbor; then
                 echo "Pushed to Harbor: ${HARBOR_REF}"
               else
-                echo "WARN: Harbor push failed; model is on PVC, exiting 0" >&2
+                echo "ERROR: Harbor push failed for ${HARBOR_REF}" >&2
+                exit 1
               fi
           volumeMounts:
             - { name: models,        mountPath: /models }
