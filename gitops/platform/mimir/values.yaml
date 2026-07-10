@@ -128,15 +128,20 @@ minio:
   enabled: false
 
 kafka:
+  replicas: 2
   persistence:
-    size: 40Gi
-  controller:
-    replicaCount: 2
-    affinity:
-      podAntiAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchLabels:
-                app.kubernetes.io/component: controller
-                app.kubernetes.io/name: kafka
-            topologyKey: kubernetes.io/hostname
+    size: 80Gi
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: kafka
+          topologyKey: kubernetes.io/hostname
+  extraEnv:
+    # Size-based cap per partition so the topic can't fill the PVC even if the
+    # chart's hardcoded 24h time-based retention lags behind the ingest rate.
+    - name: KAFKA_LOG_RETENTION_BYTES
+      value: "8589934592" # 8Gi
+    - name: KAFKA_DEFAULT_REPLICATION_FACTOR
+      value: "2"
