@@ -19,8 +19,42 @@
 #
 # Externally minted credentials (entries marked `generate: false`) must be
 # written to Vault with `vault kv put` before this script runs.
+#
+# --regenerate: skip step 1 (the Vault lookup) for generatable entries so any
+# secret that would otherwise be auto-generated is minted fresh, overwriting the
+# existing Vault value. Entries with a non-empty template default (e.g.
+# usernames) keep that default; externally minted `generate: false` credentials
+# (HuggingFace, Harbor, Cloudflare) are never touched.
 
 set -euo pipefail
+
+REGENERATE=false
+
+usage() {
+  cat >&2 <<EOF
+Usage: ${0##*/} [--regenerate]
+
+  --regenerate   Regenerate auto-generated secrets even when they already have a
+                 value in Vault. Externally minted credentials (generate: false)
+                 and template-pinned values are left unchanged.
+
+                 This overwrites live secrets: each 'vault kv put' bumps the KV
+                 version, so on a running cluster the dependent ExternalSecrets
+                 must re-sync and their consuming pods restart before the new
+                 values take effect.
+EOF
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --regenerate) REGENERATE=true ;;
+      -h|--help) usage; exit 0 ;;
+      *) echo "Error: unknown argument '$1'" >&2; usage; exit 1 ;;
+    esac
+    shift
+  done
+}
 
 : "${VAULT_ADDR:?VAULT_ADDR must be set}"
 : "${VAULT_TOKEN:?VAULT_TOKEN must be set}"
@@ -120,7 +154,14 @@ generate_hex() {
 
 resolve_value() {
   local path="$1" field="$2" generate="$3" format="${4:-password}" value
-  for src in fetch_from_vault fetch_from_template; do
+  # --regenerate drops the Vault lookup for generatable entries so an existing
+  # value can't short-circuit regeneration; the template default (if any) still
+  # wins, and generate=false entries keep their Vault-backed value.
+  local sources=(fetch_from_vault fetch_from_template)
+  if [[ "${REGENERATE}" == "true" && "${generate}" != "false" ]]; then
+    sources=(fetch_from_template)
+  fi
+  for src in "${sources[@]}"; do
     value="$("${src}" "${path}" "${field}")"
     if [[ -n "${value}" ]]; then
       printf '%s' "${value}"
@@ -169,6 +210,7 @@ write_kv_entries() {
 }
 
 main() {
+  parse_args "$@"
   ensure_kv_mount
   ensure_approle_mount
   write_policy

@@ -129,6 +129,16 @@ with the same `VAULT_TOKEN` used for seeding. Current entries:
 - `cloudflare/api-token` — scoped Cloudflare API token used by cert-manager's
   DNS-01 solver to issue Let's Encrypt wildcard certs.
 
+Re-running `scripts/seed-vault.sh` is idempotent: existing Vault values are kept.
+To rotate the auto-generated secrets, run `scripts/seed-vault.sh --regenerate`,
+which mints fresh values even where Vault already has one. Template-pinned
+defaults (usernames) and the `generate: false` credentials above are left
+untouched. This is a live rotation on a running cluster: each `vault kv put`
+bumps the KV version, so the dependent `ExternalSecret`s must re-sync and their
+consuming pods restart before the new secrets take effect. Force a re-sync with
+`kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrite`,
+then roll the affected workloads.
+
 Public vLLM and llama-cpp `/v1` endpoints are currently unauthenticated.
 Bearer-token enforcement is deferred until a dedicated API gateway is added.
 
