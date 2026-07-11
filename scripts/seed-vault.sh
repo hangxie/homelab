@@ -13,7 +13,9 @@
 #   1. Existing value already in Vault (keeps re-runs idempotent)
 #   2. Default in scripts/vault-secrets.template.yaml `values:` block
 #   3. Auto-generated random secret (32 random bytes, url-safe base64 with
-#      padding — 44 chars, valid input for cryptography.fernet.Fernet)
+#      padding — 44 chars, valid input for cryptography.fernet.Fernet); set
+#      `format: hex` in the template for consumers that require a hex string
+#      (e.g. JupyterHub's cookie_secret / CryptKeeper.keys)
 #
 # Externally minted credentials (entries marked `generate: false`) must be
 # written to Vault with `vault kv put` before this script runs.
@@ -71,7 +73,8 @@ ensure_role() {
 # "true" by default; entries that set `generate: false` (e.g. externally minted
 # credentials like Harbor robots) must be populated from vault or the secrets
 # file and will fail the run rather than fall through to random generation.
-# `format` defaults to "password"; set `format: fernet` for Fernet keys.
+# `format` defaults to "password"; set `format: fernet` for Fernet keys, or
+# `format: hex` for consumers that require a hex-encoded secret.
 extract_template_entries() {
   yq -r '
     .secrets[] as $s
@@ -110,6 +113,11 @@ generate_fernet_key() {
   openssl rand -base64 32 | tr -d '\n' | tr '/+' '_-'
 }
 
+# 32 random bytes as a lowercase hex string (64 chars, always even length).
+generate_hex() {
+  openssl rand -hex 32 | tr -d '\n'
+}
+
 resolve_value() {
   local path="$1" field="$2" generate="$3" format="${4:-password}" value
   for src in fetch_from_vault fetch_from_template; do
@@ -133,6 +141,8 @@ resolve_value() {
   fi
   if [[ "${format}" == "fernet" ]]; then
     generate_fernet_key
+  elif [[ "${format}" == "hex" ]]; then
+    generate_hex
   else
     generate_random
   fi
