@@ -56,37 +56,30 @@
           scripts/seed-vault.sh with VAULT_ADDR={{ vault_effective_addr }} and
           an admin Vault token, then rerun this playbook.
 
-    - name: Create external-secrets namespace
-      command: kubectl create namespace external-secrets --dry-run=client -o yaml
-      register: ns_yaml
-      changed_when: false
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
-
-    - name: Apply external-secrets namespace
-      command: kubectl apply -f -
-      args:
-        stdin: "{{ ns_yaml.stdout }}"
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
-      register: external_secrets_namespace_apply
-      changed_when: >-
-        ' created' in external_secrets_namespace_apply.stdout
-        or ' configured' in external_secrets_namespace_apply.stdout
+    - name: Ensure external-secrets namespace exists
+      kubernetes.core.k8s:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: external-secrets
 
     - name: Check existing vault-approle Secret
-      command: kubectl -n external-secrets get secret vault-approle -o json
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        api_version: v1
+        kind: Secret
+        namespace: external-secrets
+        name: vault-approle
       register: vault_approle_secret_check
-      changed_when: false
-      failed_when: false
       no_log: true
 
     - name: Store existing vault-approle Secret data
       set_fact:
-        vault_approle_secret_data: "{{ (vault_approle_secret_check.stdout | from_json).data | default({}) }}"
-      when: vault_approle_secret_check.rc == 0
+        vault_approle_secret_data: "{{ vault_approle_secret_check.resources[0].data | default({}) }}"
+      when: vault_approle_secret_check.resources | length > 0
       no_log: true
 
     - name: Decide whether vault-approle Secret needs seeding
@@ -94,7 +87,7 @@
         vault_approle_secret_needs_seed: >-
           {{
             vault_rotate_approle_secret | bool
-            or vault_approle_secret_check.rc != 0
+            or vault_approle_secret_check.resources | length == 0
             or (vault_approle_secret_data | default({})).get('role-id', '') | length == 0
             or (vault_approle_secret_data | default({})).get('secret-id', '') | length == 0
           }}
@@ -137,38 +130,23 @@
             vault_secret_id_value: "{{ vault_value_files.results[1].content | b64decode | trim }}"
           no_log: true
 
-        - name: Render vault-approle Secret
-          copy:
-            dest: /tmp/vault-approle.yaml
-            mode: '0600'
-            content: |
+        - name: Apply vault-approle Secret
+          kubernetes.core.k8s:
+            kubeconfig: "{{ bootstrap_kubeconfig }}"
+            state: present
+            definition:
               apiVersion: v1
               kind: Secret
               metadata:
                 name: vault-approle
                 namespace: external-secrets
-              stringData:
-                role-id: {{ vault_role_id_value }}
-                secret-id: {{ vault_secret_id_value }}
-          no_log: true
-
-        - name: Apply vault-approle Secret
-          command: kubectl apply -f /tmp/vault-approle.yaml
-          environment:
-            KUBECONFIG: "{{ bootstrap_kubeconfig }}"
-          register: vault_approle_secret_apply
-          changed_when: >-
-            ' created' in vault_approle_secret_apply.stdout
-            or ' configured' in vault_approle_secret_apply.stdout
+              type: Opaque
+              data:
+                role-id: "{{ vault_role_id_value | b64encode }}"
+                secret-id: "{{ vault_secret_id_value | b64encode }}"
           no_log: true
       when: vault_approle_secret_needs_seed
       always:
-        - name: Remove rendered Secret file
-          file:
-            path: /tmp/vault-approle.yaml
-            state: absent
-          no_log: true
-
         - name: Remove local temp directory for Vault values
           file:
             path: "{{ vault_temp_dir.stdout }}"

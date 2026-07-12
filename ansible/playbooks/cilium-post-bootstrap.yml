@@ -31,54 +31,86 @@
       # it here avoids re-enabling root app sync (which would fan-out all wave-40+
       # apps simultaneously) just to get the namespace. Grafana itself deploys into
       # this pre-existing namespace after root sync is re-enabled post-upgrade.
-      command: kubectl create namespace grafana --dry-run=client -o yaml
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      register: grafana_ns_manifest
-      changed_when: false
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: grafana
 
-    - name: Apply grafana namespace
-      command: kubectl apply -f -
-      args:
-        stdin: "{{ grafana_ns_manifest.stdout }}"
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-
-    - name: Nudge stale ExternalSecrets and wait for Cilium's platform prerequisites
+    - name: List ExternalSecrets before waiting for Cilium's platform prerequisites
       # SPIRE's PVC requires rook-ceph storage to be available. The rook-ceph
       # StorageClass appears before the Ceph cluster can bind a volume, so gate on
       # CephCluster Ready to avoid the helm wait expiring while spire-server is
       # Pending on its PVC. ESO occasionally leaves an ExternalSecret Ready=False
       # after a startup race even though the Secret was created correctly, so nudge
-      # those each retry to unblock resources gated on them.
-      shell: |
-        set -o pipefail
-        kubectl get externalsecret -A \
-          -o jsonpath='{range .items[*]}{.metadata.namespace}|{.metadata.name}|{.status.conditions[0].type}|{.status.conditions[0].status}{"\n"}{end}' \
-        | awk -F'|' '$3=="Ready" && $4=="False" {print $1, $2}' \
-        | while read -r ns name; do
-            [[ -n "$ns" && -n "$name" ]] || continue
-            kubectl -n "$ns" annotate externalsecret "$name" "force-sync=$(date +%s)" --overwrite >/dev/null
-          done
-        kubectl get storageclass rook-ceph-block >/dev/null 2>&1 || exit 1
-        [ "$(kubectl -n rook-ceph get cephcluster \
-              -o jsonpath='{.items[0].status.phase}' 2>/dev/null)" = "Ready" ] || exit 1
-      args:
-        executable: /bin/bash
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      register: platform_prereqs
+      # those to unblock resources gated on them.
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: external-secrets.io/v1
+        kind: ExternalSecret
+      register: external_secret_list
+
+    - name: Nudge stale ExternalSecrets
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: patched
+        api_version: external-secrets.io/v1
+        kind: ExternalSecret
+        namespace: "{{ item.metadata.namespace }}"
+        name: "{{ item.metadata.name }}"
+        merge_type: merge
+        definition:
+          metadata:
+            annotations:
+              force-sync: "{{ external_secret_force_sync }}"
+      vars:
+        external_secret_force_sync: "{{ lookup('pipe', 'date +%s') }}"
+      loop: "{{ external_secret_list.resources }}"
+      loop_control:
+        label: "{{ item.metadata.namespace }}/{{ item.metadata.name }}"
+      when: >-
+        item.status.conditions | default([])
+        | selectattr('type', 'equalto', 'Ready')
+        | selectattr('status', 'equalto', 'False')
+        | list
+        | length > 0
+
+    - name: Wait for rook-ceph block StorageClass
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: storage.k8s.io/v1
+        kind: StorageClass
+        name: rook-ceph-block
+      register: rook_ceph_block_storageclass
       retries: 60
       delay: 30
-      until: platform_prereqs.rc == 0
-      changed_when: false
+      until: rook_ceph_block_storageclass.resources | length > 0
+
+    - name: Wait for CephCluster to be ready
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: ceph.rook.io/v1
+        kind: CephCluster
+        namespace: rook-ceph
+        name: rook-ceph
+      register: ceph_cluster
+      retries: 60
+      delay: 30
+      until: >-
+        ceph_cluster.resources | length > 0
+        and (ceph_cluster.resources[0].status.phase | default('')) == 'Ready'
 
     - name: Capture Cilium config before post-bootstrap upgrade
-      command: kubectl -n kube-system get configmap cilium-config -o json
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: v1
+        kind: ConfigMap
+        namespace: kube-system
+        name: cilium-config
       register: cilium_config_before
-      changed_when: false
 
     - name: Helm upgrade Cilium with post-bootstrap features
       kubernetes.core.helm:
@@ -151,19 +183,38 @@
       register: cilium_post_bootstrap_helm
 
     - name: Capture Cilium config after post-bootstrap upgrade
-      command: kubectl -n kube-system get configmap cilium-config -o json
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: v1
+        kind: ConfigMap
+        namespace: kube-system
+        name: cilium-config
       register: cilium_config_after
-      changed_when: false
 
     - name: Restart Cilium agents to pick up cilium-config changes
-      command: kubectl -n kube-system rollout restart daemonset/cilium deployment/cilium-operator
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: patched
+        api_version: apps/v1
+        kind: "{{ item.kind }}"
+        namespace: kube-system
+        name: "{{ item.name }}"
+        definition:
+          spec:
+            template:
+              metadata:
+                annotations:
+                  kubectl.kubernetes.io/restartedAt: "{{ cilium_restart_timestamp }}"
+      vars:
+        cilium_restart_timestamp: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+      loop:
+        - kind: DaemonSet
+          name: cilium
+        - kind: Deployment
+          name: cilium-operator
       when: >
-        (cilium_config_before.stdout | from_json).data
-        != (cilium_config_after.stdout | from_json).data
+        (cilium_config_before.resources[0].data | default({}))
+        != (cilium_config_after.resources[0].data | default({}))
 
     - name: Wait for Cilium agent rollout
       command: kubectl -n kube-system rollout status daemonset/cilium --timeout=120s
@@ -228,11 +279,13 @@
     - name: Re-enable root app automated sync
       # Cilium, SPIRE, and Hubble are all healthy at this point. Re-enabling now
       # lets Argo CD fan-out waves 40+ without racing the helm upgrade.
-      command: kubectl apply -f {{ repo_root }}/gitops/cluster/root-app.yaml
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        apply: true
+        src: "{{ repo_root }}/gitops/cluster/root-app.yaml"
       vars:
         repo_root: "{{ playbook_dir }}/../.."
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Apply Hubble UI HTTPRoute
       kubernetes.core.k8s:
@@ -256,16 +309,17 @@
                     port: 80
 
     - name: Verify dashboard ConfigMaps are present
-      command: >
-        kubectl -n grafana get configmap -l grafana_dashboard=1
-        -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: v1
+        kind: ConfigMap
+        namespace: grafana
+        label_selectors:
+          - grafana_dashboard=1
       register: dash_list
-      changed_when: false
 
     - name: Show monitoring summary
       debug:
         msg:
           - "Grafana dashboard ConfigMaps:"
-          - "{{ dash_list.stdout_lines }}"
+          - "{{ dash_list.resources | map(attribute='metadata.name') | list }}"

@@ -11,15 +11,18 @@
       register: kubelet_conf
 
     - name: Check if node is registered in the cluster
-      command: kubectl get node {{ inventory_hostname }}
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        api_version: v1
+        kind: Node
+        name: "{{ inventory_hostname }}"
       register: cluster_node
-      changed_when: false
-      failed_when: false
-      delegate_to: "{{ groups['masters'][0] }}"
+      delegate_to: localhost
+      become: false
 
     - name: Set joined state
       set_fact:
-        node_already_joined: "{{ kubelet_conf.stat.exists and cluster_node.rc == 0 }}"
+        node_already_joined: "{{ kubelet_conf.stat.exists and (cluster_node.resources | length > 0) }}"
 
     - name: Check for partial control plane join artifacts
       stat:

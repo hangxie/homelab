@@ -11,9 +11,12 @@
     apps: "{{ repo_root }}/gitops/cluster/applications"
 
   tasks:
-    - name: Write root app manifest with sync disabled
-      copy:
-        content: |
+    - name: Apply root Application (sync disabled — bootstrap phase)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        state: present
+        apply: true
+        definition:
           apiVersion: argoproj.io/v1alpha1
           kind: Application
           metadata:
@@ -32,56 +35,50 @@
             destination:
               server: https://kubernetes.default.svc
               namespace: argocd
-        dest: /tmp/root-app-bootstrap.yaml
-
-    - name: Apply root Application (sync disabled — bootstrap phase)
-      command: kubectl apply -f /tmp/root-app-bootstrap.yaml
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
 
     - name: Apply wave 10 — cert-manager
-      command: kubectl apply -f {{ apps }}/cert-manager.yaml
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        state: present
+        apply: true
+        src: "{{ apps }}/cert-manager.yaml"
 
     - name: Wait for cert-manager — Synced and Healthy
-      shell: |
-        sync=$(kubectl -n argocd get app cert-manager \
-          -o jsonpath='{.status.sync.status}' 2>/dev/null)
-        health=$(kubectl -n argocd get app cert-manager \
-          -o jsonpath='{.status.health.status}' 2>/dev/null)
-        [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
-      args:
-        executable: /bin/bash
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        namespace: argocd
+        name: cert-manager
       register: _wait
-      until: _wait.rc == 0
+      until: >-
+        _wait.resources | length > 0
+        and (_wait.resources[0].status.sync.status | default('')) == 'Synced'
+        and (_wait.resources[0].status.health.status | default('')) == 'Healthy'
       retries: 40
       delay: 15
-      changed_when: false
 
     - name: Apply wave 11 — external-secrets
-      command: kubectl apply -f {{ apps }}/external-secrets.yaml
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        state: present
+        apply: true
+        src: "{{ apps }}/external-secrets.yaml"
 
     - name: Wait for external-secrets — Synced and Healthy
-      shell: |
-        sync=$(kubectl -n argocd get app external-secrets \
-          -o jsonpath='{.status.sync.status}' 2>/dev/null)
-        health=$(kubectl -n argocd get app external-secrets \
-          -o jsonpath='{.status.health.status}' 2>/dev/null)
-        [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
-      args:
-        executable: /bin/bash
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        namespace: argocd
+        name: external-secrets
       register: _wait
-      until: _wait.rc == 0
+      until: >-
+        _wait.resources | length > 0
+        and (_wait.resources[0].status.sync.status | default('')) == 'Synced'
+        and (_wait.resources[0].status.health.status | default('')) == 'Healthy'
       retries: 40
       delay: 15
-      changed_when: false
 
     - name: Wait for external-secrets webhook deployment to be fully ready
       command: kubectl -n external-secrets rollout status deployment/external-secrets-webhook --timeout=120s
@@ -94,113 +91,114 @@
       changed_when: false
 
     - name: Apply wave 12 — external-secrets-stores
-      command: kubectl apply -f {{ apps }}/external-secrets-stores.yaml
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        state: present
+        apply: true
+        src: "{{ apps }}/external-secrets-stores.yaml"
 
     - name: Wait for external-secrets-stores — Synced and Healthy
-      shell: |
-        sync=$(kubectl -n argocd get app external-secrets-stores \
-          -o jsonpath='{.status.sync.status}' 2>/dev/null)
-        health=$(kubectl -n argocd get app external-secrets-stores \
-          -o jsonpath='{.status.health.status}' 2>/dev/null)
-        [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
-      args:
-        executable: /bin/bash
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        namespace: argocd
+        name: external-secrets-stores
       register: _wait
-      until: _wait.rc == 0
+      until: >-
+        _wait.resources | length > 0
+        and (_wait.resources[0].status.sync.status | default('')) == 'Synced'
+        and (_wait.resources[0].status.health.status | default('')) == 'Healthy'
       retries: 20
       delay: 15
-      changed_when: false
 
     - name: Apply wave 13 — cert-manager-config
-      command: kubectl apply -f {{ apps }}/cert-manager-config.yaml
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        state: present
+        apply: true
+        src: "{{ apps }}/cert-manager-config.yaml"
 
     - name: Wait for cert-manager-config — Synced and Healthy
-      shell: |
-        sync=$(kubectl -n argocd get app cert-manager-config \
-          -o jsonpath='{.status.sync.status}' 2>/dev/null)
-        health=$(kubectl -n argocd get app cert-manager-config \
-          -o jsonpath='{.status.health.status}' 2>/dev/null)
-        [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
-      args:
-        executable: /bin/bash
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        namespace: argocd
+        name: cert-manager-config
       register: _wait
-      until: _wait.rc == 0
+      until: >-
+        _wait.resources | length > 0
+        and (_wait.resources[0].status.sync.status | default('')) == 'Synced'
+        and (_wait.resources[0].status.health.status | default('')) == 'Healthy'
       retries: 20
       delay: 15
-      changed_when: false
 
     - name: Apply wave 30 — rook-ceph
-      command: kubectl apply -f {{ apps }}/rook-ceph.yaml
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        state: present
+        apply: true
+        src: "{{ apps }}/rook-ceph.yaml"
 
     - name: Wait for rook-ceph — Synced and Healthy
-      shell: |
-        sync=$(kubectl -n argocd get app rook-ceph \
-          -o jsonpath='{.status.sync.status}' 2>/dev/null)
-        health=$(kubectl -n argocd get app rook-ceph \
-          -o jsonpath='{.status.health.status}' 2>/dev/null)
-        [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
-      args:
-        executable: /bin/bash
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        namespace: argocd
+        name: rook-ceph
       register: _wait
-      until: _wait.rc == 0
+      until: >-
+        _wait.resources | length > 0
+        and (_wait.resources[0].status.sync.status | default('')) == 'Synced'
+        and (_wait.resources[0].status.health.status | default('')) == 'Healthy'
       retries: 40
       delay: 15
-      changed_when: false
 
     - name: Apply wave 31 — ceph-csi-drivers
-      command: kubectl apply -f {{ apps }}/ceph-csi-drivers.yaml
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        state: present
+        apply: true
+        src: "{{ apps }}/ceph-csi-drivers.yaml"
 
     - name: Wait for ceph-csi-drivers — Synced and Healthy
-      shell: |
-        sync=$(kubectl -n argocd get app ceph-csi-drivers \
-          -o jsonpath='{.status.sync.status}' 2>/dev/null)
-        health=$(kubectl -n argocd get app ceph-csi-drivers \
-          -o jsonpath='{.status.health.status}' 2>/dev/null)
-        [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ]
-      args:
-        executable: /bin/bash
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        namespace: argocd
+        name: ceph-csi-drivers
       register: _wait
-      until: _wait.rc == 0
+      until: >-
+        _wait.resources | length > 0
+        and (_wait.resources[0].status.sync.status | default('')) == 'Synced'
+        and (_wait.resources[0].status.health.status | default('')) == 'Healthy'
       retries: 20
       delay: 15
-      changed_when: false
 
     - name: Apply wave 32 — rook-ceph-cluster
-      command: kubectl apply -f {{ apps }}/rook-ceph-cluster.yaml
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        state: present
+        apply: true
+        src: "{{ apps }}/rook-ceph-cluster.yaml"
 
     - name: Wait for rook-ceph-cluster — Synced
       # CephCluster readiness is gated separately in cilium-post-bootstrap.
-      shell: |
-        sync=$(kubectl -n argocd get app rook-ceph-cluster \
-          -o jsonpath='{.status.sync.status}' 2>/dev/null)
-        [ "$sync" = "Synced" ]
-      args:
-        executable: /bin/bash
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        namespace: argocd
+        name: rook-ceph-cluster
       register: _wait
-      until: _wait.rc == 0
+      until: >-
+        _wait.resources | length > 0
+        and (_wait.resources[0].status.sync.status | default('')) == 'Synced'
       retries: 20
       delay: 15
-      changed_when: false
 
     - name: Essential platform waves applied
       debug:

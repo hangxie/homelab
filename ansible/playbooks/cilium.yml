@@ -24,53 +24,73 @@
         - "'ok' in apiserver_ready.stdout"
 
     - name: Check if Gateway API CRDs are installed
-      command: kubectl get crd gateways.gateway.networking.k8s.io
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: apiextensions.k8s.io/v1
+        kind: CustomResourceDefinition
+        name: gateways.gateway.networking.k8s.io
       register: gateway_crd_check
-      failed_when: false
-      changed_when: false
 
     - name: Install Gateway API CRDs (standard channel)
-      command: >
-        kubectl apply -f
-        https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ gateway_api_version }}/standard-install.yaml
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      when: gateway_crd_check.rc != 0
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        apply: true
+        src: "https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ gateway_api_version }}/standard-install.yaml"
+      when: gateway_crd_check.resources | length == 0
 
     - name: Wait for Gateway API CRDs to be established
-      command: kubectl wait --for=condition=Established crd/{{ item }} --timeout=120s
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: apiextensions.k8s.io/v1
+        kind: CustomResourceDefinition
+        name: "{{ item }}"
+        wait: true
+        wait_condition:
+          type: Established
+          status: "True"
+        wait_timeout: 120
       loop:
         - gateways.gateway.networking.k8s.io
         - httproutes.gateway.networking.k8s.io
         - gatewayclasses.gateway.networking.k8s.io
         - referencegrants.gateway.networking.k8s.io
         - tlsroutes.gateway.networking.k8s.io
-      changed_when: false
 
     # Cilium 1.19.x looks up TLSRoute at v1alpha2. Gateway API >= v1.3 promotes
     # TLSRoute to v1 and stops serving v1alpha2, which crashes the operator.
     # This patch re-enables v1alpha2 serving idempotently.
+    - name: Read TLSRoute CRD versions
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: apiextensions.k8s.io/v1
+        kind: CustomResourceDefinition
+        name: tlsroutes.gateway.networking.k8s.io
+      register: tlsroute_crd
+
+    - name: Locate TLSRoute v1alpha2 CRD version
+      set_fact:
+        tlsroute_v1alpha2_index: "{{ ansible_loop.index0 }}"
+        tlsroute_v1alpha2_served: "{{ item.served | default(false) | bool }}"
+      loop: "{{ tlsroute_crd.resources[0].spec.versions }}"
+      loop_control:
+        extended: true
+        label: "{{ item.name }}"
+      when: item.name == "v1alpha2"
+
     - name: Ensure TLSRoute v1alpha2 is served for Cilium operator compatibility
-      shell: |
-        idx=$(kubectl get crd tlsroutes.gateway.networking.k8s.io \
-          -o jsonpath='{range .spec.versions[*]}{.name}={.served}{"\n"}{end}' \
-          | grep -n 'v1alpha2=false' | cut -d: -f1)
-        if [ -n "$idx" ]; then
-          idx=$((idx - 1))
-          kubectl patch crd tlsroutes.gateway.networking.k8s.io --type=json \
-            -p="[{\"op\":\"replace\",\"path\":\"/spec/versions/${idx}/served\",\"value\":true}]"
-          echo "patched"
-        else
-          echo "already served"
-        fi
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      register: tlsroute_patch
-      changed_when: "'patched' in tlsroute_patch.stdout"
+      kubernetes.core.k8s_json_patch:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: apiextensions.k8s.io/v1
+        kind: CustomResourceDefinition
+        name: tlsroutes.gateway.networking.k8s.io
+        patch:
+          - op: replace
+            path: "/spec/versions/{{ tlsroute_v1alpha2_index }}/served"
+            value: true
+      when:
+        - tlsroute_v1alpha2_index is defined
+        - not (tlsroute_v1alpha2_served | bool)
 
     - name: Ensure Cilium helm repo is present
       kubernetes.core.helm_repository:
@@ -112,47 +132,76 @@
       when: "'cilium' not in (cilium_release_check.stdout_lines | default([]))"
 
     - name: Wait for Cilium agent pods to be ready
-      command: >
-        kubectl wait --for=condition=Ready pods -l k8s-app=cilium
-        -n kube-system --timeout=300s
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: v1
+        kind: Pod
+        namespace: kube-system
+        label_selectors:
+          - k8s-app=cilium
+        wait: true
+        wait_condition:
+          type: Ready
+          status: "True"
+        wait_timeout: 300
       retries: 3
       delay: 30
       register: cilium_ready
-      changed_when: false
-      until: cilium_ready.rc == 0
+      until: cilium_ready.resources | length > 0
 
     - name: Wait for Cilium operator to be ready
-      command: >
-        kubectl wait --for=condition=Ready pods -l io.cilium/app=operator
-        -n kube-system --timeout=300s
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      changed_when: false
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: v1
+        kind: Pod
+        namespace: kube-system
+        label_selectors:
+          - io.cilium/app=operator
+        wait: true
+        wait_condition:
+          type: Ready
+          status: "True"
+        wait_timeout: 300
 
     - name: Verify Cilium GatewayClass is accepted
-      command: kubectl wait --for=condition=Accepted gatewayclass/cilium --timeout=120s
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: gateway.networking.k8s.io/v1
+        kind: GatewayClass
+        name: cilium
+        wait: true
+        wait_condition:
+          type: Accepted
+          status: "True"
+        wait_timeout: 120
       retries: 5
       delay: 10
       register: gwc_ready
-      changed_when: false
-      until: gwc_ready.rc == 0
+      until: gwc_ready.resources | length > 0
 
-    - name: Display Cilium status summary
-      shell: |
-        kubectl -n kube-system get pods -l k8s-app=cilium -o wide
-        echo "---"
-        kubectl -n kube-system get pods -l io.cilium/app=operator -o wide
-        echo "---"
-        kubectl get gatewayclass cilium
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      register: cilium_status
-      changed_when: false
+    - name: Capture Cilium agent pod status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: v1
+        kind: Pod
+        namespace: kube-system
+        label_selectors:
+          - k8s-app=cilium
+      register: cilium_agent_pods
+
+    - name: Capture Cilium operator pod status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: v1
+        kind: Pod
+        namespace: kube-system
+        label_selectors:
+          - io.cilium/app=operator
+      register: cilium_operator_pods
 
     - name: Show Cilium status
       debug:
-        msg: "{{ cilium_status.stdout_lines }}"
+        msg:
+          - "Cilium agent pods: {{ cilium_agent_pods.resources | map(attribute='metadata.name') | list }}"
+          - "Cilium operator pods: {{ cilium_operator_pods.resources | map(attribute='metadata.name') | list }}"
+          - "GatewayClass cilium accepted"
