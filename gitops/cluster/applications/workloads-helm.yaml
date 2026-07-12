@@ -56,6 +56,36 @@ spec:
       destination:
         server: https://kubernetes.default.svc
         namespace: '{{ .path.basename }}'
+      # z2jh (jupyter) renders hub proxy-auth/cookie/cryptkeeper values
+      # non-deterministically on every Argo manifest generation (randAlphaNum,
+      # no cluster lookup at template time). The live secret is pinned from
+      # Vault via the jupyterhub-proxy-auth ExternalSecret (creationPolicy:
+      # Merge), so those keys — and the deployment pod-template checksums the
+      # chart derives from them — never match the render. Ignore that render
+      # noise so wl-jupyter stays Synced. Scoped by name/namespace, so these
+      # entries are no-ops for every other generated workload.
+      ignoreDifferences:
+        - group: ""
+          kind: Secret
+          name: hub
+          namespace: jupyter
+          jsonPointers:
+            - /data/hub.config.ConfigurableHTTPProxy.auth_token
+            - /data/hub.config.CryptKeeper.keys
+            - /data/hub.config.JupyterHub.cookie_secret
+        - group: apps
+          kind: Deployment
+          name: hub
+          namespace: jupyter
+          jsonPointers:
+            - /spec/template/metadata/annotations/checksum~1secret
+        - group: apps
+          kind: Deployment
+          name: proxy
+          namespace: jupyter
+          jsonPointers:
+            - /spec/template/metadata/annotations/checksum~1auth-token
+            - /spec/template/metadata/annotations/checksum~1proxy-secret
       syncPolicy:
         automated:
           prune: true
