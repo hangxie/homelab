@@ -48,37 +48,63 @@
       when: "'argocd' not in (argocd_release_check.stdout_lines | default([]))"
 
     - name: Check Argo CD server-side diff bootstrap setting
-      command: kubectl -n argocd get configmap argocd-cmd-params-cm -o jsonpath='{.data.controller\.diff\.server\.side}'
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
-      register: argocd_server_side_diff
-      changed_when: false
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        api_version: v1
+        kind: ConfigMap
+        namespace: argocd
+        name: argocd-cmd-params-cm
+      register: argocd_cmd_params_cm
+
+    - name: Store Argo CD server-side diff bootstrap setting
+      set_fact:
+        argocd_server_side_diff_enabled: >-
+          {{
+            (argocd_cmd_params_cm.resources[0].data | default({})).get('controller.diff.server.side', '') == 'true'
+          }}
 
     - name: Enable Argo CD server-side diff for bootstrap controller
-      command: >
-        kubectl -n argocd patch configmap argocd-cmd-params-cm
-        --type merge
-        -p '{"data":{"controller.diff.server.side":"true"}}'
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
-      when: argocd_server_side_diff.stdout != "true"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        state: patched
+        api_version: v1
+        kind: ConfigMap
+        namespace: argocd
+        name: argocd-cmd-params-cm
+        merge_type: merge
+        definition:
+          data:
+            controller.diff.server.side: "true"
+      when: not argocd_server_side_diff_enabled
 
     - name: Restart Argo CD application controller after diff setting change
-      command: kubectl -n argocd rollout restart statefulset/argocd-application-controller
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
-      when: argocd_server_side_diff.stdout != "true"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        state: patched
+        api_version: apps/v1
+        kind: StatefulSet
+        namespace: argocd
+        name: argocd-application-controller
+        definition:
+          spec:
+            template:
+              metadata:
+                annotations:
+                  kubectl.kubernetes.io/restartedAt: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+      when: not argocd_server_side_diff_enabled
 
     - name: Wait for Argo CD application controller after diff setting change
       command: kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
       environment:
         KUBECONFIG: "{{ bootstrap_kubeconfig }}"
-      when: argocd_server_side_diff.stdout != "true"
+      when: not argocd_server_side_diff_enabled
 
     - name: Apply AppProjects
-      command: kubectl apply -f {{ playbook_dir }}/../files/argocd-appprojects.yaml
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        state: present
+        apply: true
+        src: "{{ playbook_dir }}/../files/argocd-appprojects.yaml"
 
     - name: Wait for argocd Deployments
       command: kubectl -n argocd rollout status deployment/{{ item }} --timeout=300s
