@@ -22,25 +22,68 @@ Argo CD  → everything else, including its own chart/config
 
 ### Argo CD shape
 
-```
-root Application
-└── gitops/cluster/applications/      (App-of-Apps; explicit sync waves)
-    ├── argocd                        (no wave; self-manages)
-    ├── 100s secrets/PKI: cert-manager (100) → external-secrets (110)
-    │                     → external-secrets-stores (120) → cert-manager-config (130)
-    ├── 200s storage: rook-ceph (200) → ceph-csi-drivers (210) → rook-ceph-cluster (220)
-    ├── 300s cluster services: metrics-server (300), descheduler (310)
-    ├── 400s observability: grafana / kube-state-metrics / mimir (400),
-    │                       loki / tempo / alloy (410)
-    ├── 500s operators: stackable commons/secret/listener (500/510/520),
-    │                   nfd (530) → nvidia-device-plugin (540), kuberay (550),
-    │                   redis (560), mysql (570), scylla (580)
-    ├── 600s platform services: gateway-routes (600),
-    │                           postgres-cnpg (610) → postgres-cluster (620)
-    ├── llama-cpp-shared (700) → llama-cpp-models (710; ApplicationSet)
-    └── workloads-helm / workloads-raw (710; ApplicationSets)
-        ├── gitops/workloads/helm/*  (config.json + values.yaml + extras/)
-        └── gitops/workloads/raw/*   (manifests/)
+The root Application (App-of-Apps over `gitops/cluster/applications/`) manages
+every node below; arrows show sync-wave order — a wave starts only after all
+earlier waves are healthy. Apps sharing a wave sync concurrently.
+
+```mermaid
+flowchart TD
+    root["root Application"]
+    argocd["argocd (no wave; self-manages)"]
+    root --> argocd
+    root --> secrets
+
+    subgraph secrets["100s — secrets/PKI"]
+        cert-manager["cert-manager (100)"] --> external-secrets["external-secrets (110)"]
+        external-secrets --> stores["external-secrets-stores (120)"]
+        stores --> cm-config["cert-manager-config (130)"]
+    end
+
+    subgraph storage["200s — storage"]
+        rook-ceph["rook-ceph (200)"] --> csi["ceph-csi-drivers (210)"]
+        csi --> ceph-cluster["rook-ceph-cluster (220)"]
+    end
+
+    subgraph cluster-svcs["300s — cluster services"]
+        metrics-server["metrics-server (300)"] --> descheduler["descheduler (310)"]
+    end
+
+    subgraph observability["400s — observability"]
+        metrics["grafana / kube-state-metrics / mimir (400)"] --> telemetry["alloy / loki / tempo (410)"]
+    end
+
+    subgraph operators["500s — operators"]
+        stackable["stackable commons/secret/listener (500/510/520)"] --> nfd["nfd (530)"]
+        nfd --> nvidia["nvidia-device-plugin (540)"]
+        nvidia --> kuberay["kuberay-operator (550)"]
+        kuberay --> redis-op["redis-operator (560)"]
+        redis-op --> mysql-op["mysql-operator (570)"]
+        mysql-op --> scylla-op["scylla-operator (580)"]
+    end
+
+    subgraph platform-svcs["600s — platform services"]
+        gateway-routes["gateway-routes (600)"] --> cnpg["postgres-cnpg (610)"]
+        cnpg --> pg-cluster["postgres-cluster (620)"]
+    end
+
+    subgraph workloads["700s — workloads"]
+        llama-shared["llama-cpp-shared (700)"]
+        wl-helm["workloads-helm (710; ApplicationSet)"]
+        wl-raw["workloads-raw (710; ApplicationSet)"]
+        llama-models["llama-cpp-models (710; ApplicationSet)"]
+        litellm["llama-cpp-litellm (720)"]
+        llama-shared --> wl-helm
+        llama-shared --> wl-raw
+        llama-shared --> llama-models
+        wl-helm --> litellm
+        wl-raw --> litellm
+        llama-models --> litellm
+    end
+
+    secrets --> storage --> cluster-svcs --> observability --> operators --> platform-svcs --> workloads
+
+    wl-helm --> helm-apps["gitops/workloads/helm/*<br>(config.json + values.yaml + extras/)"]
+    wl-raw --> raw-apps["gitops/workloads/raw/*<br>(manifests/)"]
 ```
 
 ApplicationSet-generated workloads sync concurrently within wave 710. Enabled
