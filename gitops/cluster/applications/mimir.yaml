@@ -4,7 +4,7 @@ metadata:
   name: mimir
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "50"
+    argocd.argoproj.io/sync-wave: "400"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

@@ -4,7 +4,7 @@ metadata:
   name: ceph-csi-drivers
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "31"
+    argocd.argoproj.io/sync-wave: "210"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

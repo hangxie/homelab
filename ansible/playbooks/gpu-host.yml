@@ -1,7 +1,7 @@
 ---
 # OS-level NVIDIA host stack: driver, container toolkit, containerd runtime,
 # the gpu=true:NoSchedule node taint. NFD and the NVIDIA device plugin are
-# delegated to GitOps (waves 88 and 92).
+# delegated to GitOps (waves 530 and 540).
 
 - name: Detect GPU worker nodes
   hosts: workers
