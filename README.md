@@ -23,8 +23,11 @@ Argo CD  → everything else, including its own chart/config
 ### Argo CD shape
 
 The root Application (App-of-Apps over `gitops/cluster/applications/`) manages
-every node below; arrows show sync-wave order — a wave starts only after all
-earlier waves are healthy. Apps sharing a wave sync concurrently.
+every node below; arrows show sync-wave order — the root app applies each
+wave's child Applications before the next wave's. Waves stagger rollout but do
+not gate on child workload health: no `argoproj.io/Application` health
+customization is configured, so each child app syncs and retries on its own
+schedule once created. Apps sharing a wave are applied concurrently.
 
 ```mermaid
 flowchart TD
