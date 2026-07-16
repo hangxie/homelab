@@ -36,7 +36,7 @@
               server: https://kubernetes.default.svc
               namespace: argocd
 
-    - name: Apply wave 10 — cert-manager
+    - name: Apply wave 100 — cert-manager
       kubernetes.core.k8s:
         kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: present
@@ -58,7 +58,7 @@
       retries: 40
       delay: 15
 
-    - name: Apply wave 11 — external-secrets
+    - name: Apply wave 110 — external-secrets
       kubernetes.core.k8s:
         kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: present
@@ -90,7 +90,7 @@
       delay: 15
       changed_when: false
 
-    - name: Apply wave 12 — external-secrets-stores
+    - name: Apply wave 120 — external-secrets-stores
       kubernetes.core.k8s:
         kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: present
@@ -112,7 +112,7 @@
       retries: 20
       delay: 15
 
-    - name: Apply wave 13 — cert-manager-config
+    - name: Apply wave 130 — cert-manager-config
       kubernetes.core.k8s:
         kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: present
@@ -134,7 +134,7 @@
       retries: 20
       delay: 15
 
-    - name: Apply wave 30 — rook-ceph
+    - name: Apply wave 200 — rook-ceph
       kubernetes.core.k8s:
         kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: present
@@ -156,7 +156,7 @@
       retries: 40
       delay: 15
 
-    - name: Apply wave 31 — ceph-csi-drivers
+    - name: Apply wave 210 — ceph-csi-drivers
       kubernetes.core.k8s:
         kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: present
@@ -178,7 +178,7 @@
       retries: 20
       delay: 15
 
-    - name: Apply wave 32 — rook-ceph-cluster
+    - name: Apply wave 220 — rook-ceph-cluster
       kubernetes.core.k8s:
         kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: present

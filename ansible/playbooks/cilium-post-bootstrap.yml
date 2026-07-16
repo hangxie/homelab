@@ -2,7 +2,7 @@
 # Post-bootstrap Cilium configuration. Upgrades Cilium with SPIRE, Hubble, and
 # dashboards, then re-enables root app automated sync (disabled during bootstrap
 # to avoid etcd fan-out). Grafana namespace is pre-created here so the Cilium
-# helm upgrade can place dashboard ConfigMaps without triggering a full wave-40+
+# helm upgrade can place dashboard ConfigMaps without triggering a full wave-300+
 # reconciliation burst before the upgrade completes.
 
 - name: Enable Cilium post-bootstrap features and observability
@@ -28,7 +28,7 @@
 
     - name: Pre-create grafana namespace for Cilium dashboard ConfigMaps
       # Cilium helm places dashboard ConfigMaps in the grafana namespace. Creating
-      # it here avoids re-enabling root app sync (which would fan-out all wave-40+
+      # it here avoids re-enabling root app sync (which would fan-out all wave-300+
       # apps simultaneously) just to get the namespace. Grafana itself deploys into
       # this pre-existing namespace after root sync is re-enabled post-upgrade.
       kubernetes.core.k8s:
@@ -278,7 +278,7 @@
 
     - name: Re-enable root app automated sync
       # Cilium, SPIRE, and Hubble are all healthy at this point. Re-enabling now
-      # lets Argo CD fan-out waves 40+ without racing the helm upgrade.
+      # lets Argo CD fan-out waves 300+ without racing the helm upgrade.
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present

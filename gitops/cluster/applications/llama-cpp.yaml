@@ -1,12 +1,12 @@
 # Shared namespace infrastructure for all llama.cpp model instances.
-# Deploys in wave 150 so the PVC and secrets exist before model pods start.
+# Deploys in wave 700 so the PVC and secrets exist before model pods start.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: llama-cpp-shared
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "150"
+    argocd.argoproj.io/sync-wave: "700"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -33,7 +33,7 @@ spec:
         maxDuration: 5m
 ---
 # LiteLLM proxy — unified OpenAI-compatible endpoint across all llama.cpp models.
-# Deploys in wave 170 so the per-model Services exist before LiteLLM starts.
+# Deploys in wave 720 so the per-model Services exist before LiteLLM starts.
 # When adding or removing a model from llama-cpp-models, also update the
 # model_list in gitops/workloads/raw/llama-cpp/litellm/litellm.yaml.
 apiVersion: argoproj.io/v1alpha1
@@ -42,7 +42,7 @@ metadata:
   name: llama-cpp-litellm
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "170"
+    argocd.argoproj.io/sync-wave: "720"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -77,7 +77,7 @@ metadata:
   name: llama-cpp-models
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "160"
+    argocd.argoproj.io/sync-wave: "710"
 spec:
   goTemplate: true
   generators:

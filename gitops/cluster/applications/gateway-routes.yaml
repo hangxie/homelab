@@ -4,7 +4,7 @@ metadata:
   name: gateway-routes
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "130"
+    argocd.argoproj.io/sync-wave: "600"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

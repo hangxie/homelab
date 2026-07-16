@@ -26,27 +26,24 @@ Argo CD  → everything else, including its own chart/config
 root Application
 └── gitops/cluster/applications/      (App-of-Apps; explicit sync waves)
     ├── argocd                        (no wave; self-manages)
-    ├── cert-manager (10) → cert-manager-config (11)
-    ├── external-secrets (20) → external-secrets-stores (21)
-    ├── rook-ceph (30) → ceph-csi-drivers (31) → rook-ceph-cluster (32)
-    ├── metrics-server (40)
-    ├── grafana / kube-state-metrics / mimir (50)
-    ├── loki / tempo / alloy (60)
-    ├── stackable commons/secret/listener operators (70/71/72)
-    ├── nfd (80) → nvidia-device-plugin (81)
-    ├── kuberay-operator (90)
-    ├── redis-operator (100)
-    ├── mysql-operator (110)
-    ├── scylla-operator (120)
-    ├── gateway-routes (130)
-    ├── postgres-cnpg (140) → postgres-cluster (141)
-    ├── llama-cpp-shared (150) → llama-cpp-models (160; ApplicationSet)
-    └── workloads-helm / workloads-raw (160; ApplicationSets)
+    ├── 100s secrets/PKI: cert-manager (100) → external-secrets (110)
+    │                     → external-secrets-stores (120) → cert-manager-config (130)
+    ├── 200s storage: rook-ceph (200) → ceph-csi-drivers (210) → rook-ceph-cluster (220)
+    ├── 300s cluster services: metrics-server (300), descheduler (310)
+    ├── 400s observability: grafana / kube-state-metrics / mimir (400),
+    │                       loki / tempo / alloy (410)
+    ├── 500s operators: stackable commons/secret/listener (500/510/520),
+    │                   nfd (530) → nvidia-device-plugin (540), kuberay (550),
+    │                   redis (560), mysql (570), scylla (580)
+    ├── 600s platform services: gateway-routes (600),
+    │                           postgres-cnpg (610) → postgres-cluster (620)
+    ├── llama-cpp-shared (700) → llama-cpp-models (710; ApplicationSet)
+    └── workloads-helm / workloads-raw (710; ApplicationSets)
         ├── gitops/workloads/helm/*  (config.json + values.yaml + extras/)
         └── gitops/workloads/raw/*   (manifests/)
 ```
 
-ApplicationSet-generated workloads sync concurrently within wave 160. Enabled
+ApplicationSet-generated workloads sync concurrently within wave 710. Enabled
 workloads come from explicit `elements` lists in `workloads-helm.yaml` and
 `workloads-raw.yaml`; commenting out a line disables and prunes that workload.
 

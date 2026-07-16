@@ -17,7 +17,7 @@ spec:
     port: 80
     instances: 2
 ---
-# RGW user consumed by Loki at wave 60. Rook auto-produces a Secret named
+# RGW user consumed by Loki at wave 410. Rook auto-produces a Secret named
 # rook-ceph-object-user-object-store-loki in the rook-ceph namespace; Loki's
 # ExternalSecret-driven copy lifts AccessKey/SecretKey out of it.
 apiVersion: ceph.rook.io/v1
