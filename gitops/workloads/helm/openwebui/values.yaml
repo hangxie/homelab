@@ -6,15 +6,22 @@ replicaCount: 2
 fullnameOverride: open-webui
 
 # v14 defaults these subcharts to enabled. Inference uses external llama-cpp
-# and ray-vllm-serve; websockets are unused. No Ollama server exists in the
-# stack, so the in-app Ollama integration is disabled via ENABLE_OLLAMA_API
-# below — llama-cpp speaks the OpenAI-compatible API at /v1, not Ollama's.
+# and ray-vllm-serve. No Ollama server exists in the stack, so the in-app
+# Ollama integration is disabled via ENABLE_OLLAMA_API below — llama-cpp
+# speaks the OpenAI-compatible API at /v1, not Ollama's.
 ollama:
   enabled: false
 pipelines:
   enabled: false
+
+# With 2 replicas, socket.io must not use long-polling: the polling session id
+# lives in one pod's memory and the Service round-robins each poll, so polls
+# hitting the other pod 400 and the client reconnect-loops (~1/s). Enabling
+# websocket support makes the frontend use websocket-only transport (one TCP
+# stream pinned to one pod) and runs the chart's Redis as WEBSOCKET_MANAGER so
+# events emitted by one replica reach clients connected to the other.
 websocket:
-  enabled: false
+  enabled: true
 
 # SQLite replaced by Postgres; uploads stored in S3 (openwebui-data OBC).
 # Existing PVC is left intact (Prune=false) and can be removed manually.
@@ -71,6 +78,9 @@ affinity:
       - labelSelector:
           matchLabels:
             app.kubernetes.io/name: open-webui
+            # The websocket Redis pod shares the `name` label; scope to the
+            # app component so Redis doesn't block a node for the replicas.
+            app.kubernetes.io/component: open-webui
         topologyKey: kubernetes.io/hostname
 
 service:
