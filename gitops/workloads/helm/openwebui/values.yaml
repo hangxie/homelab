@@ -33,6 +33,14 @@ extraEnvVars:
   # subsequent signup lands in `pending` and needs admin approval.
   - name: DEFAULT_USER_ROLE
     value: pending
+  # Pin the session-JWT signing key. Unset, each replica generates its own key
+  # at startup: tokens signed by one pod 401 on the other behind the Service,
+  # and every restart invalidates all sessions (no PVC to persist the key file).
+  - name: WEBUI_SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: openwebui-secret-key
+        key: secret-key
   - name: DATABASE_URL
     valueFrom:
       secretKeyRef:
