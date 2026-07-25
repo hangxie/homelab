@@ -33,3 +33,18 @@ spec:
       secret:
         name: clickhouse-credentials
         key: password
+    # The operator defaults to trace logging with 50 x 1 GiB files, which
+    # makes an idle server continuously merge its own diagnostic tables.
+    # Kubernetes already captures console logs and Alloy scrapes /metrics.
+    logger:
+      level: information
+      logToFile: false
+      size: 100M
+      count: 3
+    extraConfig:
+      text_log:
+        "@remove": remove
+      metric_log:
+        "@remove": remove
+      asynchronous_metric_log:
+        "@remove": remove
