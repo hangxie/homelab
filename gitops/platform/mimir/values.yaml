@@ -79,7 +79,7 @@ compactor:
         name: mimir-blocks
   persistentVolume:
     storageClass: rook-ceph-block
-    size: 10Gi
+    size: 30Gi
 
 distributor:
   replicas: 2
