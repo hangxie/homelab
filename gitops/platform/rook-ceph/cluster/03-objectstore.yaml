@@ -4,6 +4,9 @@ metadata:
   name: object-store
   namespace: rook-ceph
 spec:
+  # Keep unscoped RGW administration on this Rook-managed realm instead of
+  # allowing Ceph to fall back to a separate realm-less default topology.
+  defaultRealm: true
   metadataPool:
     failureDomain: host
     replicated: { size: 3 }
