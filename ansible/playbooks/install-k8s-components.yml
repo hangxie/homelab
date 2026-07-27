@@ -122,6 +122,8 @@
         - { name: 'fs.inotify.max_user_instances', value: '8192' }
         - { name: 'fs.inotify.max_user_watches', value: '524288' }
         - { name: 'fs.file-max', value: '1000000' }
+        # Ceph BlueStore activation needs AIO headroom alongside mounted RBD clients.
+        - { name: 'fs.aio-max-nr', value: '1048576' }
 
     # Install containerd
     - name: Install containerd
