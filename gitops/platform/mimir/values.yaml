@@ -128,7 +128,9 @@ minio:
   enabled: false
 
 kafka:
-  replicas: 2
+  replicas: 3
+  securityContext:
+    fsGroupChangePolicy: OnRootMismatch
   persistence:
     size: 80Gi
   affinity:
