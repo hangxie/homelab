@@ -132,7 +132,7 @@ kafka:
   securityContext:
     fsGroupChangePolicy: OnRootMismatch
   persistence:
-    size: 80Gi
+    size: 30Gi
   affinity:
     podAntiAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:
@@ -141,8 +141,9 @@ kafka:
               app.kubernetes.io/component: kafka
           topologyKey: kubernetes.io/hostname
   extraEnv:
-    # Size-based cap per partition so the topic can't fill the PVC even if the
-    # chart's hardcoded 24h time-based retention lags behind the ingest rate.
+    # Bound each active partition when the chart's hardcoded 24h time-based
+    # retention lags behind ingestion. Total usage also scales with the number
+    # of active Mimir partitions and Kafka replicas.
     - name: KAFKA_LOG_RETENTION_BYTES
       value: "8589934592" # 8Gi
     - name: KAFKA_DEFAULT_REPLICATION_FACTOR
