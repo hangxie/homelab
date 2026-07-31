@@ -16,6 +16,16 @@ spec:
       # op_r/w_latency, op_r/w throughput), which several rook-ceph Grafana
       # dashboard panels (OSD PGs/Storage/latency, Cluster read/write/op) need.
       mgr/prometheus/exclude_perf_counters: "false"
+  # Without a cgroup limit, Ceph derives osd_memory_target from nearly all
+  # node memory. A 5 GiB limit yields the intended 4 GiB BlueStore target and
+  # leaves headroom for allocator overhead while requests reserve that memory.
+  resources:
+    osd:
+      requests:
+        cpu: 500m
+        memory: 5Gi
+      limits:
+        memory: 5Gi
   dataDirHostPath: /var/lib/rook
   mon:
     count: 3
