@@ -20,6 +20,18 @@ spec:
           image: dbeaver/cloudbeaver:24.3.0
           ports:
             - containerPort: 8978
+          env:
+            # Preconfigures the admin account on first (empty-workspace)
+            # startup so no manual first-login setup is needed. Ignored once
+            # the workspace DB is initialized. Admin username must not be
+            # "admin" — see scripts/vault-secrets.template.yaml (dbeaver/admin).
+            - { name: CB_SERVER_NAME, value: Home Lab }
+            - name: CB_ADMIN_NAME
+              valueFrom:
+                secretKeyRef: { name: cloudbeaver-admin, key: username }
+            - name: CB_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: cloudbeaver-admin, key: password }
           volumeMounts:
             - { name: data, mountPath: /opt/cloudbeaver/workspace }
       volumes:
