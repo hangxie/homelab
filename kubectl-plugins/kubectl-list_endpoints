@@ -69,9 +69,7 @@ while IFS=$'\t' read -r ns name hostname; do
             print_secret_user_pass_row "$url" clickhouse clickhouse-credentials username password default
             ;;
         dbeaver/cloudbeaver|dbeaver/dbeaver)
-            # CloudBeaver keeps an internal admin in its workspace PVC; this
-            # internal-only tool intentionally stays on the first-login flow.
-            print_row "$url" "-" "(admin created during first login)"
+            print_secret_user_pass_row "$url" dbeaver cloudbeaver-admin username password cbadmin
             ;;
         headlamp/headlamp)
             # Token-based login: no static credential is materialized; the
