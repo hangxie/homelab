@@ -62,6 +62,9 @@ while IFS=$'\t' read -r ns name hostname; do
         airflow/airflow)
             print_secret_row "$url" airflow airflow-admin password admin
             ;;
+        alloy/alloy)
+            print_row "$url" "-" "(no auth)"
+            ;;
         argocd/argocd)
             print_secret_row "$url" argocd argocd-initial-admin-secret password admin
             ;;
@@ -79,19 +82,22 @@ while IFS=$'\t' read -r ns name hostname; do
             print_row "$url" headlamp \
                 "(kubectl -n headlamp create token headlamp --duration=8h)"
             ;;
+        hdfs/hdfs)
+            print_row "$url" "-" "(no auth)"
+            ;;
         jupyter/jupyter|jupyter/jupyterhub)
             print_secret_row "$url" jupyter jupyter-admin password admin
             ;;
         kube-system/hubble)
             print_row "$url" "-" "(no auth)"
             ;;
-        llama-cpp/llama-cpp)
+        llama-cpp/litellm)
             print_row "${url}/v1" "-" "(no auth)"
             ;;
         grafana/grafana)
             print_secret_user_pass_row "$url" grafana grafana-admin username password admin
             ;;
-        ray/ray-dashboard|spark/spark-history)
+        ray/ray-dashboard|spark/spark-history-server)
             print_row "$url" "-" "(no auth)"
             ;;
         openwebui/open-webui)
