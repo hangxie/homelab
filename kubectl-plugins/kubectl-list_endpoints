@@ -107,7 +107,9 @@ while IFS=$'\t' read -r ns name hostname; do
             print_row "${url}/v1" "-" "(no auth)"
             ;;
         rook-ceph/ceph)
-            print_secret_row "$url" rook-ceph rook-ceph-dashboard-password password admin
+            # Vault-managed value enforced by the dashboard-set-password Job;
+            # rook's own rook-ceph-dashboard-password secret is not the login.
+            print_secret_row "$url" rook-ceph ceph-dashboard-admin password admin
             ;;
         superset/superset)
             print_secret_row "$url" superset superset-admin password admin
