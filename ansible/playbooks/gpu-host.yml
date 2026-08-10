@@ -89,17 +89,28 @@
       changed_when: false
       failed_when: false
 
-    - name: Get running kernel version
-      command: uname -r
-      register: kernel_version
+    - name: Resolve installed kernel image flavour
+      shell: |
+        set -o pipefail
+        dpkg-query -W -f='${Package}\n' 'linux-image-*' 2>/dev/null \
+          | grep -E '^linux-image-[a-z0-9-]+$' \
+          | head -1 \
+          | sed 's/^linux-image-/linux-headers-/'
+      args:
+        executable: /bin/bash
+      register: kernel_headers_meta
       changed_when: false
+      failed_when: kernel_headers_meta.stdout == ""
 
+    # Track the headers meta-package, not the running kernel's versioned headers:
+    # a versioned pin stops matching after a kernel upgrade, so DKMS silently
+    # skips the rebuild and the nvidia module disappears on the next reboot.
     - name: Install NVIDIA driver from CUDA repo
       apt:
         name:
           - nvidia-driver-cuda
           - nvidia-kernel-open-dkms
-          - "linux-headers-{{ kernel_version.stdout }}"
+          - "{{ kernel_headers_meta.stdout }}"
           - dkms
           - nvtop
         state: present
@@ -107,13 +118,21 @@
       register: nvidia_driver_packages
       when: nvidia_modprobe_pre.rc != 0
 
+    # Runs even when the driver was already installed, so hosts provisioned
+    # before this change pick the meta-package up on the next playbook run.
+    - name: Ensure kernel headers meta-package is installed
+      apt:
+        name: "{{ kernel_headers_meta.stdout }}"
+        state: present
+      register: kernel_headers_install
+
     - name: Reboot GPU workers after driver install
       reboot:
-      when: nvidia_driver_packages is changed
+      when: nvidia_driver_packages is changed or kernel_headers_install is changed
 
     - name: Verify NVIDIA kernel module loads after reboot
       command: modprobe nvidia
-      when: nvidia_driver_packages is changed
+      when: nvidia_driver_packages is changed or kernel_headers_install is changed
 
     - name: Dump effective containerd config before NVIDIA runtime configuration
       command: containerd config dump
