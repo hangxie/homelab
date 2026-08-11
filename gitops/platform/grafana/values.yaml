@@ -69,6 +69,12 @@ envValueFrom:
     secretKeyRef:
       name: grafana-db-credentials
       key: password
+  # Consumed by the `slack` contact point in extras/08-alert-notifications.yaml
+  # via $__env{}, so the webhook URL stays in Vault rather than a ConfigMap.
+  GF_SLACK_WEBHOOK_URL:
+    secretKeyRef:
+      name: grafana-slack
+      key: webhook-url
 
 affinity:
   podAntiAffinity:
