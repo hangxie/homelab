@@ -13,8 +13,41 @@ alloy:
         role = "pod"
       }
 
+      // discovery.kubernetes emits only __meta_* labels, which are dropped before
+      // write. Without this relabel every pod log lands in a single stream whose
+      // only identity is instance="<ns>/<pod>:<container>", and service_name falls
+      // back to the component name.
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          target_label  = "app"
+        }
+        // service_name drives Grafana's Logs app; prefer the app label, fall back
+        // to the container name so it is never empty.
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_container_name"]
+          separator     = ";"
+          regex         = "([^;]+);.*|;(.*)"
+          target_label  = "service_name"
+          replacement   = "${1}${2}"
+        }
+      }
+
       loki.source.kubernetes "pods" {
-        targets    = discovery.kubernetes.pods.targets
+        targets    = discovery.relabel.pods.output
         forward_to = [loki.write.default.receiver]
       }
 
