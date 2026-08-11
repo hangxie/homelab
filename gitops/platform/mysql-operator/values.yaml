@@ -3,6 +3,9 @@
 # Cluster-scoped: the operator watches InnoDBCluster CRs across all
 # namespaces. The single mysql instance lives at gitops/workloads/raw/mysql/.
 #
+# Leave deployment.name and deployment.namespaces unset: the operator freezes
+# both after install, and the defaults match what is already deployed.
+#
 # https://github.com/mysql/mysql-operator/blob/trunk/helm/mysql-operator/values.yaml
 
 envs:
