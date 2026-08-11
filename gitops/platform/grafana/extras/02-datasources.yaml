@@ -31,7 +31,7 @@ data:
       - name: Tempo
         type: tempo
         uid: tempo
-        url: http://tempo.tempo:3100
+        url: http://tempo.tempo:3200
         jsonData:
           httpMethod: GET
           tracesToLogsV2:

@@ -12,6 +12,34 @@ tempo:
         access_key: ${AWS_ACCESS_KEY_ID}
         secret_key: ${AWS_SECRET_ACCESS_KEY}
   retention: 168h
+  # TraceQL metrics (/api/metrics/query_range, used by Grafana's Traces Drilldown
+  # and service-graph panels) are served by the metrics generator's local-blocks
+  # processor. Without it the querier finds an empty generator ring and 500s.
+  metricsGenerator:
+    enabled: true
+    remoteWriteUrl: http://mimir-gateway.mimir/api/v1/push
+    processor:
+      local_blocks:
+        flush_to_storage: true
+      service_graphs: {}
+      span_metrics: {}
+    registry:
+      external_labels:
+        cluster: homelab
+        source: tempo
+    # Chart defaults put both paths under /tmp; keep them on the PVC instead.
+    storage:
+      path: /var/tempo/generator/wal
+    traces_storage:
+      path: /var/tempo/generator/traces
+  # The generator only runs for tenants that list its processors.
+  overrides:
+    defaults:
+      metrics_generator:
+        processors:
+          - local-blocks
+          - service-graphs
+          - span-metrics
   extraArgs:
     config.expand-env: true
   extraEnvFrom:
