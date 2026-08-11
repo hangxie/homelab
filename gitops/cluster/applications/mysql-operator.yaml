@@ -12,7 +12,7 @@ spec:
   sources:
     - repoURL: https://mysql.github.io/mysql-operator/
       chart: mysql-operator
-      targetRevision: 2.2.8
+      targetRevision: 2.3.0
       helm:
         valueFiles:
           - $values/gitops/platform/mysql-operator/values.yaml
