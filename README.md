@@ -136,6 +136,8 @@ vault kv put homelab/huggingface/api-token \
   token='<read token from HuggingFace>'
 vault kv put homelab/cloudflare/api-token \
   api-token='<scoped token from Cloudflare>'
+vault kv put homelab/slack/grafana \
+  webhook-url='<incoming webhook URL from Slack>'
 
 # 3. Seed Vault (sets up AppRole/policy and generates random passwords for everything else).
 scripts/seed-vault.sh
@@ -171,6 +173,17 @@ with the same `VAULT_TOKEN` used for seeding. Current entries:
   model-pull init containers. Anonymous HuggingFace downloads are not allowed.
 - `cloudflare/api-token` — scoped Cloudflare API token used by cert-manager's
   DNS-01 solver to issue Let's Encrypt wildcard certs.
+- `slack/grafana` — Slack incoming-webhook URL backing Grafana's `slack` contact
+  point, the receiver on the root notification policy. Field is `webhook-url`,
+  and the value is the full `https://hooks.slack.com/services/T.../B.../...`
+  URL. The URL *is* the credential and it also fixes the destination channel, so
+  changing channels means minting a new webhook. Create one at
+  <https://api.slack.com/messaging/webhooks> (add an app to the workspace →
+  Incoming Webhooks → Add New Webhook to Workspace → pick the channel).
+
+  Seed this before the first sync of the `grafana` app: `values.yaml` maps the
+  projected `grafana-slack` Secret into `GF_SLACK_WEBHOOK_URL`, so a missing
+  Vault path leaves the Grafana pods stuck in `CreateContainerConfigError`.
 
 Re-running `scripts/seed-vault.sh` is idempotent: existing Vault values are kept.
 To rotate the auto-generated secrets, run `scripts/seed-vault.sh --regenerate`,
@@ -273,6 +286,30 @@ propagate to OpenWebUI on its own — change it in the UI, or wipe the
        force-sync=$(date +%s) --overwrite
    done
    ```
+
+#### Rotate the Grafana Slack webhook
+
+1. Mint a new incoming webhook at <https://api.slack.com/messaging/webhooks>.
+   Do the same to move alerts to a different channel — the channel is baked
+   into the webhook and cannot be overridden from Grafana's side.
+2. Overwrite the Vault entry:
+
+   ```bash
+   vault kv put homelab/slack/grafana \
+     webhook-url='<new incoming webhook URL from Slack>'
+   ```
+
+3. Force the `grafana-slack` Secret to refresh, then restart Grafana — the URL
+   is read from the container environment at provisioning time, so a Secret
+   refresh alone does not re-point the contact point:
+
+   ```bash
+   kubectl -n grafana annotate externalsecret grafana-slack \
+     force-sync=$(date +%s) --overwrite
+   kubectl -n grafana rollout restart deploy/grafana
+   ```
+
+4. Revoke the old webhook in the Slack app's Incoming Webhooks page.
 
 ### Verification
 

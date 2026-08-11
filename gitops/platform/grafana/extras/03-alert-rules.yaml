@@ -18,6 +18,10 @@ data:
             title: NodeFilesystemAlmostOutOfSpace (warning)
             condition: A
             for: 30m
+            # The threshold lives in the query, so a healthy cluster returns an
+            # empty result. Grafana's default noDataState would turn that into a
+            # permanently firing DatasourceNoData alert.
+            noDataState: OK
             labels:
               severity: warning
             annotations:
@@ -44,6 +48,7 @@ data:
             title: NodeFilesystemAlmostOutOfSpace (critical)
             condition: A
             for: 30m
+            noDataState: OK
             labels:
               severity: critical
             annotations:
