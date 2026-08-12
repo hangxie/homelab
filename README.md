@@ -136,7 +136,7 @@ vault kv put homelab/huggingface/api-token \
   token='<read token from HuggingFace>'
 vault kv put homelab/cloudflare/api-token \
   api-token='<scoped token from Cloudflare>'
-vault kv put homelab/slack/grafana \
+vault kv put homelab/slack/mimir \
   webhook-url='<incoming webhook URL from Slack>'
 
 # 3. Seed Vault (sets up AppRole/policy and generates random passwords for everything else).
@@ -173,17 +173,19 @@ with the same `VAULT_TOKEN` used for seeding. Current entries:
   model-pull init containers. Anonymous HuggingFace downloads are not allowed.
 - `cloudflare/api-token` — scoped Cloudflare API token used by cert-manager's
   DNS-01 solver to issue Let's Encrypt wildcard certs.
-- `slack/grafana` — Slack incoming-webhook URL backing Grafana's `slack` contact
-  point, the receiver on the root notification policy. Field is `webhook-url`,
+- `slack/mimir` — Slack incoming-webhook URL backing the `slack` receiver in
+  Mimir's Alertmanager, the target of its root route. Field is `webhook-url`,
   and the value is the full `https://hooks.slack.com/services/T.../B.../...`
   URL. The URL *is* the credential and it also fixes the destination channel, so
   changing channels means minting a new webhook. Create one at
   <https://api.slack.com/messaging/webhooks> (add an app to the workspace →
   Incoming Webhooks → Add New Webhook to Workspace → pick the channel).
 
-  Seed this before the first sync of the `grafana` app: `values.yaml` maps the
-  projected `grafana-slack` Secret into `GF_SLACK_WEBHOOK_URL`, so a missing
-  Vault path leaves the Grafana pods stuck in `CreateContainerConfigError`.
+  Seed this before the first sync of the `mimir` app: the `mimir-slack`
+  ExternalSecret projects it into the Alertmanager pods' environment, and the
+  `render-fallback-config` init container substitutes it into the Alertmanager
+  config before Mimir starts. A missing Vault path leaves the Alertmanager pods
+  stuck in `CreateContainerConfigError`.
 
 Re-running `scripts/seed-vault.sh` is idempotent: existing Vault values are kept.
 To rotate the auto-generated secrets, run `scripts/seed-vault.sh --regenerate`,
@@ -287,26 +289,26 @@ propagate to OpenWebUI on its own — change it in the UI, or wipe the
    done
    ```
 
-#### Rotate the Grafana Slack webhook
+#### Rotate the Slack webhook
 
 1. Mint a new incoming webhook at <https://api.slack.com/messaging/webhooks>.
    Do the same to move alerts to a different channel — the channel is baked
-   into the webhook and cannot be overridden from Grafana's side.
+   into the webhook and cannot be overridden from the Alertmanager's side.
 2. Overwrite the Vault entry:
 
    ```bash
-   vault kv put homelab/slack/grafana \
+   vault kv put homelab/slack/mimir \
      webhook-url='<new incoming webhook URL from Slack>'
    ```
 
-3. Force the `grafana-slack` Secret to refresh, then restart Grafana — the URL
-   is read from the container environment at provisioning time, so a Secret
-   refresh alone does not re-point the contact point:
+3. Force the `mimir-slack` Secret to refresh, then restart the Alertmanager —
+   the URL is baked into the rendered config by an init container at pod start,
+   so a Secret refresh alone does not re-point the receiver:
 
    ```bash
-   kubectl -n grafana annotate externalsecret grafana-slack \
+   kubectl -n mimir annotate externalsecret mimir-slack \
      force-sync=$(date +%s) --overwrite
-   kubectl -n grafana rollout restart deploy/grafana
+   kubectl -n mimir rollout restart statefulset/mimir-alertmanager
    ```
 
 4. Revoke the old webhook in the Slack app's Incoming Webhooks page.
