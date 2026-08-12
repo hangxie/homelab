@@ -388,6 +388,7 @@ kubectl plugin list
 | `kubectl-df_pvc` | `kubectl df-pvc <storage-class>` | Disk usage for all PVCs in a storage class |
 | `kubectl-list_endpoints` | `kubectl list-endpoints` | All HTTPRoute URLs with credentials |
 | `kubectl-llama_model` | `kubectl llama-model list\|delete` | Manage GGUF models on the llama-cpp PVC |
+| `kubectl-psql` | `kubectl psql [--database db-name]` | connect to postgres-cluster rw service, default DB is postgres |
 | `kubectl-vllm_model` | `kubectl vllm-model verify\|list\|delete` | Manage vLLM models on PVC and Harbor |
 
 ## Repo layout

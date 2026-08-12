@@ -1,0 +1,50 @@
+#!/bin/bash
+
+CLIENT_ID=${RANDOM}
+
+DB_NAME=postgres
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -d|--database)
+      DB_NAME="$2"
+      shift 2 # Shift past the flag and its value
+      ;;
+    -h|--help)
+      echo "Usage: $0 --database <database>"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+kubectl -n postgres-cluster run lab-psql-client-${CLIENT_ID} --rm -it --image=postgres:18 --overrides='
+{
+  "apiVersion": "v1",
+  "spec": {
+    "containers": [{
+      "name": "lab-psql-client-'${CLIENT_ID}'",
+      "image": "postgres:18",
+      "stdin": true,
+      "tty": true,
+      "env": [{
+        "name": "PGPASSWORD",
+        "valueFrom": {
+          "secretKeyRef": {
+            "name": "postgres-cluster-superuser",
+            "key": "password"
+          }
+        }
+      }],
+      "command": ["psql"],
+      "args": [
+        "-h", "postgres-cluster-rw",
+        "-U", "postgres",
+        "-d", "'${DB_NAME}'"
+      ]
+    }]
+  }
+}'
