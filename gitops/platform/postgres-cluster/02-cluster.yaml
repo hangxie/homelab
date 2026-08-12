@@ -32,6 +32,15 @@ spec:
   monitoring:
     enablePodMonitor: false
 
+  # WAL archiving + base backups via the Barman Cloud Plugin (native
+  # barmanObjectStore support is removed in CNPG 1.30). Store config and
+  # schedule live in 03-backup.yaml.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: postgres-cluster-backup
+
   postgresql:
     parameters:
       max_connections: "200"

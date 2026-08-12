@@ -16,6 +16,14 @@ spec:
       helm:
         valueFiles:
           - $values/gitops/platform/postgres-cnpg/values.yaml
+    # CNPG-I backup plugin; must live in the operator's namespace. Chart
+    # defaults are fine, but the release name must stay `plugin-barman-cloud`
+    # so resource names don't inherit the app name.
+    - repoURL: https://cloudnative-pg.github.io/charts
+      chart: plugin-barman-cloud
+      targetRevision: 0.7.1
+      helm:
+        releaseName: plugin-barman-cloud
     - repoURL: https://github.com/hangxie/homelab.git
       targetRevision: main
       ref: values
