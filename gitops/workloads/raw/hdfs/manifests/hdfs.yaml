@@ -10,8 +10,15 @@ data:
   config.yaml: |
     startDelaySeconds: 0
     ssl: false
+    # jmx_exporter matches each pattern against
+    # `domain<beanProperties><>attributeName: value` — the *value is part of
+    # the matched string*. The trailing `(.+)` captured "MissingBlocks: 0" and
+    # baked the sample into the metric name
+    # (hadoop_namenode_FSNamesystem_MissingBlocks:_0), so the namenode's own
+    # metrics were unqueryable and every value change minted a new series.
+    # `[^:]+` stops at the colon; JMX attribute names never contain one.
     rules:
-      - pattern: "Hadoop<service=NameNode, name=(.+)><>(.+)"
+      - pattern: "Hadoop<service=NameNode, name=(.+)><>([^:]+)"
         name: "hadoop_namenode_$1_$2"
         labels:
           service: namenode

@@ -1193,17 +1193,20 @@ data:
               summary: "llama.cpp requests are queuing"
               description: "{{ $labels.model }} has had {{ printf \"%.0f\" $value }} requests waiting for a free slot for 15 minutes."
 
+      # Now keyed on the namenode's own FSNamesystem beans rather than the
+      # StorageTypeStats fallback these rules used while the JMX exporter was
+      # baking sample values into metric names.
+      #
+      # dfs.replication is 1 on a single datanode, so there is deliberately no
+      # under-replication rule: with one replica a block is never
+      # under-replicated, it goes straight to missing.
       - name: hdfs
         interval: 1m
         rules:
-          # Only the Hadoop_NameNode_StorageTypeStats_* series are usable: the
-          # rest of the namenode's JMX output is exported with the sample value
-          # appended to the metric name (hadoop_namenode_..._MissingBlocks:_0),
-          # so it cannot be queried numerically.
           - alert: HDFSCapacityLow
             expr: |
-              Hadoop_NameNode_StorageTypeStats_capacityRemaining
-              / Hadoop_NameNode_StorageTypeStats_capacityTotal * 100 < 15
+              hadoop_namenode_FSNamesystem_CapacityRemaining
+              / hadoop_namenode_FSNamesystem_CapacityTotal * 100 < 15
             for: 30m
             labels:
               severity: warning
@@ -1211,21 +1214,57 @@ data:
               summary: "HDFS has less than 15% capacity left"
               description: "HDFS reports {{ printf \"%.2f\" $value }}% remaining capacity."
 
-          - alert: HDFSNoDataNodesInService
-            expr: Hadoop_NameNode_StorageTypeStats_nodesInService < 1
+          - alert: HDFSNoLiveDataNodes
+            expr: hadoop_namenode_FSNamesystemState_NumLiveDataNodes < 1
             for: 15m
             labels:
               severity: critical
             annotations:
-              summary: "HDFS has no datanodes in service"
-              description: "The namenode reports {{ printf \"%.0f\" $value }} datanodes in service; HDFS cannot serve reads or writes."
+              summary: "HDFS has no live datanodes"
+              description: "The namenode reports {{ printf \"%.0f\" $value }} live datanodes; HDFS cannot serve reads or writes."
 
-      # Only the trino_memory_ClusterMemoryPool_*, trino_execution_* and
-      # trino_plugin_* families survive the JMX exporter intact. Query-level
-      # counters (trino_query_manager_FailedQueries, QueuedQueries) are
-      # exported with the sample value appended to the metric name
-      # (trino_query_manager_FailedQueries_TotalCount:_0), so failed-query
-      # alerting is not possible until that exporter config is fixed.
+          - alert: HDFSDeadDataNodes
+            expr: hadoop_namenode_FSNamesystemState_NumDeadDataNodes > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "HDFS has dead datanodes"
+              description: "The namenode has marked {{ printf \"%.0f\" $value }} datanodes dead."
+
+          # At replication factor 1 a missing block is unrecoverable — there is
+          # no second copy to re-replicate from. This is data loss, not a
+          # degraded state.
+          - alert: HDFSMissingBlocks
+            expr: hadoop_namenode_FSNamesystem_MissingBlocks > 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "HDFS is reporting missing blocks"
+              description: "{{ printf \"%.0f\" $value }} blocks have no available replica. At dfs.replication=1 these are unrecoverable."
+
+          - alert: HDFSCorruptBlocks
+            expr: hadoop_namenode_FSNamesystem_CorruptBlocks > 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "HDFS is reporting corrupt blocks"
+              description: "{{ printf \"%.0f\" $value }} blocks failed their checksum and have no clean replica to recover from."
+
+          - alert: HDFSVolumeFailures
+            expr: hadoop_namenode_FSNamesystemState_VolumeFailuresTotal > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "HDFS datanode volumes have failed"
+              description: "{{ printf \"%.0f\" $value }} datanode volumes have failed; capacity and durability are reduced."
+
+      # trino_query_manager_* and trino_cluster_memory_* are exported only by
+      # the coordinator — the workers publish neither — so these need no
+      # aggregation despite job="jmx" having three targets.
       - name: trino
         interval: 1m
         rules:
@@ -1248,6 +1287,47 @@ data:
             annotations:
               summary: "Trino nodes are blocked on memory"
               description: "{{ printf \"%.0f\" $value }} nodes in the {{ $labels.name }} pool have been out of memory for 15 minutes; queries on them are stalled."
+
+          - alert: TrinoQueryFailures
+            expr: increase(trino_query_manager_FailedQueries_TotalCount[15m]) > 5
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Trino queries are failing"
+              description: "The coordinator recorded {{ printf \"%.0f\" $value }} failed queries in the last 15 minutes."
+
+          # Queries queue whenever the cluster is busy, which is normal; a
+          # queue that has not drained in half an hour is not.
+          - alert: TrinoQueriesQueued
+            expr: trino_query_manager_QueuedQueries > 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Trino queries are stuck in the queue"
+              description: "{{ printf \"%.0f\" $value }} queries have been queued for 30 minutes without being scheduled."
+
+          - alert: TrinoQueriesKilledOutOfMemory
+            expr: |
+              increase(trino_cluster_memory_QueriesKilledDueToOutOfMemory[15m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Trino killed queries to reclaim memory"
+              description: "{{ printf \"%.0f\" $value }} queries were killed for exceeding cluster memory in the last 15 minutes."
+
+          # A leaked query holds its memory reservation forever; the pool never
+          # gets it back without a coordinator restart.
+          - alert: TrinoLeakedQueries
+            expr: trino_cluster_memory_NumberOfLeakedQueries > 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Trino has leaked query memory"
+              description: "{{ printf \"%.0f\" $value }} queries have leaked their memory reservation; the cluster memory pool will not recover it on its own."
 
       - name: ray
         interval: 1m
