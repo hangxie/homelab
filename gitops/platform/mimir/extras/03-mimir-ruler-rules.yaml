@@ -2,47 +2,758 @@
 # gateway injects when multitenancy is off, and Mimir's local rule store expects
 # <ruler_storage.local.directory>/<tenant>/<file>.
 #
-# These replace the Grafana-managed rules that used to live in the grafana
-# chart's extras/03-alert-rules.yaml. Unlike Grafana rules, an empty query
-# result simply means "not firing", so no noDataState handling is needed.
+# Each data key is a Mimir rule namespace, so the file itself carries only the
+# group list — a `namespace:` key inside a file fails to parse as
+# rulefmt.RuleGroups. Unlike Grafana-managed rules, an empty query result simply
+# means "not firing", so no noDataState handling is needed.
+#
+# Two conventions every rule here follows:
+#
+#   * Aggregate away `instance`. kube-state-metrics runs two replicas and both
+#     are scraped, so every kube_* series exists twice with a different
+#     `instance`; without a `max by (...)` each KSM alert would fire twice.
+#     Argo CD's application-controller metrics reshard the same way.
+#   * `severity` is either warning or critical. The Alertmanager route groups by
+#     (alertname, severity) and an inhibit rule drops the warning when the
+#     critical of the same alertname is already firing.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: mimir-ruler-rules
   namespace: mimir
 data:
-  # The filename is the Mimir rule namespace, so the file itself carries only
-  # the group list — a `namespace:` key here fails to parse as rulefmt.RuleGroups.
-  node-disk.yaml: |
+  # ── Scrape targets ────────────────────────────────────────────────────────
+  # The broadest net: every exporter Alloy scrapes. A target that stops
+  # answering is either the workload being down or its metrics path breaking,
+  # and both are worth knowing about.
+  targets.yaml: |
     groups:
-      - name: node-disk
+      - name: targets
+        interval: 1m
+        rules:
+          - alert: TargetDown
+            expr: up == 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Scrape target is down"
+              description: "Alloy has failed to scrape {{ $labels.instance }} for job {{ $labels.job }} for 15 minutes."
+
+  # ── Kubernetes workloads ──────────────────────────────────────────────────
+  # kube-state-metrics covers every workload in the cluster, including the ones
+  # that export no metrics of their own (airflow, superset, jupyter, openwebui,
+  # dbeaver, headlamp, hive, spark, redis, llama-cpp). These rules are the only
+  # alerting those services get, so they stay generic on purpose.
+  kubernetes.yaml: |
+    groups:
+      - name: kubernetes-workloads
+        interval: 1m
+        rules:
+          - alert: KubePodCrashLooping
+            expr: |
+              max by (namespace, pod, container) (
+                kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"}
+              ) == 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod is crash looping"
+              description: "Container {{ $labels.container }} in {{ $labels.namespace }}/{{ $labels.pod }} has been in CrashLoopBackOff for 15 minutes."
+
+          - alert: KubePodContainerWaiting
+            expr: |
+              max by (namespace, pod, container, reason) (
+                kube_pod_container_status_waiting_reason{reason=~"ImagePullBackOff|ErrImagePull|CreateContainerConfigError|CreateContainerError|InvalidImageName"}
+              ) == 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Container cannot start"
+              description: "Container {{ $labels.container }} in {{ $labels.namespace }}/{{ $labels.pod }} has been waiting on {{ $labels.reason }} for 15 minutes."
+
+          # Job-owned pods legitimately end up Failed and are never retried, so
+          # they are excluded rather than alerted on here — KubeJobFailed covers
+          # them with the Job's own identity.
+          - alert: KubePodNotReady
+            expr: |
+              max by (namespace, pod) (
+                max by (namespace, pod) (kube_pod_status_phase{phase=~"Pending|Unknown|Failed"} == 1)
+                * on (namespace, pod) group_left(owner_kind)
+                  topk by (namespace, pod) (
+                    1, max by (namespace, pod, owner_kind) (kube_pod_owner{owner_kind!="Job"})
+                  )
+              ) > 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod has been in a non-ready state for 30 minutes"
+              description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has not reached Running for 30 minutes."
+
+          - alert: KubeContainerOOMKilled
+            expr: |
+              max by (namespace, pod, container) (
+                increase(container_oom_events_total{container!=""}[15m])
+              ) > 0
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Container was OOMKilled"
+              description: "Container {{ $labels.container }} in {{ $labels.namespace }}/{{ $labels.pod }} hit its memory limit and was killed in the last 15 minutes."
+
+          # The changes() clause suppresses the alert while a rollout is still
+          # replacing pods; only a Deployment that has stopped converging fires.
+          - alert: KubeDeploymentReplicasMismatch
+            expr: |
+              (
+                max by (namespace, deployment) (kube_deployment_spec_replicas)
+                != max by (namespace, deployment) (kube_deployment_status_replicas_available)
+              )
+              and
+              (
+                max by (namespace, deployment) (changes(kube_deployment_status_replicas_updated[10m])) == 0
+              )
+            for: 20m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Deployment has not matched its desired replica count"
+              description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has {{ printf \"%.0f\" $value }} available replicas, fewer than desired, and has stopped rolling out."
+
+          - alert: KubeStatefulSetReplicasMismatch
+            expr: |
+              (
+                max by (namespace, statefulset) (kube_statefulset_replicas)
+                != max by (namespace, statefulset) (kube_statefulset_status_replicas_ready)
+              )
+              and
+              (
+                max by (namespace, statefulset) (changes(kube_statefulset_status_replicas_updated[10m])) == 0
+              )
+            for: 20m
+            labels:
+              severity: warning
+            annotations:
+              summary: "StatefulSet has not matched its desired replica count"
+              description: "StatefulSet {{ $labels.namespace }}/{{ $labels.statefulset }} has {{ printf \"%.0f\" $value }} ready replicas, fewer than desired, and has stopped rolling out."
+
+          - alert: KubeDaemonSetNotFullyScheduled
+            expr: |
+              max by (namespace, daemonset) (kube_daemonset_status_number_unavailable) > 0
+            for: 20m
+            labels:
+              severity: warning
+            annotations:
+              summary: "DaemonSet pods are unavailable"
+              description: "DaemonSet {{ $labels.namespace }}/{{ $labels.daemonset }} has {{ printf \"%.0f\" $value }} unavailable pods."
+
+          - alert: KubeJobFailed
+            expr: |
+              max by (namespace, job_name) (kube_job_status_failed) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Job failed to complete"
+              description: "Job {{ $labels.namespace }}/{{ $labels.job_name }} has {{ printf \"%.0f\" $value }} failed pods."
+
+      - name: kubernetes-storage
+        interval: 1m
+        rules:
+          - alert: KubePersistentVolumeFillingUp
+            expr: |
+              kubelet_volume_stats_available_bytes
+              / kubelet_volume_stats_capacity_bytes * 100 < 15
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "PersistentVolume has less than 15% space left"
+              description: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} has only {{ printf \"%.2f\" $value }}% free."
+
+          - alert: KubePersistentVolumeFillingUp
+            expr: |
+              kubelet_volume_stats_available_bytes
+              / kubelet_volume_stats_capacity_bytes * 100 < 5
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "PersistentVolume has less than 5% space left"
+              description: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} has only {{ printf \"%.2f\" $value }}% free."
+
+          - alert: KubePersistentVolumeClaimPending
+            expr: |
+              max by (namespace, persistentvolumeclaim) (
+                kube_persistentvolumeclaim_status_phase{phase=~"Pending|Lost"}
+              ) == 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "PersistentVolumeClaim is not bound"
+              description: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} has been unbound for 15 minutes."
+
+      - name: kubernetes-nodes
+        interval: 1m
+        rules:
+          - alert: KubeNodeNotReady
+            expr: |
+              max by (node) (kube_node_status_condition{condition="Ready",status="true"}) == 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Node is not ready"
+              description: "Node {{ $labels.node }} has been NotReady for 15 minutes."
+
+          - alert: KubeNodeUnderPressure
+            expr: |
+              max by (node, condition) (
+                kube_node_status_condition{condition=~"MemoryPressure|DiskPressure|PIDPressure",status="true"}
+              ) == 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Node reports resource pressure"
+              description: "Node {{ $labels.node }} has been reporting {{ $labels.condition }} for 15 minutes."
+
+  # ── Nodes ─────────────────────────────────────────────────────────────────
+  # prometheus.exporter.unix runs inside the Alloy DaemonSet pod, so `instance`
+  # is the node name (overridden in the Alloy relabel) and `job` is
+  # "integrations/unix" — the exporter's own name, not the job_name in the
+  # scrape block. The pod sees the node root filesystem through four bind
+  # mounts (/etc/alloy, /etc/hostname, /etc/hosts, /etc/resolv.conf), so the
+  # filesystem rules aggregate by device to collapse the duplicates.
+  node.yaml: |
+    groups:
+      - name: node-filesystem
         interval: 1m
         rules:
           - alert: NodeFilesystemAlmostOutOfSpace
             expr: |
               (
-                node_filesystem_avail_bytes{job="node-exporter",fstype!=""}
-                / node_filesystem_size_bytes{job="node-exporter",fstype!=""} * 100 < 15
-              and
-                node_filesystem_readonly{job="node-exporter",fstype!=""} == 0
+                max by (instance, device, fstype) (node_filesystem_avail_bytes{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"})
+                / max by (instance, device, fstype) (node_filesystem_size_bytes{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"}) * 100 < 15
               )
+              and
+              min by (instance, device, fstype) (node_filesystem_readonly{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"}) == 0
             for: 30m
             labels:
               severity: warning
             annotations:
               summary: "Filesystem has less than 15% space left"
               description: "Filesystem on {{ $labels.device }} at {{ $labels.instance }} has only {{ printf \"%.2f\" $value }}% available space."
+
           - alert: NodeFilesystemAlmostOutOfSpace
             expr: |
               (
-                node_filesystem_avail_bytes{job="node-exporter",fstype!=""}
-                / node_filesystem_size_bytes{job="node-exporter",fstype!=""} * 100 < 5
-              and
-                node_filesystem_readonly{job="node-exporter",fstype!=""} == 0
+                max by (instance, device, fstype) (node_filesystem_avail_bytes{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"})
+                / max by (instance, device, fstype) (node_filesystem_size_bytes{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"}) * 100 < 5
               )
+              and
+              min by (instance, device, fstype) (node_filesystem_readonly{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"}) == 0
             for: 30m
             labels:
               severity: critical
             annotations:
               summary: "Filesystem has less than 5% space left"
               description: "Filesystem on {{ $labels.device }} at {{ $labels.instance }} has only {{ printf \"%.2f\" $value }}% available space."
+
+          - alert: NodeFilesystemAlmostOutOfInodes
+            expr: |
+              max by (instance, device, fstype) (node_filesystem_files_free{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"})
+              / max by (instance, device, fstype) (node_filesystem_files{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"}) * 100 < 10
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Filesystem has less than 10% inodes left"
+              description: "Filesystem on {{ $labels.device }} at {{ $labels.instance }} has only {{ printf \"%.2f\" $value }}% free inodes."
+
+          - alert: NodeFilesystemReadOnly
+            expr: |
+              min by (instance, device, fstype) (node_filesystem_readonly{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"}) == 1
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Filesystem has been remounted read-only"
+              description: "Filesystem on {{ $labels.device }} at {{ $labels.instance }} is read-only, which usually means the underlying device is failing."
+
+      - name: node-resources
+        interval: 1m
+        rules:
+          - alert: NodeMemoryHighUtilisation
+            expr: |
+              (
+                1 - node_memory_MemAvailable_bytes{job="integrations/unix"}
+                / node_memory_MemTotal_bytes{job="integrations/unix"}
+              ) * 100 > 90
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Node memory is nearly exhausted"
+              description: "{{ $labels.instance }} has used {{ printf \"%.2f\" $value }}% of its memory for 30 minutes."
+
+          - alert: NodeCPUHighUtilisation
+            expr: |
+              100 - (
+                avg by (instance) (rate(node_cpu_seconds_total{job="integrations/unix",mode="idle"}[5m])) * 100
+              ) > 90
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Node CPU is saturated"
+              description: "{{ $labels.instance }} has been {{ printf \"%.2f\" $value }}% busy for 30 minutes."
+
+          - alert: NodeHighLoad
+            expr: |
+              node_load5{job="integrations/unix"}
+              / count by (instance) (node_cpu_seconds_total{job="integrations/unix",mode="idle"}) > 2
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Node run queue is more than 2x its CPU count"
+              description: "{{ $labels.instance }} has a 5m load average of {{ printf \"%.2f\" $value }} per core."
+
+  # ── Argo CD ───────────────────────────────────────────────────────────────
+  # Several apps sit Progressing for long stretches by design (hdfs, trino,
+  # nvidia-device-plugin, llama-cpp), so Progressing is deliberately not an
+  # alerting state. rook-ceph-cluster flaps Degraded, hence the 30m `for`.
+  argocd.yaml: |
+    groups:
+      - name: argocd
+        interval: 1m
+        rules:
+          - alert: ArgoCDAppNotHealthy
+            expr: |
+              max by (name, project, dest_namespace) (
+                argocd_app_info{health_status=~"Degraded|Missing|Unknown"}
+              ) == 1
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Argo CD application is unhealthy"
+              description: "Application {{ $labels.name }} (project {{ $labels.project }}, namespace {{ $labels.dest_namespace }}) has been unhealthy for 30 minutes."
+
+          - alert: ArgoCDAppOutOfSync
+            expr: |
+              max by (name, project, dest_namespace) (
+                argocd_app_info{sync_status="OutOfSync"}
+              ) == 1
+            for: 1h
+            labels:
+              severity: warning
+            annotations:
+              summary: "Argo CD application has drifted from Git"
+              description: "Application {{ $labels.name }} (project {{ $labels.project }}) has been OutOfSync for an hour — either self-heal is off or its sync keeps failing."
+
+          - alert: ArgoCDAppSyncFailed
+            expr: |
+              sum by (name, project, dest_namespace, phase) (
+                increase(argocd_app_sync_total{phase=~"Failed|Error"}[15m])
+              ) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Argo CD sync failed"
+              description: "Application {{ $labels.name }} recorded {{ printf \"%.0f\" $value }} {{ $labels.phase }} syncs in the last 15 minutes."
+
+  # ── Ceph ──────────────────────────────────────────────────────────────────
+  # Everything in this cluster with a PVC lands on Ceph, so its own alerts run
+  # ahead of the per-workload ones. Fill levels are computed from raw byte
+  # counters rather than ceph_pool_percent_used, whose units are ambiguous.
+  ceph.yaml: |
+    groups:
+      - name: ceph
+        interval: 1m
+        rules:
+          - alert: CephHealthError
+            expr: ceph_health_status == 2
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Ceph cluster is in HEALTH_ERR"
+              description: "The Ceph cluster has reported HEALTH_ERR for 15 minutes."
+
+          - alert: CephHealthWarning
+            expr: ceph_health_status == 1
+            for: 1h
+            labels:
+              severity: warning
+            annotations:
+              summary: "Ceph cluster is in HEALTH_WARN"
+              description: "The Ceph cluster has reported HEALTH_WARN for an hour."
+
+          - alert: CephOSDDown
+            expr: ceph_osd_up == 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Ceph OSD is down"
+              description: "{{ $labels.ceph_daemon }} has been down for 15 minutes."
+
+          - alert: CephMonQuorumAtRisk
+            expr: count(ceph_mon_quorum_status == 1) < 3
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Fewer than three Ceph monitors are in quorum"
+              description: "Only {{ printf \"%.0f\" $value }} monitors are in quorum; one more failure loses the cluster."
+
+          - alert: CephClusterNearFull
+            expr: |
+              ceph_cluster_total_used_bytes / ceph_cluster_total_bytes * 100 > 80
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Ceph cluster is more than 80% full"
+              description: "Raw usage is {{ printf \"%.2f\" $value }}%. Ceph starts blocking writes near the full ratio."
+
+          - alert: CephOSDNearFull
+            expr: |
+              ceph_osd_stat_bytes_used / ceph_osd_stat_bytes * 100 > 85
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Ceph OSD is more than 85% full"
+              description: "{{ $labels.ceph_daemon }} is {{ printf \"%.2f\" $value }}% full; the cluster blocks writes once any OSD hits the full ratio."
+
+          - alert: CephPGsUnhealthy
+            expr: |
+              sum(ceph_pg_degraded + ceph_pg_undersized + ceph_pg_inconsistent
+                + ceph_pg_down + ceph_pg_incomplete + ceph_pg_stale) > 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Ceph placement groups are not clean"
+              description: "{{ printf \"%.0f\" $value }} PGs have been degraded, undersized, inconsistent, down, incomplete or stale for 30 minutes."
+
+  # ── Observability stack ───────────────────────────────────────────────────
+  # Mimir, Loki, Tempo and Alloy. These fail quietly: if Alloy stops writing or
+  # the ruler stops evaluating, every other alert here silently stops working,
+  # so the monitoring stack monitors itself.
+  observability.yaml: |
+    groups:
+      - name: mimir
+        interval: 1m
+        rules:
+          - alert: MimirRuleEvaluationFailing
+            expr: |
+              sum by (job) (rate(cortex_prometheus_rule_evaluation_failures_total[5m])) > 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Mimir ruler is failing to evaluate rules"
+              description: "{{ $labels.job }} is failing rule evaluations, so the alerts in this file are not being computed."
+
+          - alert: MimirAlertmanagerNotificationsFailing
+            expr: |
+              sum by (job, integration) (rate(cortex_alertmanager_notifications_failed_total[5m])) > 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Mimir Alertmanager cannot deliver notifications"
+              description: "Notifications to {{ $labels.integration }} are failing, so firing alerts are not reaching Slack."
+
+          # A ratio rather than "> 0": the ingesters continuously reject about
+          # 1.5% of samples as err-mimir-sample-out-of-order across every job, so
+          # an absolute threshold would fire forever. 5% catches a real
+          # regression above that standing baseline.
+          - alert: MimirIngestionFailing
+            expr: |
+              sum by (job) (rate(cortex_ingester_ingested_samples_failures_total[5m]))
+              / sum by (job) (rate(cortex_ingester_ingested_samples_total[5m])) * 100 > 5
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Mimir is dropping samples on ingest"
+              description: "{{ $labels.job }} is rejecting {{ printf \"%.2f\" $value }}% of incoming samples."
+
+          - alert: MimirRequestErrors
+            expr: |
+              sum by (job, route) (rate(cortex_request_duration_seconds_count{status_code=~"5.."}[5m]))
+              / sum by (job, route) (rate(cortex_request_duration_seconds_count[5m])) * 100 > 5
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Mimir is returning 5xx responses"
+              description: "{{ printf \"%.2f\" $value }}% of {{ $labels.route }} requests to {{ $labels.job }} are failing."
+
+      - name: loki-tempo
+        interval: 1m
+        rules:
+          - alert: LokiRequestErrors
+            expr: |
+              sum by (job, route) (rate(loki_request_duration_seconds_count{status_code=~"5.."}[5m]))
+              / sum by (job, route) (rate(loki_request_duration_seconds_count[5m])) * 100 > 5
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Loki is returning 5xx responses"
+              description: "{{ printf \"%.2f\" $value }}% of {{ $labels.route }} requests to {{ $labels.job }} are failing."
+
+          - alert: TempoRequestErrors
+            expr: |
+              sum by (job, route) (rate(tempo_request_duration_seconds_count{status_code=~"5.."}[5m]))
+              / sum by (job, route) (rate(tempo_request_duration_seconds_count[5m])) * 100 > 5
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Tempo is returning 5xx responses"
+              description: "{{ printf \"%.2f\" $value }}% of {{ $labels.route }} requests to {{ $labels.job }} are failing."
+
+          - alert: TempoCompactionFailing
+            expr: sum(rate(tempodb_compaction_errors_total[5m])) > 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Tempo compaction is erroring"
+              description: "Tempo has been failing block compaction for 30 minutes; trace storage will keep growing."
+
+      - name: alloy
+        interval: 1m
+        rules:
+          - alert: AlloyRemoteWriteFailing
+            expr: |
+              sum by (instance) (rate(prometheus_remote_storage_samples_failed_total[5m])) > 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Alloy cannot write metrics to Mimir"
+              description: "Alloy on {{ $labels.instance }} is dropping samples on remote write; metrics from that node are incomplete."
+
+  # ── Platform services ─────────────────────────────────────────────────────
+  # The components everything else depends on: DNS, the API server, the CNI,
+  # certificates and secret delivery.
+  platform.yaml: |
+    groups:
+      - name: certificates
+        interval: 1m
+        rules:
+          - alert: CertificateExpiringSoon
+            expr: |
+              certmanager_certificate_expiration_timestamp_seconds - time() < 14 * 24 * 3600
+            for: 1h
+            labels:
+              severity: warning
+            annotations:
+              summary: "Certificate expires in less than 14 days"
+              description: "Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in {{ printf \"%.1f\" $value }} seconds and has not renewed."
+
+          - alert: CertificateNotReady
+            expr: certmanager_certificate_ready_status{condition="True"} == 0
+            for: 1h
+            labels:
+              severity: warning
+            annotations:
+              summary: "Certificate is not ready"
+              description: "Certificate {{ $labels.namespace }}/{{ $labels.name }} issued by {{ $labels.issuer_name }} has not been ready for an hour."
+
+      - name: secrets
+        interval: 1m
+        rules:
+          - alert: ExternalSecretNotReady
+            expr: |
+              max by (namespace, name) (
+                externalsecret_status_condition{condition="Ready",status="false"}
+              ) == 1
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ExternalSecret is not syncing from Vault"
+              description: "ExternalSecret {{ $labels.namespace }}/{{ $labels.name }} has been not-Ready for 30 minutes; the Secret it backs is stale or missing."
+
+      - name: cluster-services
+        interval: 1m
+        rules:
+          - alert: KubeAPIServerErrors
+            expr: |
+              sum(rate(apiserver_request_total{code=~"5.."}[5m]))
+              / sum(rate(apiserver_request_total[5m])) * 100 > 5
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "API server is returning 5xx responses"
+              description: "{{ printf \"%.2f\" $value }}% of API server requests are failing."
+
+          - alert: CoreDNSServerFailures
+            expr: |
+              sum(rate(coredns_dns_responses_total{rcode="SERVFAIL"}[5m]))
+              / sum(rate(coredns_dns_responses_total[5m])) * 100 > 5
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "CoreDNS is returning SERVFAIL"
+              description: "{{ printf \"%.2f\" $value }}% of DNS responses are SERVFAIL; in-cluster service discovery is degraded."
+
+          - alert: CiliumUnreachableNodes
+            expr: max by (instance) (cilium_unreachable_nodes) > 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Cilium reports unreachable nodes"
+              description: "The Cilium agent on {{ $labels.instance }} cannot reach {{ printf \"%.0f\" $value }} other nodes; pod-to-pod traffic across them is broken."
+
+  # ── Data stores ───────────────────────────────────────────────────────────
+  # The workloads that export their own metrics. Anything not listed here
+  # (airflow, superset, jupyter, hive, spark, redis, openwebui, llama-cpp,
+  # dbeaver, headlamp) has no exporter and is covered by the Kubernetes rules.
+  data-stores.yaml: |
+    groups:
+      - name: postgres
+        interval: 1m
+        rules:
+          - alert: PostgresInstanceDown
+            expr: cnpg_collector_up == 0
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: "PostgreSQL instance is unreachable"
+              description: "The CNPG collector cannot reach {{ $labels.namespace }}/{{ $labels.pod }}."
+
+          - alert: PostgresReplicationLagHigh
+            expr: cnpg_pg_replication_lag > 300
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "PostgreSQL replica is more than 5 minutes behind"
+              description: "{{ $labels.namespace }}/{{ $labels.pod }} is {{ printf \"%.0f\" $value }}s behind the primary."
+
+      - name: mysql
+        interval: 1m
+        rules:
+          - alert: MySQLDown
+            expr: mysql_up == 0
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: "MySQL is unreachable"
+              description: "mysqld-exporter has been unable to connect to MySQL at {{ $labels.instance }} for 10 minutes."
+
+      - name: scylladb
+        interval: 1m
+        rules:
+          # operation_mode 3 is NORMAL; anything else is joining, draining or
+          # already gone.
+          - alert: ScyllaNodeNotNormal
+            expr: scylla_node_operation_mode != 3
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "ScyllaDB node is not in NORMAL mode"
+              description: "Scylla node {{ $labels.instance }} has been in operation mode {{ printf \"%.0f\" $value }} for 15 minutes."
+
+      - name: clickhouse
+        interval: 1m
+        rules:
+          - alert: ClickHouseReadonlyReplica
+            expr: ClickHouseMetrics_ReadonlyReplica > 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "ClickHouse has read-only replicated tables"
+              description: "{{ printf \"%.0f\" $value }} tables on {{ $labels.instance }} are read-only, which normally means Keeper is unreachable."
+
+          - alert: ClickHouseReplicationDelay
+            expr: ClickHouseAsyncMetrics_ReplicasMaxAbsoluteDelay > 300
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ClickHouse replication is more than 5 minutes behind"
+              description: "{{ $labels.instance }} has a maximum replica delay of {{ printf \"%.0f\" $value }}s."
+
+      - name: hdfs
+        interval: 1m
+        rules:
+          # Only the Hadoop_NameNode_StorageTypeStats_* series are usable: the
+          # rest of the namenode's JMX output is exported with the sample value
+          # appended to the metric name (hadoop_namenode_..._MissingBlocks:_0),
+          # so it cannot be queried numerically.
+          - alert: HDFSCapacityLow
+            expr: |
+              Hadoop_NameNode_StorageTypeStats_capacityRemaining
+              / Hadoop_NameNode_StorageTypeStats_capacityTotal * 100 < 15
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "HDFS has less than 15% capacity left"
+              description: "HDFS reports {{ printf \"%.2f\" $value }}% remaining capacity."
+
+          - alert: HDFSNoDataNodesInService
+            expr: Hadoop_NameNode_StorageTypeStats_nodesInService < 1
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "HDFS has no datanodes in service"
+              description: "The namenode reports {{ printf \"%.0f\" $value }} datanodes in service; HDFS cannot serve reads or writes."
+
+      - name: trino
+        interval: 1m
+        rules:
+          - alert: TrinoNoWorkers
+            expr: trino_memory_ClusterMemoryPool_Nodes < 1
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Trino has no nodes in its memory pool"
+              description: "The {{ $labels.name }} memory pool reports {{ printf \"%.0f\" $value }} nodes; queries cannot be scheduled."
+
+      - name: ray
+        interval: 1m
+        rules:
+          - alert: RayClusterNoActiveNodes
+            expr: max by (node_type) (ray_cluster_active_nodes) < 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Ray node group has no active nodes"
+              description: "The Ray {{ $labels.node_type }} group has no active nodes."
+
+          - alert: RayWorkerStartupFailing
+            expr: sum(increase(ray_scheduler_failed_worker_startup_total[15m])) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Ray worker processes are failing to start"
+              description: "Ray recorded {{ printf \"%.0f\" $value }} failed worker startups in the last 15 minutes."

@@ -195,6 +195,14 @@ alertmanager:
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 4h
+    # Several rules come as a warning/critical pair on the same alertname and the
+    # same series (filesystem and PVC fill levels). Without this both fire, since
+    # the route groups by severity. Labels absent from an alert compare equal as
+    # empty strings, so one rule covers every pair.
+    inhibit_rules:
+      - source_matchers: [severity = critical]
+        target_matchers: [severity = warning]
+        equal: [alertname, instance, device, namespace, persistentvolumeclaim]
     receivers:
       - name: slack
         slack_configs:

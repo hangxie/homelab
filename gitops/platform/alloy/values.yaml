@@ -839,6 +839,14 @@ alloy:
           regex         = ".*metrics"
           action        = "keep"
         }
+        // dex declares a metrics port but no SSO connector is configured, so it
+        // logs "dex is not configured" and never opens a listener. Scraping it
+        // only produces a permanently failing target.
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          regex         = "argocd-dex-server"
+          action        = "drop"
+        }
       }
 
       prometheus.scrape "argocd" {
@@ -866,6 +874,14 @@ alloy:
           source_labels = ["__meta_kubernetes_pod_container_port_number"]
           regex         = "8080"
           action        = "keep"
+        }
+        // The gateway is nginx, not a Mimir component: it names its port
+        // http-metrics and listens on 8080 like the rest, but 8080 is the proxy
+        // itself and /metrics there is a 404.
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+          regex         = "gateway"
+          action        = "drop"
         }
         rule {
           source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_label_app_kubernetes_io_component"]
