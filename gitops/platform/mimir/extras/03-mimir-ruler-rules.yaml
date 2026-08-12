@@ -187,6 +187,20 @@ data:
               summary: "PersistentVolume has less than 5% space left"
               description: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} has only {{ printf \"%.2f\" $value }}% free."
 
+          # The byte rules above miss inode exhaustion, which surfaces as
+          # ENOSPC with free space still showing. Block volumes report zero
+          # inodes, hence the > 0 guard.
+          - alert: KubePersistentVolumeOutOfInodes
+            expr: |
+              kubelet_volume_stats_inodes_free / kubelet_volume_stats_inodes * 100 < 10
+              and kubelet_volume_stats_inodes > 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "PersistentVolume has less than 10% inodes left"
+              description: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} has only {{ printf \"%.2f\" $value }}% free inodes."
+
           - alert: KubePersistentVolumeClaimPending
             expr: |
               max by (namespace, persistentvolumeclaim) (
@@ -325,6 +339,32 @@ data:
             annotations:
               summary: "Node run queue is more than 2x its CPU count"
               description: "{{ $labels.instance }} has a 5m load average of {{ printf \"%.2f\" $value }} per core."
+
+      # Ceph mons drop into HEALTH_WARN on clock skew and Kafka ordering
+      # depends on node time, so the clock gets its own rules — this catches
+      # the cause before those symptoms fire.
+      - name: node-clock
+        interval: 1m
+        rules:
+          - alert: NodeClockNotSynchronising
+            expr: |
+              node_timex_sync_status{job="integrations/unix"} == 0
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Node clock is not synchronising"
+              description: "{{ $labels.instance }} has not synced its clock via NTP for 10 minutes and is drifting freely."
+
+          - alert: NodeClockSkewed
+            expr: |
+              abs(node_timex_offset_seconds{job="integrations/unix"}) > 0.05
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Node clock is skewed by more than 50ms"
+              description: "{{ $labels.instance }} reports a clock offset of {{ printf \"%.3f\" $value }}s."
 
   # ── Argo CD ───────────────────────────────────────────────────────────────
   # Several apps sit Progressing for long stretches by design (hdfs, trino,
@@ -479,6 +519,20 @@ data:
               summary: "Mimir ruler is failing to evaluate rules"
               description: "{{ $labels.job }} is failing rule evaluations, so the alerts in this file are not being computed."
 
+          # Evaluation and Slack delivery are covered above and below, but the
+          # hop between them — the ruler posting firing alerts to the
+          # Alertmanager — was not: an alert could fire in the ruler and never
+          # arrive anywhere.
+          - alert: MimirRulerNotificationsFailing
+            expr: |
+              sum by (job) (rate(cortex_prometheus_notifications_errors_total[5m])) > 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Mimir ruler cannot reach the Alertmanager"
+              description: "{{ $labels.job }} is failing to deliver firing alerts to the Alertmanager; rules still evaluate but nothing reaches Slack."
+
           - alert: MimirAlertmanagerNotificationsFailing
             expr: |
               sum by (job, integration) (rate(cortex_alertmanager_notifications_failed_total[5m])) > 0
@@ -530,6 +584,35 @@ data:
               summary: "Mimir cannot fetch from Kafka"
               description: "{{ $labels.job }} is failing Kafka fetches; the ingest path is broken even if the brokers look healthy."
 
+          # The compactor fails quietly: queries slow down as the store-gateway
+          # reads uncompacted blocks and the bucket grows without bound. The
+          # timestamp is zero from process start until the first successful
+          # run, so the > 0 guard keeps a fresh restart from firing this.
+          - alert: MimirCompactorNotRunning
+            expr: |
+              (time() - cortex_compactor_last_successful_run_timestamp_seconds > 4 * 3600)
+              and (cortex_compactor_last_successful_run_timestamp_seconds > 0)
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Mimir compactor has not run for 4 hours"
+              description: "The last successful compaction was {{ printf \"%.1f\" $value }}s ago; block queries degrade and bucket usage grows until it runs again."
+
+          # One counter covers every component's access to the Ceph RGW bucket:
+          # ingester block uploads, store-gateway reads, compactor, ruler and
+          # alertmanager state. This is the rule that fires when RGW breaks —
+          # the object-storage complement to the Kafka rules above.
+          - alert: MimirObjectStorageFailing
+            expr: |
+              sum by (job) (rate(thanos_objstore_bucket_operation_failures_total[5m])) > 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Mimir cannot reach object storage"
+              description: "{{ $labels.job }} is failing bucket operations against RGW; blocks are not being uploaded or read."
+
           - alert: MimirRequestErrors
             expr: |
               sum by (job, route) (rate(cortex_request_duration_seconds_count{status_code=~"5.."}[5m]))
@@ -554,6 +637,29 @@ data:
             annotations:
               summary: "Loki is returning 5xx responses"
               description: "{{ printf \"%.2f\" $value }}% of {{ $labels.route }} requests to {{ $labels.job }} are failing."
+
+          # The 5xx rule above only sees requests that arrive. The cluster
+          # pushes ~1000 lines/s at rest, so zero for 15 minutes means the log
+          # pipeline itself is dead, whatever the components report.
+          - alert: LokiNoLogsIngested
+            expr: |
+              sum(rate(loki_distributor_lines_received_total[10m])) == 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Loki has stopped receiving logs"
+              description: "The Loki distributor has accepted no log lines for 15 minutes; the ingest pipeline is down."
+
+          - alert: LokiDiscardingSamples
+            expr: |
+              sum by (reason) (rate(loki_discarded_samples_total[5m])) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Loki is discarding log samples"
+              description: "Loki has been rejecting log entries with reason {{ $labels.reason }} for 15 minutes; those lines are gone."
 
           - alert: TempoRequestErrors
             expr: |
@@ -587,6 +693,16 @@ data:
             annotations:
               summary: "Alloy cannot write metrics to Mimir"
               description: "Alloy on {{ $labels.instance }} is dropping samples on remote write; metrics from that node are incomplete."
+
+          - alert: AlloyLogDeliveryFailing
+            expr: |
+              sum by (instance) (rate(loki_write_dropped_entries_total[5m])) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Alloy cannot write logs to Loki"
+              description: "Alloy on {{ $labels.instance }} is dropping log entries on the way to Loki; logs from that node are incomplete."
 
   # ── Platform services ─────────────────────────────────────────────────────
   # The components everything else depends on: DNS, the API server, the CNI,
