@@ -32,6 +32,11 @@ data:
         jsonData:
           implementation: mimir
           handleGrafanaManagedAlerts: false
+      # A same-URL alias of Mimir, kept only so community dashboards that
+      # hardcode a datasource named "Prometheus" resolve. manageAlerts defaults
+      # to true, which made the Alerting UI enumerate the Mimir ruler's rules a
+      # second time under this datasource; it stays off so Mimir above is the
+      # single entry point for alert rules.
       - name: Prometheus
         type: prometheus
         uid: prometheus
@@ -39,6 +44,7 @@ data:
         jsonData:
           httpMethod: POST
           timeInterval: 60s
+          manageAlerts: false
       - name: Loki
         type: loki
         uid: loki
