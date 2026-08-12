@@ -7,13 +7,25 @@ data:
   config.yaml: |
     startDelaySeconds: 0
     ssl: false
+    # jmx_exporter matches each pattern against
+    # `domain<beanProperties><>attributeName: value` — the *value is part of
+    # the matched string*. A trailing `(.+)` therefore captures
+    # "FailedQueries.FifteenMinute.Count: 0.0" and bakes the sample into the
+    # metric name (trino_query_manager_FailedQueries_FifteenMinute_Count:_0_0),
+    # producing a new series every time the value changes and leaving nothing
+    # queryable. `[^:]+` stops at the colon; JMX attribute names never contain
+    # one.
+    #
+    # Only these four rules were affected — every other Trino metric falls
+    # through to the catch-all below, whose default naming already splits the
+    # attribute from the value correctly.
     rules:
-      - pattern: "trino.execution<name=QueryManager><>(.+)"
+      - pattern: "trino.execution<name=QueryManager><>([^:]+)"
         name: "trino_query_manager_$1"
-      - pattern: "trino.execution<name=TaskManager><>(.+)"
+      - pattern: "trino.execution<name=TaskManager><>([^:]+)"
         name: "trino_task_manager_$1"
-      - pattern: "trino.memory<name=ClusterMemoryManager><>(.+)"
+      - pattern: "trino.memory<name=ClusterMemoryManager><>([^:]+)"
         name: "trino_cluster_memory_$1"
-      - pattern: "trino.failuredetector<name=HeartbeatFailureDetector><>(.+)"
+      - pattern: "trino.failuredetector<name=HeartbeatFailureDetector><>([^:]+)"
         name: "trino_failure_detector_$1"
       - pattern: ".*"
