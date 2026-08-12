@@ -625,6 +625,9 @@ alloy:
 
       // ── Airflow ───────────────────────────────────────────────────────────────
 
+      // The Helm release is named by the workloads-helm ApplicationSet, which
+      // prefixes every workload with wl- — so the chart's `release` label is
+      // wl-airflow, not airflow.
       discovery.kubernetes "airflow" {
         role = "endpoints"
         namespaces {
@@ -632,15 +635,19 @@ alloy:
         }
         selectors {
           role  = "endpoints"
-          label = "release=airflow,component=statsd"
+          label = "release=wl-airflow,component=statsd"
         }
       }
 
+      // The statsd Service publishes both the UDP ingest port and the scrape
+      // port. Keep on the port *name* — kubernetes SD emits no
+      // __meta_kubernetes_endpoint_port_number label, so filtering on the
+      // number silently discarded every target.
       discovery.relabel "airflow" {
         targets = discovery.kubernetes.airflow.targets
         rule {
-          source_labels = ["__meta_kubernetes_endpoint_port_number"]
-          regex         = "9102"
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "statsd-scrape"
           action        = "keep"
         }
       }
@@ -680,33 +687,40 @@ alloy:
         forward_to   = [prometheus.remote_write.mimir.receiver]
       }
 
-      // ── Spark history ─────────────────────────────────────────────────────────
+      // ── Spark operator ────────────────────────────────────────────────────────
 
+      // role = "pod", not "endpoints": the operator exposes a `metrics`
+      // containerPort but the chart creates no Service in front of it, so there
+      // are no Endpoints to discover. The history server is not a metrics
+      // source — /metrics/prometheus there serves the web UI HTML.
       discovery.kubernetes "spark" {
-        role = "endpoints"
+        role = "pod"
         namespaces {
           names = ["spark"]
         }
         selectors {
-          role  = "endpoints"
-          label = "app.kubernetes.io/name=spark"
+          role  = "pod"
+          label = "app.kubernetes.io/name=spark-operator"
         }
       }
 
       discovery.relabel "spark" {
         targets = discovery.kubernetes.spark.targets
         rule {
-          source_labels = ["__meta_kubernetes_endpoint_port_name"]
-          regex         = "http"
+          source_labels = ["__meta_kubernetes_pod_container_port_name"]
+          regex         = "metrics"
           action        = "keep"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+          target_label  = "component"
         }
       }
 
       prometheus.scrape "spark" {
-        targets      = discovery.relabel.spark.output
-        job_name     = "spark"
-        metrics_path = "/metrics/prometheus"
-        forward_to   = [prometheus.remote_write.mimir.receiver]
+        targets    = discovery.relabel.spark.output
+        job_name   = "spark"
+        forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
       // ── ScyllaDB ──────────────────────────────────────────────────────────────
@@ -985,6 +999,112 @@ alloy:
       prometheus.scrape "trino" {
         targets    = discovery.relabel.trino_jmx.output
         job_name   = "jmx"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── Redis ─────────────────────────────────────────────────────────────────
+
+      // The redis operator already runs a redis-exporter sidecar in every pod
+      // and fronts it with a dedicated -metrics Service. Selecting on
+      // component=metrics picks up both the replication and the sentinel set
+      // while skipping the primary Services, which also publish 9121.
+      discovery.kubernetes "redis" {
+        role = "endpoints"
+        namespaces {
+          names = ["redis"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/component=metrics"
+        }
+      }
+
+      discovery.relabel "redis" {
+        targets = discovery.kubernetes.redis.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "redis-exporter"
+          action        = "keep"
+        }
+        // app is redis-replication or redis-sentinel-sentinel; without it the
+        // two sets are only distinguishable by pod IP.
+        rule {
+          source_labels = ["__meta_kubernetes_service_label_app"]
+          target_label  = "redis_set"
+        }
+      }
+
+      prometheus.scrape "redis" {
+        targets    = discovery.relabel.redis.output
+        job_name   = "redis"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── Hive metastore ────────────────────────────────────────────────────────
+
+      // Stackable exposes the JMX exporter on a headless -metrics Service
+      // labelled prometheus.io/scrape=true.
+      discovery.kubernetes "hive" {
+        role = "endpoints"
+        namespaces {
+          names = ["hive"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "prometheus.io/scrape=true"
+        }
+      }
+
+      discovery.relabel "hive" {
+        targets = discovery.kubernetes.hive.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "metrics"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "hive" {
+        targets    = discovery.relabel.hive.output
+        job_name   = "hive"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── llama.cpp ─────────────────────────────────────────────────────────────
+
+      // The per-model Services have no labels of their own, so discover the
+      // pods directly. llama-server only answers /metrics when started with
+      // --metrics (see gitops/helm-charts/llama-cpp-model).
+      discovery.kubernetes "llama_cpp" {
+        role = "pod"
+        namespaces {
+          names = ["llama-cpp"]
+        }
+        selectors {
+          role  = "pod"
+          label = "llama-cpp.model=true"
+        }
+      }
+
+      // role = "pod" emits one target per declared containerPort plus a
+      // portless one for every container without ports — including the init
+      // containers — so keep only the named serving port.
+      discovery.relabel "llama_cpp" {
+        targets = discovery.kubernetes.llama_cpp.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_port_name"]
+          regex         = "http"
+          action        = "keep"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          target_label  = "model"
+        }
+      }
+
+      prometheus.scrape "llama_cpp" {
+        targets    = discovery.relabel.llama_cpp.output
+        job_name   = "llama-cpp"
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
