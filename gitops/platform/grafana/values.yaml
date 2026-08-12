@@ -1,10 +1,5 @@
 replicas: 2
 
-# Peer discovery for the alerting HA cluster below. The chart's ClusterIP
-# Service load-balances, so it cannot be used to reach individual replicas;
-# gossip needs the per-pod A records only a headless Service provides.
-headlessService: true
-
 # Default liveness grace (60s + 10*10s) is too short for first-boot DB
 # migrations on this cluster's storage; kubelet was killing the container
 # mid-migration, causing an endless crash loop.
@@ -38,11 +33,6 @@ sidecar:
     searchNamespace: ALL
     label: grafana_datasource
     labelValue: "1"
-  alerts:
-    enabled: true
-    searchNamespace: ALL
-    label: grafana_alert
-    labelValue: "1"
 
 # SQLite replaced by Postgres; PVC no longer holds application state.
 # Existing PVC is left intact (Prune=false) and can be removed manually.
@@ -64,19 +54,6 @@ grafana.ini:
     max_age: 7d
   annotations.api:
     max_age: 7d
-  # Each replica runs its own embedded Alertmanager. Without gossip peering
-  # both evaluate every rule and both notify, so each alert reached Slack
-  # twice and a silence created on one replica did not apply to the other.
-  # Peering makes exactly one peer own each notification.
-  #
-  # ${POD_IP} is expanded by Grafana from the POD_IP env var the chart always
-  # injects; the listen/advertise addresses must be the pod IP rather than
-  # 0.0.0.0 so peers advertise a routable address to each other.
-  unified_alerting:
-    ha_peers: "grafana-headless.grafana.svc.cluster.local:9094"
-    ha_listen_address: "${POD_IP}:9094"
-    ha_advertise_address: "${POD_IP}:9094"
-
 envValueFrom:
   GF_DATABASE_USER:
     secretKeyRef:
@@ -86,12 +63,6 @@ envValueFrom:
     secretKeyRef:
       name: grafana-db-credentials
       key: password
-  # Consumed by the `slack` contact point in extras/08-alert-notifications.yaml
-  # via $__env{}, so the webhook URL stays in Vault rather than a ConfigMap.
-  GF_SLACK_WEBHOOK_URL:
-    secretKeyRef:
-      name: grafana-slack
-      key: webhook-url
 
 affinity:
   podAntiAffinity:

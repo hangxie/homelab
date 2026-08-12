@@ -1,0 +1,48 @@
+# Mounted into the ruler at /rules/anonymous — "anonymous" is the tenant the
+# gateway injects when multitenancy is off, and Mimir's local rule store expects
+# <ruler_storage.local.directory>/<tenant>/<file>.
+#
+# These replace the Grafana-managed rules that used to live in the grafana
+# chart's extras/03-alert-rules.yaml. Unlike Grafana rules, an empty query
+# result simply means "not firing", so no noDataState handling is needed.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mimir-ruler-rules
+  namespace: mimir
+data:
+  # The filename is the Mimir rule namespace, so the file itself carries only
+  # the group list — a `namespace:` key here fails to parse as rulefmt.RuleGroups.
+  node-disk.yaml: |
+    groups:
+      - name: node-disk
+        interval: 1m
+        rules:
+          - alert: NodeFilesystemAlmostOutOfSpace
+            expr: |
+              (
+                node_filesystem_avail_bytes{job="node-exporter",fstype!=""}
+                / node_filesystem_size_bytes{job="node-exporter",fstype!=""} * 100 < 15
+              and
+                node_filesystem_readonly{job="node-exporter",fstype!=""} == 0
+              )
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Filesystem has less than 15% space left"
+              description: "Filesystem on {{ $labels.device }} at {{ $labels.instance }} has only {{ printf \"%.2f\" $value }}% available space."
+          - alert: NodeFilesystemAlmostOutOfSpace
+            expr: |
+              (
+                node_filesystem_avail_bytes{job="node-exporter",fstype!=""}
+                / node_filesystem_size_bytes{job="node-exporter",fstype!=""} * 100 < 5
+              and
+                node_filesystem_readonly{job="node-exporter",fstype!=""} == 0
+              )
+            for: 30m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Filesystem has less than 5% space left"
+              description: "Filesystem on {{ $labels.device }} at {{ $labels.instance }} has only {{ printf \"%.2f\" $value }}% available space."

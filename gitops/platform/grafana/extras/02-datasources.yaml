@@ -9,6 +9,9 @@ data:
   datasources.yaml: |
     apiVersion: 1
     datasources:
+      # Alert rules live in the Mimir ruler, not in Grafana. manageAlerts lets
+      # the Alerting UI list and edit them through this datasource, and
+      # alertmanagerUid points "send to" at Mimir's Alertmanager below.
       - name: Mimir
         type: prometheus
         uid: mimir
@@ -17,6 +20,18 @@ data:
         jsonData:
           httpMethod: POST
           timeInterval: 60s
+          manageAlerts: true
+          alertmanagerUid: mimir-alertmanager
+      # Routing and silences are owned by Mimir's Alertmanager; Grafana is only
+      # a UI over it. handleGrafanaManagedAlerts stays false so Grafana's own
+      # embedded Alertmanager is not fed from here.
+      - name: Alertmanager
+        type: alertmanager
+        uid: mimir-alertmanager
+        url: http://mimir-gateway.mimir/
+        jsonData:
+          implementation: mimir
+          handleGrafanaManagedAlerts: false
       - name: Prometheus
         type: prometheus
         uid: prometheus
