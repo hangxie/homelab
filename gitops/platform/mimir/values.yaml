@@ -23,6 +23,23 @@ mimir:
     blocks_storage:
       s3:
         bucket_name: mimir-blocks
+    # The chart only fills these in when the bundled MinIO is enabled, so they
+    # have to be set explicitly against Ceph RGW. Both inherit common.storage.
+    alertmanager_storage:
+      s3:
+        bucket_name: mimir-alertmanager
+    alertmanager:
+      sharding_ring:
+        # Matches the 2 replicas; the 3 default would never reach quorum here.
+        replication_factor: 2
+      # Written by the render-fallback-config init container with the Slack
+      # webhook substituted in; the chart's own /configs copy is the template.
+      fallback_config_file: /rendered/alertmanager_fallback_config.yaml
+    # Rules are mounted from a ConfigMap, so the ruler needs no bucket at all.
+    ruler_storage:
+      backend: local
+      local:
+        directory: /rules
     ingester:
       ring:
         replication_factor: 2
@@ -114,14 +131,109 @@ query_frontend:
               app.kubernetes.io/component: query-frontend
           topologyKey: kubernetes.io/hostname
 
-# Disable alertmanager and ruler — Grafana built-in alerting is used instead.
+# Alerting lives here rather than in Grafana's embedded Alertmanager: the ruler
+# evaluates the rules and the alertmanager owns routing to Slack. Grafana is a
+# read-only UI over both (see the Alertmanager datasource in the grafana chart).
 alertmanager:
-  enabled: false
-  replicas: 0
+  enabled: true
+  replicas: 2
+  zoneAwareReplication:
+    enabled: false
+  # Silences and the notification log persist to the bucket, so a rescheduled
+  # replica does not re-notify for alerts a peer already sent.
+  extraEnvFrom:
+    - secretRef:
+        name: mimir-alertmanager
+  persistentVolume:
+    storageClass: rook-ceph-block
+    size: 2Gi
+  # Mimir applies -config.expand-env only to -config.file, NOT to the fallback
+  # config, and it rejects Alertmanager's api_url_file for tenant configs. So
+  # the webhook is substituted into a copy of the config before Mimir starts,
+  # and mimir.structuredConfig points fallback_config_file at the copy. The
+  # ConfigMap on disk keeps the ${SLACK_WEBHOOK_URL} placeholder.
+  initContainers:
+    - name: render-fallback-config
+      image: busybox:1.37
+      command:
+        - sh
+        - -c
+        - >-
+          sed "s|\${SLACK_WEBHOOK_URL}|${SLACK_WEBHOOK_URL}|"
+          /configs/alertmanager_fallback_config.yaml
+          > /rendered/alertmanager_fallback_config.yaml
+      envFrom:
+        - secretRef:
+            name: mimir-slack
+      volumeMounts:
+        - name: alertmanager-fallback-config
+          mountPath: /configs
+        - name: rendered-fallback-config
+          mountPath: /rendered
+  extraVolumes:
+    - name: rendered-fallback-config
+      emptyDir: {}
+  extraVolumeMounts:
+    - name: rendered-fallback-config
+      mountPath: /rendered
+      readOnly: true
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: alertmanager
+          topologyKey: kubernetes.io/hostname
+  # Used for any tenant without an uploaded config — with multitenancy off that
+  # is the only tenant ("anonymous"), so this is effectively *the* config and
+  # stays declarative in Git. ${SLACK_WEBHOOK_URL} is expanded from the env
+  # supplied by the mimir-slack Secret, keeping the URL out of the ConfigMap.
+  fallbackConfig: |
+    route:
+      receiver: slack
+      group_by: [alertname, severity]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+    receivers:
+      - name: slack
+        slack_configs:
+          - api_url: ${SLACK_WEBHOOK_URL}
+            send_resolved: true
+            title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+            text: |
+              {{ range .Alerts -}}
+              *{{ .Labels.alertname }}* ({{ .Labels.severity }})
+              {{ .Annotations.summary }}
+              {{ .Annotations.description }}
+              {{ end }}
 
 ruler:
-  enabled: false
-  replicas: 0
+  enabled: true
+  replicas: 2
+  # The ruler evaluates queries through its own embedded querier, so it needs
+  # the blocks bucket credentials the same way the querier does.
+  extraEnvFrom:
+    - secretRef:
+        name: mimir-blocks
+  # Rule groups come from a ConfigMap rather than the ruler's object-storage
+  # backend, so they stay in Git and are pruned by Argo CD like any other
+  # manifest. Local storage is read-only: the ruler config API cannot write.
+  extraVolumes:
+    - name: rules
+      configMap:
+        name: mimir-ruler-rules
+  extraVolumeMounts:
+    - name: rules
+      mountPath: /rules/anonymous
+      readOnly: true
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: ruler
+          topologyKey: kubernetes.io/hostname
 
 # Disable the MinIO dependency (using Ceph RGW instead).
 minio:
