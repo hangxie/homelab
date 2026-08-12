@@ -42,9 +42,10 @@ data:
 
   # ── Kubernetes workloads ──────────────────────────────────────────────────
   # kube-state-metrics covers every workload in the cluster, including the ones
-  # that export no metrics of their own (airflow, superset, jupyter, openwebui,
-  # dbeaver, headlamp, hive, spark, redis, llama-cpp). These rules are the only
-  # alerting those services get, so they stay generic on purpose.
+  # that export no metrics of their own (superset, jupyter, openwebui, dbeaver,
+  # headlamp). These rules are the only alerting those services get, so they
+  # stay generic on purpose; everything else is also covered by its own rules
+  # under workloads.yaml.
   kubernetes.yaml: |
     groups:
       - name: kubernetes-workloads
@@ -435,6 +436,19 @@ data:
               summary: "Ceph OSD is more than 85% full"
               description: "{{ $labels.ceph_daemon }} is {{ printf \"%.2f\" $value }}% full; the cluster blocks writes once any OSD hits the full ratio."
 
+          # HEALTH_WARN alerts only after an hour, and BLUESTORE_SLOW_OP_ALERT
+          # is muted at the cluster level because it pins the cluster to
+          # HEALTH_WARN on this hardware. This keeps the underlying signal at a
+          # threshold that means something: ops still blocked after 30 minutes.
+          - alert: CephSlowOps
+            expr: ceph_healthcheck_slow_ops > 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Ceph has operations blocked for too long"
+              description: "{{ printf \"%.0f\" $value }} OSD operations have been blocked for 30 minutes; every PVC-backed workload sees this as I/O stalls."
+
           - alert: CephPGsUnhealthy
             expr: |
               sum(ceph_pg_degraded + ceph_pg_undersized + ceph_pg_inconsistent
@@ -489,6 +503,32 @@ data:
             annotations:
               summary: "Mimir is dropping samples on ingest"
               description: "{{ $labels.job }} is rejecting {{ printf \"%.2f\" $value }}% of incoming samples."
+
+          # Mimir ingests through Kafka, and the failure that actually happened
+          # here was the topic disappearing under the ingesters — Kafka itself
+          # healthy, Grafana blank. The brokers export no metrics of their own
+          # (no JMX exporter, only 9092/9093), so the reader side is the signal:
+          # receive_delay is the age of a record when the ingester consumes it.
+          - alert: MimirKafkaIngestDelayHigh
+            expr: |
+              sum(rate(cortex_ingest_storage_reader_receive_delay_seconds_sum[5m]))
+              / sum(rate(cortex_ingest_storage_reader_receive_delay_seconds_count[5m])) > 30
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Mimir ingesters are falling behind Kafka"
+              description: "Records are reaching the ingesters {{ printf \"%.0f\" $value }}s after they were produced; recent metrics are missing from queries."
+
+          - alert: MimirKafkaFetchErrors
+            expr: |
+              sum by (job) (rate(cortex_ingest_storage_reader_fetch_errors_total[5m])) > 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Mimir cannot fetch from Kafka"
+              description: "{{ $labels.job }} is failing Kafka fetches; the ingest path is broken even if the brokers look healthy."
 
           - alert: MimirRequestErrors
             expr: |
@@ -624,11 +664,17 @@ data:
               summary: "Cilium reports unreachable nodes"
               description: "The Cilium agent on {{ $labels.instance }} cannot reach {{ printf \"%.0f\" $value }} other nodes; pod-to-pod traffic across them is broken."
 
-  # ── Data stores ───────────────────────────────────────────────────────────
+  # ── Workloads ─────────────────────────────────────────────────────────────
   # The workloads that export their own metrics. Anything not listed here
-  # (airflow, superset, jupyter, hive, spark, redis, openwebui, llama-cpp,
-  # dbeaver, headlamp) has no exporter and is covered by the Kubernetes rules.
-  data-stores.yaml: |
+  # (superset, jupyter, openwebui, dbeaver, headlamp) has no exporter and is
+  # covered by the Kubernetes rules.
+  #
+  # Label shapes differ sharply by exporter and are not interchangeable:
+  # postgres-cluster carries namespace/pod/datname, redis carries a redis_set
+  # added by an Alloy relabel, and mysql/scylladb/clickhouse/hive/rook-ceph
+  # carry only instance. Scylla additionally reports almost everything
+  # per-shard, so every rule below aggregates the shard away.
+  workloads.yaml: |
     groups:
       - name: postgres
         interval: 1m
@@ -651,6 +697,89 @@ data:
               summary: "PostgreSQL replica is more than 5 minutes behind"
               description: "{{ $labels.namespace }}/{{ $labels.pod }} is {{ printf \"%.0f\" $value }}s behind the primary."
 
+          # state="idle" backends hold no transaction, so their duration is
+          # meaningless; "idle in transaction" is exactly what this should
+          # catch and is a different state string, so only plain idle is
+          # excluded.
+          - alert: PostgresLongRunningTransaction
+            expr: |
+              max by (namespace, pod, datname, usename) (
+                cnpg_backends_max_tx_duration_seconds{state!="idle"}
+              ) > 300
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "PostgreSQL transaction has been open for too long"
+              description: "A {{ $labels.usename }} transaction on {{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.datname }}) has been open {{ printf \"%.0f\" $value }}s, holding locks and blocking vacuum."
+
+          - alert: PostgresBackendsWaitingOnLocks
+            expr: max by (namespace, pod) (cnpg_backends_waiting_total) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "PostgreSQL backends are blocked on locks"
+              description: "{{ printf \"%.0f\" $value }} backends on {{ $labels.namespace }}/{{ $labels.pod }} have been waiting on locks for 15 minutes."
+
+          - alert: PostgresDeadlocks
+            expr: |
+              max by (namespace, pod, datname) (
+                increase(cnpg_pg_stat_database_deadlocks[15m])
+              ) > 0
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: "PostgreSQL detected deadlocks"
+              description: "{{ printf \"%.0f\" $value }} deadlocks in {{ $labels.datname }} on {{ $labels.namespace }}/{{ $labels.pod }} in the last 15 minutes; one transaction was aborted for each."
+
+          - alert: PostgresConnectionsNearLimit
+            expr: |
+              sum by (namespace, pod) (cnpg_backends_total)
+              / on (namespace, pod) group_left()
+                max by (namespace, pod) (cnpg_pg_settings_setting{name="max_connections"})
+              * 100 > 80
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "PostgreSQL is close to max_connections"
+              description: "{{ $labels.namespace }}/{{ $labels.pod }} is using {{ printf \"%.1f\" $value }}% of its connection slots; new connections are refused at 100%."
+
+          # autovacuum_freeze_max_age defaults to 200M, at which point Postgres
+          # forces an aggressive vacuum; past 2^31 it refuses writes entirely.
+          - alert: PostgresTransactionIDWraparoundRisk
+            expr: |
+              max by (namespace, pod, datname) (cnpg_pg_database_xid_age) > 150000000
+            for: 1h
+            labels:
+              severity: warning
+            annotations:
+              summary: "PostgreSQL transaction IDs are approaching wraparound"
+              description: "Database {{ $labels.datname }} on {{ $labels.namespace }}/{{ $labels.pod }} has an XID age of {{ printf \"%.0f\" $value }}; vacuum is not keeping up."
+
+          # Archiver metrics only exist on the primary, so this needs no
+          # in-recovery filter — replicas simply do not produce the series.
+          - alert: PostgresWALArchiveFailing
+            expr: |
+              max by (namespace, pod) (increase(cnpg_pg_stat_archiver_failed_count[15m])) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "PostgreSQL is failing to archive WAL"
+              description: "{{ $labels.namespace }}/{{ $labels.pod }} recorded {{ printf \"%.0f\" $value }} WAL archive failures in 15 minutes; WAL accumulates on disk until this clears."
+
+          - alert: PostgresCollectorError
+            expr: max by (namespace, pod) (cnpg_collector_last_collection_error) > 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "CNPG metrics collector is erroring"
+              description: "The collector on {{ $labels.namespace }}/{{ $labels.pod }} is failing its queries, so the Postgres rules above are running on stale data."
+
       - name: mysql
         interval: 1m
         rules:
@@ -662,6 +791,60 @@ data:
             annotations:
               summary: "MySQL is unreachable"
               description: "mysqld-exporter has been unable to connect to MySQL at {{ $labels.instance }} for 10 minutes."
+
+          # Slow_queries counts every statement exceeding long_query_time (10s
+          # here) and increments whether or not the slow query log is enabled —
+          # it is off on this server, so this counter is the only slow-query
+          # signal available. Per-statement detail would need
+          # --collect.perf_schema.eventsstatements on the exporter.
+          - alert: MySQLSlowQueries
+            expr: rate(mysql_global_status_slow_queries[15m]) * 60 > 5
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "MySQL is running slow queries"
+              description: "{{ $labels.instance }} is logging {{ printf \"%.1f\" $value }} queries per minute over long_query_time."
+
+          - alert: MySQLConnectionsNearLimit
+            expr: |
+              mysql_global_status_threads_connected
+              / mysql_global_variables_max_connections * 100 > 80
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "MySQL is close to max_connections"
+              description: "{{ $labels.instance }} is using {{ printf \"%.1f\" $value }}% of its connection slots; new connections are refused at 100%."
+
+          # A row lock that is still contended 15 minutes later is a stuck
+          # transaction, not normal contention.
+          - alert: MySQLRowLockWaitStuck
+            expr: mysql_global_status_innodb_row_lock_current_waits > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "InnoDB row locks have been contended for 15 minutes"
+              description: "{{ printf \"%.0f\" $value }} transactions on {{ $labels.instance }} are waiting on row locks; something is holding a transaction open."
+
+          - alert: MySQLAbortedConnects
+            expr: rate(mysql_global_status_aborted_connects[15m]) * 60 > 5
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "MySQL is rejecting connection attempts"
+              description: "{{ $labels.instance }} is aborting {{ printf \"%.1f\" $value }} connections per minute — failed authentication, or clients dropping mid-handshake."
+
+          - alert: MySQLExporterCollectorFailing
+            expr: mysql_exporter_collector_success == 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "mysqld-exporter collector is failing"
+              description: "The {{ $labels.collector }} collector on {{ $labels.instance }} is erroring, so the metrics it feeds are stale or absent."
 
       - name: scylladb
         interval: 1m
@@ -677,9 +860,93 @@ data:
               summary: "ScyllaDB node is not in NORMAL mode"
               description: "Scylla node {{ $labels.instance }} has been in operation mode {{ printf \"%.0f\" $value }} for 15 minutes."
 
+          # operation_mode only describes the local node. Gossip is how a node
+          # notices its peers dying, so this fires on the survivors.
+          - alert: ScyllaNodeUnreachable
+            expr: max by (instance) (scylla_gossip_unreachable) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ScyllaDB node cannot reach its peers"
+              description: "{{ $labels.instance }} reports {{ printf \"%.0f\" $value }} unreachable peers via gossip."
+
+          # Bulk loads legitimately queue compactions, hence the hour. A
+          # backlog that never drains means compaction cannot keep up with
+          # writes, and read latency degrades as SSTable count grows.
+          - alert: ScyllaCompactionBacklog
+            expr: max by (instance) (scylla_compaction_manager_pending_compactions) > 20
+            for: 1h
+            labels:
+              severity: warning
+            annotations:
+              summary: "ScyllaDB compaction is falling behind"
+              description: "{{ $labels.instance }} has had {{ printf \"%.0f\" $value }} compactions queued for an hour; SSTable count and read latency will keep climbing."
+
+          - alert: ScyllaCompactionsFailing
+            expr: |
+              max by (instance) (increase(scylla_compaction_manager_failed_compactions[15m])) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ScyllaDB compactions are failing"
+              description: "{{ $labels.instance }} recorded {{ printf \"%.0f\" $value }} failed compactions in 15 minutes; disk space will not be reclaimed."
+
+          # Hints are writes buffered for a replica that was unreachable at
+          # write time. Accumulating hints mean a peer has been down long
+          # enough to matter.
+          - alert: ScyllaHintsAccumulating
+            expr: max by (instance) (scylla_hints_manager_size_of_hints_in_progress) > 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ScyllaDB is buffering hinted handoffs"
+              description: "{{ $labels.instance }} has been holding hints for an unreachable replica for 30 minutes; those writes are not yet on every replica."
+
+          - alert: ScyllaRequestsShed
+            expr: sum by (instance) (rate(scylla_transport_requests_shed[5m])) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ScyllaDB is shedding CQL requests"
+              description: "{{ $labels.instance }} is rejecting {{ printf \"%.2f\" $value }} requests/s because it is over its memory or concurrency limit."
+
+          # Scylla latency histograms are in microseconds — the top bucket is
+          # 33554432 (~33s), not seconds. 100000 is 100ms.
+          - alert: ScyllaReadLatencyHigh
+            expr: |
+              histogram_quantile(0.99,
+                sum by (instance, le) (rate(scylla_storage_proxy_coordinator_read_latency_bucket[5m]))
+              ) > 100000
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ScyllaDB p99 read latency is above 100ms"
+              description: "{{ $labels.instance }} is serving p99 reads in {{ printf \"%.0f\" $value }}µs."
+
+          - alert: ScyllaWriteLatencyHigh
+            expr: |
+              histogram_quantile(0.99,
+                sum by (instance, le) (rate(scylla_storage_proxy_coordinator_write_latency_bucket[5m]))
+              ) > 100000
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ScyllaDB p99 write latency is above 100ms"
+              description: "{{ $labels.instance }} is serving p99 writes in {{ printf \"%.0f\" $value }}µs."
+
       - name: clickhouse
         interval: 1m
         rules:
+          # No replicated tables exist yet (AttachedReplicatedTable is 0 and
+          # there is no Keeper session), so these two cannot fire today. They
+          # stay because they are the rules that matter the moment a
+          # ReplicatedMergeTree table is created.
           - alert: ClickHouseReadonlyReplica
             expr: ClickHouseMetrics_ReadonlyReplica > 0
             for: 15m
@@ -697,6 +964,234 @@ data:
             annotations:
               summary: "ClickHouse replication is more than 5 minutes behind"
               description: "{{ $labels.instance }} has a maximum replica delay of {{ printf \"%.0f\" $value }}s."
+
+          # An absolute count rather than a failed/total ratio: query volume
+          # here is low enough that one failure out of three would read as 33%.
+          - alert: ClickHouseQueryFailures
+            expr: increase(ClickHouseProfileEvents_FailedQuery[15m]) > 5
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ClickHouse queries are failing"
+              description: "{{ $labels.instance }} failed {{ printf \"%.0f\" $value }} queries in the last 15 minutes."
+
+          # MergeTree inserts create one part each and merges reduce them.
+          # Parts climbing means merges are losing; ClickHouse first throttles
+          # inserts and then rejects them outright.
+          - alert: ClickHouseTooManyParts
+            expr: ClickHouseAsyncMetrics_MaxPartCountForPartition > 200
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ClickHouse partition has too many parts"
+              description: "The busiest partition on {{ $labels.instance }} has {{ printf \"%.0f\" $value }} parts; merges are not keeping up with inserts."
+
+          - alert: ClickHouseDelayedInserts
+            expr: ClickHouseMetrics_DelayedInserts > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ClickHouse is throttling inserts"
+              description: "{{ printf \"%.0f\" $value }} inserts on {{ $labels.instance }} are being delayed because there are too many parts."
+
+      - name: redis
+        interval: 1m
+        rules:
+          # Only replicas export master_link_up, so this is inherently scoped
+          # to them.
+          - alert: RedisReplicaLinkDown
+            expr: redis_master_link_up == 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Redis replica has lost its master"
+              description: "{{ $labels.instance }} has been disconnected from master {{ $labels.master_host }} for 15 minutes and is serving stale data."
+
+          - alert: RedisSentinelQuorumAtRisk
+            expr: max by (master_name) (redis_sentinel_master_ckquorum_status) == 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Redis sentinels cannot reach quorum"
+              description: "Sentinel reports quorum unreachable for {{ $labels.master_name }}; an automatic failover would not succeed."
+
+          # The value is 1 only while master_status is "ok"; any other state
+          # (sdown, odown, failover) reports 0 and carries a different
+          # master_status label, so this must test the value, not the label.
+          - alert: RedisSentinelMasterNotOk
+            expr: max by (master_name) (redis_sentinel_master_status) == 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Redis sentinel reports the master is not ok"
+              description: "Sentinel has flagged the master for {{ $labels.master_name }} as not ok for 15 minutes."
+
+          - alert: RedisReplicasMissing
+            expr: min by (master_name) (redis_sentinel_master_ok_slaves) < 2
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Redis has fewer healthy replicas than expected"
+              description: "Sentinel sees {{ printf \"%.0f\" $value }} healthy replicas for {{ $labels.master_name }}; the replication set is meant to run three nodes."
+
+          - alert: RedisPersistenceFailing
+            expr: redis_rdb_last_bgsave_status == 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Redis background save is failing"
+              description: "The last RDB save on {{ $labels.instance }} failed; a restart would lose everything written since the previous successful save."
+
+          - alert: RedisKeysEvicted
+            expr: increase(redis_evicted_keys_total[15m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Redis is evicting keys"
+              description: "{{ $labels.instance }} evicted {{ printf \"%.0f\" $value }} keys in 15 minutes; it is at its memory limit and silently dropping data."
+
+          - alert: RedisExporterScrapeError
+            expr: redis_exporter_last_scrape_error > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "redis-exporter cannot query Redis"
+              description: "The exporter on {{ $labels.instance }} is failing its scrape, so the Redis rules above are blind."
+
+      - name: hive
+        interval: 1m
+        rules:
+          # The metastore is a single replica with a small heap and has been
+          # restarting; Trino, Spark and Hive all stall when it goes.
+          - alert: HiveMetastoreHeapHigh
+            expr: |
+              metrics_memory_heap_used_value / metrics_memory_heap_max_value * 100 > 90
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Hive metastore heap is nearly full"
+              description: "The metastore JVM at {{ $labels.instance }} has used {{ printf \"%.1f\" $value }}% of its heap for 30 minutes and is heading for an OOM."
+
+          - alert: HiveMetastoreGCPauses
+            expr: increase(metrics_jvm_pause_warn_threshold_count[15m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Hive metastore is pausing on GC"
+              description: "The metastore JVM at {{ $labels.instance }} recorded {{ printf \"%.0f\" $value }} pauses over its warn threshold in 15 minutes; metastore calls block for the duration."
+
+      - name: airflow
+        interval: 1m
+        rules:
+          # Airflow reports through statsd, so these are counters that only
+          # advance while the component is alive. A component that hangs
+          # without exiting keeps its pod Ready and is invisible to the
+          # Kubernetes rules — a flat heartbeat is the only way to see it.
+          - alert: AirflowSchedulerNotHeartbeating
+            expr: rate(airflow_scheduler_heartbeat[10m]) == 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Airflow scheduler has stopped heartbeating"
+              description: "No scheduler heartbeats for 15 minutes; nothing is being scheduled even though the pod is still Running."
+
+          - alert: AirflowDagProcessorNotHeartbeating
+            expr: rate(airflow_dag_processor_heartbeat[10m]) == 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Airflow DAG processor has stopped heartbeating"
+              description: "DAG files are no longer being parsed, so new and edited DAGs will not appear."
+
+          - alert: AirflowTriggererNotHeartbeating
+            expr: rate(airflow_triggerer_heartbeat[10m]) == 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Airflow triggerer has stopped heartbeating"
+              description: "Deferred tasks will stay deferred until the triggerer resumes."
+
+          - alert: AirflowTasksStarving
+            expr: airflow_scheduler_tasks_starving > 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Airflow tasks cannot get a pool slot"
+              description: "{{ printf \"%.0f\" $value }} tasks have been starving for 30 minutes — schedulable, but with no pool slot free."
+
+          # The statsd exporter publishes this both with a pool label and
+          # flattened into the metric name; the label filter keeps one series
+          # per pool instead of double-firing.
+          - alert: AirflowPoolExhausted
+            expr: airflow_pool_open_slots{pool!=""} == 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Airflow pool has no free slots"
+              description: "Pool {{ $labels.pool }} has been fully allocated for 30 minutes; queued tasks are not starting."
+
+          - alert: AirflowExecutorSlotsExhausted
+            expr: airflow_executor_open_slots == 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Airflow executor has no free slots"
+              description: "The executor has been at capacity for 30 minutes; task instances are queuing."
+
+      - name: spark
+        interval: 1m
+        rules:
+          - alert: SparkOperatorReconcileErrors
+            expr: |
+              sum by (controller) (rate(controller_runtime_reconcile_errors_total{job="spark"}[15m])) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Spark operator is failing reconciles"
+              description: "The {{ $labels.controller }} controller is erroring; SparkApplications will not progress."
+
+          - alert: SparkOperatorWorkqueueBacklog
+            expr: max by (controller) (workqueue_depth{job="spark"}) > 10
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Spark operator work queue is backing up"
+              description: "The {{ $labels.controller }} queue has held {{ printf \"%.0f\" $value }} items for 30 minutes; the operator is not keeping up."
+
+      - name: llama-cpp
+        interval: 1m
+        rules:
+          # llama-server runs a fixed number of slots. Deferred requests mean
+          # every slot is busy and callers are queuing behind them, which
+          # surfaces to LiteLLM as latency rather than as an error.
+          - alert: LlamaCppRequestsDeferred
+            expr: max by (model) (llamacpp:requests_deferred) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "llama.cpp requests are queuing"
+              description: "{{ $labels.model }} has had {{ printf \"%.0f\" $value }} requests waiting for a free slot for 15 minutes."
 
       - name: hdfs
         interval: 1m
@@ -725,6 +1220,12 @@ data:
               summary: "HDFS has no datanodes in service"
               description: "The namenode reports {{ printf \"%.0f\" $value }} datanodes in service; HDFS cannot serve reads or writes."
 
+      # Only the trino_memory_ClusterMemoryPool_*, trino_execution_* and
+      # trino_plugin_* families survive the JMX exporter intact. Query-level
+      # counters (trino_query_manager_FailedQueries, QueuedQueries) are
+      # exported with the sample value appended to the metric name
+      # (trino_query_manager_FailedQueries_TotalCount:_0), so failed-query
+      # alerting is not possible until that exporter config is fixed.
       - name: trino
         interval: 1m
         rules:
@@ -736,6 +1237,17 @@ data:
             annotations:
               summary: "Trino has no nodes in its memory pool"
               description: "The {{ $labels.name }} memory pool reports {{ printf \"%.0f\" $value }} nodes; queries cannot be scheduled."
+
+          # A blocked node is one whose memory pool is full: queries assigned
+          # to it stop making progress rather than failing.
+          - alert: TrinoMemoryPoolBlocked
+            expr: max by (name) (trino_memory_ClusterMemoryPool_BlockedNodes) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Trino nodes are blocked on memory"
+              description: "{{ printf \"%.0f\" $value }} nodes in the {{ $labels.name }} pool have been out of memory for 15 minutes; queries on them are stalled."
 
       - name: ray
         interval: 1m
