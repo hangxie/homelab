@@ -1,0 +1,25 @@
+# Node-local storage for workloads whose on-disk state is transient and
+# regenerable — ingester WALs, ingest buffers, scratch dirs. Ceph replicates
+# every write three times onto the single Proxmox thin-LVM pool that backs all
+# three OSDs, so putting a WAL there multiplies it by the application's own
+# replication factor again. Local volumes land on the node root disk, which
+# comes from a different pool (local-lvm).
+#
+# This is deliberately not the default StorageClass: anything that must survive
+# losing its node still belongs on rook-ceph-block.
+
+storageClass:
+  create: true
+  name: local-path
+  defaultClass: false
+  # Pinned rather than generated. The chart derives a name from the release and
+  # cluster domain when this is unset, which bakes the release name into an
+  # immutable StorageClass field.
+  provisionerName: rancher.io/local-path
+  reclaimPolicy: Delete
+  volumeBindingMode: WaitForFirstConsumer
+
+nodePathMap:
+  - node: DEFAULT_PATH_FOR_NON_LISTED_NODES
+    paths:
+      - /opt/local-path-provisioner
