@@ -107,9 +107,9 @@ while IFS=$'\t' read -r ns name hostname; do
             print_row "${url}/v1" "-" "(no auth)"
             ;;
         rook-ceph/ceph)
-            # Vault-managed value enforced by the dashboard-set-password Job;
-            # rook's own rook-ceph-dashboard-password secret is not the login.
-            print_secret_row "$url" rook-ceph ceph-dashboard-admin password admin
+            # rook's own secret, with the Vault value merged into it by
+            # 08-dashboard-externalsecret.yaml, so this is what the mgr holds.
+            print_secret_row "$url" rook-ceph rook-ceph-dashboard-password password admin
             ;;
         superset/superset)
             print_secret_row "$url" superset superset-admin password admin
