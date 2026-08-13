@@ -31,10 +31,19 @@ loki:
     retention_enabled: true
     delete_request_store: s3
 
+# The write target holds only the ingester WAL and the active index buffer;
+# durable chunks and index land in the S3 chunk store. That data is local and
+# regenerable, so it belongs on node-local disk rather than on Ceph, where
+# every write was replicated three times onto the one backing pool.
+#
+# replicas must be >= the chart's replication_factor (3) for a node loss to be
+# survivable: quorum is floor(3/2)+1 = 2, so two of three ingesters still hold
+# every stream. At 2 replicas a single write pod going down breaks quorum, and
+# a local volume cannot be rescheduled to another node to recover it.
 write:
-  replicas: 2
+  replicas: 3
   persistence:
-    storageClass: rook-ceph-block
+    storageClass: local-path
     size: 10Gi
   extraEnvFrom:
     - secretRef: { name: loki-s3 }
