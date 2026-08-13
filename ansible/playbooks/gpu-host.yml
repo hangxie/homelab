@@ -89,18 +89,31 @@
       changed_when: false
       failed_when: false
 
-    - name: Resolve installed kernel image flavour
+    # Picks the meta-package that actually tracks the running kernel, by
+    # matching its Depends against the running version. Selecting on install
+    # state and dependency rather than the first alphabetical match matters:
+    # dpkg-query lists removed (rc) and never-installed (un) packages too, and
+    # linux-image-amd64 sorts ahead of linux-image-cloud-amd64 — so a plain
+    # `head -1` can resolve to the generic flavour on a cloud-kernel host and
+    # reinstate the original wrong-headers failure.
+    - name: Resolve kernel headers meta-package tracking the running kernel
       shell: |
         set -o pipefail
-        dpkg-query -W -f='${Package}\n' 'linux-image-*' 2>/dev/null \
-          | grep -E '^linux-image-[a-z0-9-]+$' \
-          | head -1 \
-          | sed 's/^linux-image-/linux-headers-/'
+        running=$(uname -r)
+        for meta in $(dpkg-query -W -f='${db:Status-Abbrev}|${Package}\n' 'linux-image-*' 2>/dev/null \
+                        | awk -F'|' '$1 ~ /^ii/ { print $2 }' \
+                        | grep -E '^linux-image-[a-z0-9-]+$'); do
+          if dpkg-query -W -f='${Depends}\n' "$meta" 2>/dev/null | grep -q "linux-image-${running}"; then
+            echo "${meta/linux-image-/linux-headers-}"
+            exit 0
+          fi
+        done
+        exit 1
       args:
         executable: /bin/bash
       register: kernel_headers_meta
       changed_when: false
-      failed_when: kernel_headers_meta.stdout == ""
+      failed_when: kernel_headers_meta.rc != 0 or kernel_headers_meta.stdout == ""
 
     # Track the headers meta-package, not the running kernel's versioned headers:
     # a versioned pin stops matching after a kernel upgrade, so DKMS silently
@@ -120,9 +133,13 @@
 
     # Runs even when the driver was already installed, so hosts provisioned
     # before this change pick the meta-package up on the next playbook run.
-    - name: Ensure kernel headers meta-package is installed
+    # dkms is listed here as well as in the gated install above, because that
+    # one is skipped whenever the module already loads.
+    - name: Ensure kernel headers meta-package and dkms are installed
       apt:
-        name: "{{ kernel_headers_meta.stdout }}"
+        name:
+          - "{{ kernel_headers_meta.stdout }}"
+          - dkms
         state: present
       register: kernel_headers_install
 
@@ -130,9 +147,58 @@
       reboot:
       when: nvidia_driver_packages is changed or kernel_headers_install is changed
 
-    - name: Verify NVIDIA kernel module loads after reboot
+    # The checks below are deliberately ungated. Previously they ran only when
+    # a package changed, so the one state that matters most — packages already
+    # correct but no module built for the current kernel — passed silently.
+
+    # unattended-upgrades installs kernels on its own schedule and nothing
+    # reboots the host, so a kernel with no DKMS build can sit installed and
+    # harmless for days and then take the GPU out at the next reboot. Checking
+    # every installed kernel rather than just the running one catches that
+    # while it is still cheap to fix.
+    - name: Collect kernels with no NVIDIA module built
+      shell: |
+        set -o pipefail
+        dkms_status=$(/usr/sbin/dkms status 2>/dev/null)
+        missing=""
+        for kver in $(dpkg-query -W -f='${db:Status-Abbrev}|${Package}\n' 'linux-image-*' 2>/dev/null \
+                        | awk -F'|' '$1 ~ /^ii/ { print $2 }' \
+                        | sed -n 's/^linux-image-\([0-9].*\)$/\1/p'); do
+          case "$dkms_status" in
+            *", ${kver},"*) ;;
+            *) missing="${missing} ${kver}" ;;
+          esac
+        done
+        echo "${missing# }"
+      args:
+        executable: /bin/bash
+      register: dkms_missing_kernels
+      changed_when: false
+
+    # Capturing dkms status once and matching in the shell is not incidental:
+    # piping it into `grep -q` makes grep exit on the first match, the SIGPIPE
+    # fails the pipeline under pipefail, and the first kernel listed is then
+    # always reported missing.
+    - name: Assert every installed kernel has an NVIDIA module built
+      assert:
+        that:
+          - dkms_missing_kernels.stdout == ""
+        fail_msg: >-
+          No NVIDIA DKMS module for kernel(s): {{ dkms_missing_kernels.stdout }}.
+          Booting one of these leaves the host without a GPU. Install the
+          matching linux-headers and run `dkms autoinstall`.
+
+    - name: Verify NVIDIA kernel module loads
       command: modprobe nvidia
-      when: nvidia_driver_packages is changed or kernel_headers_install is changed
+      changed_when: false
+
+    # Catches the userspace/kernel-module version skew a partial driver upgrade
+    # leaves behind, which modprobe alone does not see.
+    - name: Verify the NVIDIA driver answers
+      command: nvidia-smi -L
+      register: nvidia_smi_check
+      changed_when: false
+      failed_when: nvidia_smi_check.rc != 0 or 'GPU 0' not in nvidia_smi_check.stdout
 
     - name: Dump effective containerd config before NVIDIA runtime configuration
       command: containerd config dump

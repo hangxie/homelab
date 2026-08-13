@@ -780,6 +780,39 @@ data:
               summary: "Cilium reports unreachable nodes"
               description: "The Cilium agent on {{ $labels.instance }} cannot reach {{ printf \"%.0f\" $value }} other nodes; pod-to-pod traffic across them is broken."
 
+      # GPU workers have twice lost their NVIDIA kernel module to an
+      # unattended-upgrades kernel bump that left DKMS without matching
+      # headers, and nothing noticed until a workload failed to schedule.
+      #
+      # The count is compared against the device plugin DaemonSet rather than a
+      # fixed number because NFD schedules that DaemonSet from a PCI-presence
+      # label, which stays true no matter what state the driver is in — so
+      # `desired` is the GPU hardware inventory even on a host whose module is
+      # gone. kube_node_labels would express this more directly but this
+      # kube-state-metrics does not expose it.
+      #
+      # `or vector(0)` is load-bearing: when the last GPU node stops
+      # advertising capacity the inner count returns an empty vector, and a
+      # comparison against empty yields empty — so without the fallback the
+      # total-loss case, the one worth paging for, would never fire.
+      - name: gpu
+        interval: 1m
+        rules:
+          - alert: GPUCapacityMissing
+            expr: |
+              max(kube_daemonset_status_desired_number_scheduled{namespace="kube-system",daemonset="nvidia-device-plugin"})
+              >
+              (
+                count(max by (node) (kube_node_status_capacity{resource="nvidia_com_gpu"}) > 0)
+                or vector(0)
+              )
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "A GPU node has stopped advertising its GPUs"
+              description: "{{ printf \"%.0f\" $value }} nodes have NVIDIA hardware but fewer are advertising nvidia.com/gpu capacity. Usual cause is a kernel upgrade leaving DKMS without a built module — check `dkms status` and `nvidia-smi` on the GPU workers."
+
   # ── Workloads ─────────────────────────────────────────────────────────────
   # The workloads that export their own metrics. Anything not listed here
   # (superset, jupyter, openwebui, dbeaver, headlamp) has no exporter and is
