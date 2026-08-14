@@ -29,6 +29,9 @@
   hosts: gpu_workers_detected
   become: true
   gather_facts: false
+  # One node at a time, so a driver change never drains and reboots the whole
+  # GPU pool at once — half the capacity stays schedulable throughout.
+  serial: 1
   vars:
     nvidia_cuda_distro: debian13
     nvidia_cuda_repo_url: "https://developer.download.nvidia.com/compute/cuda/repos/{{ nvidia_cuda_distro }}/x86_64"
@@ -145,6 +148,23 @@
         update_cache: yes
       register: nvidia_driver_packages
 
+    # Rebooting a node that still has pods on it strands them: the kubelet
+    # comes back and tries to re-admit its GPU pods before the device plugin
+    # has re-registered nvidia.com/gpu, and they fail admission and sit around
+    # as Failed pods while their controller makes replacements. Draining first
+    # moves the work off deliberately instead.
+    - name: Drain the node before reboot
+      command: >-
+        kubectl drain {{ inventory_hostname }}
+        --ignore-daemonsets
+        --delete-emptydir-data
+        --force
+        --timeout=300s
+      delegate_to: localhost
+      become: false
+      environment: "{{ kubectl_env }}"
+      when: nvidia_driver_packages is changed
+
     # A driver change leaves the new userspace libraries beside the old loaded
     # module, which fails every CUDA call until the module is swapped.
     - name: Reboot GPU workers after driver install
@@ -241,6 +261,39 @@
             or '.runtimes.nvidia' in containerd_config_dump.stdout
         fail_msg: NVIDIA runtime not found in effective containerd config
 
+    # Any pending containerd restart has to happen before the node takes work
+    # again, otherwise handlers flush at the end of the play and bounce the
+    # runtime under pods that have just been scheduled onto it.
+    - name: Apply pending containerd restart before returning the node to service
+      meta: flush_handlers
+
+    # Uncordoning as soon as the node is Ready is what produces the failed-
+    # admission pods: the kubelet accepts GPU pods a moment before the device
+    # plugin has advertised nvidia.com/gpu again. Waiting for allocatable
+    # capacity means the node only takes GPU work once it can actually run it.
+    - name: Wait for the node to advertise its GPUs again
+      shell: kubectl get node {{ inventory_hostname }} -o jsonpath='{.status.allocatable.nvidia\.com/gpu}'
+      delegate_to: localhost
+      become: false
+      environment: "{{ kubectl_env }}"
+      register: gpu_allocatable
+      until: (gpu_allocatable.stdout | default('0') | int) > 0
+      retries: 30
+      delay: 10
+      changed_when: false
+      when: nvidia_driver_packages is changed
+
+    - name: Return the node to service
+      command: kubectl uncordon {{ inventory_hostname }}
+      delegate_to: localhost
+      become: false
+      environment: "{{ kubectl_env }}"
+      register: gpu_uncordon
+      # A no-op prints "already uncordoned", which still contains "uncordoned"
+      # — so the absence of "already" is what actually distinguishes the two.
+      changed_when: "'already uncordoned' not in gpu_uncordon.stdout"
+      when: nvidia_driver_packages is changed
+
   handlers:
     - name: Restart containerd
       systemd:
@@ -261,8 +314,7 @@
           kubectl taint nodes {{ item }} gpu=true:NoSchedule --overwrite
         fi
       loop: "{{ groups['gpu_workers_detected'] | default([]) }}"
-      environment:
-        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
+      environment: "{{ kubectl_env }}"
       register: gpu_taint_apply
       changed_when: "' tainted' in gpu_taint_apply.stdout or ' modified' in gpu_taint_apply.stdout"
       when: (groups['gpu_workers_detected'] | default([]) | length) > 0

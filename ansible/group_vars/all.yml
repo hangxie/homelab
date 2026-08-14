@@ -27,6 +27,15 @@ gateway_api_version: "v1.5.1"
 local_setup_dir: "/tmp/k8s-setup-latest"
 bootstrap_kubeconfig: "{{ local_setup_dir }}/admin.conf"
 
+# Environment for kubectl calls that may run outside a full bootstrap. The
+# bootstrap kubeconfig only exists once init-primary-master.yml has fetched it,
+# and it lives under /tmp, so a playbook re-run on its own finds nothing there.
+# Pointing KUBECONFIG at a missing file is the worst option available: kubectl
+# ignores it silently and falls back to localhost:8080, which surfaces as
+# "connection refused" rather than anything about the kubeconfig. Injecting
+# nothing instead lets kubectl resolve the operator's own config as usual.
+kubectl_env: "{{ {'KUBECONFIG': bootstrap_kubeconfig} if (bootstrap_kubeconfig is file) else {} }}"
+
 # Runtime restarts on already-joined Kubernetes nodes can evict or restart
 # stateful workloads. Leave this false for ordinary reruns; pass
 # `-e allow_disruptive_restarts=true` during an explicit maintenance window.
