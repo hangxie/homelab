@@ -17,17 +17,22 @@ resource "proxmox_virtual_environment_vm" "node2" {
     if var.nodes[k].hypervisor == "node2"
   }
 
-  provider        = proxmox.node2
-  name            = each.key
-  node_name       = var.proxmox_nodes.node2.name
-  started         = true
-  on_boot         = false
-  boot_order      = var.vm.boot_order
-  bios            = var.vm.bios
-  machine         = var.vm.machine
-  scsi_hardware   = var.vm.scsi_hardware
-  stop_on_destroy = true
-  vm_id           = each.value.vm_id
+  provider  = proxmox.node2
+  name      = each.key
+  node_name = var.proxmox_nodes.node2.name
+  started   = true
+  on_boot   = false
+  # Disk settings such as discard only take effect on a fresh QEMU process, and
+  # the provider would otherwise restart every VM in the same apply — including
+  # all three OSD nodes at once. Restarts are driven separately, one node at a
+  # time, draining the node and waiting for Ceph to return to HEALTH_OK.
+  reboot_after_update = false
+  boot_order          = var.vm.boot_order
+  bios                = var.vm.bios
+  machine             = var.vm.machine
+  scsi_hardware       = var.vm.scsi_hardware
+  stop_on_destroy     = true
+  vm_id               = each.value.vm_id
 
   agent {
     enabled = true
@@ -50,6 +55,12 @@ resource "proxmox_virtual_environment_vm" "node2" {
       interface    = "scsi${disk.key}"
       size         = disk.value
       file_id      = disk.key == 0 ? var.vm.cloud_image_id : null
+      # The backing store is a single SSD behind an LVM-thin pool. Without
+      # discard the guest can never return freed blocks, so the drive's FTL
+      # treats every LBA ever written as live and falls into garbage collection
+      # under sustained fsync load. ssd reports the correct rotation rate.
+      discard = "on"
+      ssd     = true
     }
   }
 
