@@ -252,7 +252,13 @@ kafka:
   securityContext:
     fsGroupChangePolicy: OnRootMismatch
   persistence:
-    size: 30Gi
+    # Node-local disk. Kafka is a transient ingest buffer here — every durable
+    # block already lives in the mimir-blocks bucket — and it was ~77% of all
+    # RBD client writes. Keeping it off rook-ceph-block also keeps it off the
+    # EC 2+1 data pool, where a partial-stripe write costs a read-modify-write
+    # on all three OSDs, which share one physical disk.
+    storageClassName: local-path
+    size: 16Gi
   affinity:
     podAntiAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:
@@ -262,9 +268,13 @@ kafka:
           topologyKey: kubernetes.io/hostname
   extraEnv:
     # Bound each active partition when the chart's hardcoded 24h time-based
-    # retention lags behind ingestion. Total usage also scales with the number
-    # of active Mimir partitions and Kafka replicas.
+    # retention lags behind ingestion. local-path is an unquota'd hostPath, so
+    # this is the only thing keeping Kafka off the node root filesystem: with
+    # replication factor 2 and 2 active partitions a single broker can hold two
+    # replicas, so the worst case is 2 x 6Gi plus metadata — inside the claim
+    # above. At ~515 KB/s per partition 6Gi is a ~3h20m replay window, well
+    # clear of the 2h TSDB block period.
     - name: KAFKA_LOG_RETENTION_BYTES
-      value: "8589934592" # 8Gi
+      value: "6442450944" # 6Gi
     - name: KAFKA_DEFAULT_REPLICATION_FACTOR
       value: "2"
