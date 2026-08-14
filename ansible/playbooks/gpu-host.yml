@@ -33,6 +33,13 @@
     nvidia_cuda_distro: debian13
     nvidia_cuda_repo_url: "https://developer.download.nvidia.com/compute/cuda/repos/{{ nvidia_cuda_distro }}/x86_64"
     nvidia_cuda_keyring_path: /usr/share/keyrings/nvidia-cuda-archive-keyring.gpg
+    # Pinned rather than floating, for the same reason chart versions are: the
+    # CUDA repo keeps every past release, so a pin stays resolvable and driver
+    # moves land in Git as a reviewable change instead of arriving with
+    # whichever playbook run happens to come after an upstream release.
+    # Bumping this reboots the GPU workers — the module cannot be swapped
+    # under running CUDA processes.
+    nvidia_driver_version: "610.57.04-1"
 
   tasks:
     - name: Install GPU host prerequisites
@@ -83,12 +90,6 @@
         state: present
         update_cache: yes
 
-    - name: Check if NVIDIA kernel module is installed
-      command: modprobe --dry-run nvidia
-      register: nvidia_modprobe_pre
-      changed_when: false
-      failed_when: false
-
     # Picks the meta-package that actually tracks the running kernel, by
     # matching its Depends against the running version. Selecting on install
     # state and dependency rather than the first alphabetical match matters:
@@ -113,39 +114,42 @@
         executable: /bin/bash
       register: kernel_headers_meta
       changed_when: false
+      # Reads state and changes nothing, so it has to run under --check too:
+      # skipping it leaves the package list below with an empty name, and a
+      # driver bump is exactly the change worth dry-running first.
+      check_mode: false
       failed_when: kernel_headers_meta.rc != 0 or kernel_headers_meta.stdout == ""
 
-    # Track the headers meta-package, not the running kernel's versioned headers:
-    # a versioned pin stops matching after a kernel upgrade, so DKMS silently
-    # skips the rebuild and the nvidia module disappears on the next reboot.
-    - name: Install NVIDIA driver from CUDA repo
+    # Unconditional on purpose. This previously ran only when the nvidia module
+    # was missing, which made the driver install-once: an already-working host
+    # never moved off whatever version it was first built with, so pinning a
+    # version here would have had no effect on it.
+    #
+    # Only the two packages that set the driver version are pinned; the rest of
+    # the stack (libcuda1, libnvidia-ml1, firmware-nvidia-gsp, ...) is versioned
+    # in their dependencies and follows automatically.
+    #
+    # The headers meta-package is tracked rather than the running kernel's
+    # versioned headers: a versioned pin stops matching after a kernel upgrade,
+    # so DKMS silently skips the rebuild and the nvidia module disappears on
+    # the next reboot.
+    - name: Install pinned NVIDIA driver stack
       apt:
         name:
-          - nvidia-driver-cuda
-          - nvidia-kernel-open-dkms
+          - "nvidia-driver-cuda={{ nvidia_driver_version }}"
+          - "nvidia-kernel-open-dkms={{ nvidia_driver_version }}"
           - "{{ kernel_headers_meta.stdout }}"
           - dkms
           - nvtop
         state: present
         update_cache: yes
       register: nvidia_driver_packages
-      when: nvidia_modprobe_pre.rc != 0
 
-    # Runs even when the driver was already installed, so hosts provisioned
-    # before this change pick the meta-package up on the next playbook run.
-    # dkms is listed here as well as in the gated install above, because that
-    # one is skipped whenever the module already loads.
-    - name: Ensure kernel headers meta-package and dkms are installed
-      apt:
-        name:
-          - "{{ kernel_headers_meta.stdout }}"
-          - dkms
-        state: present
-      register: kernel_headers_install
-
+    # A driver change leaves the new userspace libraries beside the old loaded
+    # module, which fails every CUDA call until the module is swapped.
     - name: Reboot GPU workers after driver install
       reboot:
-      when: nvidia_driver_packages is changed or kernel_headers_install is changed
+      when: nvidia_driver_packages is changed
 
     # The checks below are deliberately ungated. Previously they ran only when
     # a package changed, so the one state that matters most — packages already
@@ -174,6 +178,7 @@
         executable: /bin/bash
       register: dkms_missing_kernels
       changed_when: false
+      check_mode: false
 
     # Capturing dkms status once and matching in the shell is not incidental:
     # piping it into `grep -q` makes grep exit on the first match, the SIGPIPE
