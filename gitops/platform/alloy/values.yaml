@@ -1,4 +1,13 @@
 alloy:
+  clustering:
+    enabled: true
+
+  resources:
+    requests:
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
   configMap:
     create: true
     content: |
@@ -200,6 +209,9 @@ alloy:
       }
 
       prometheus.scrape "ksm" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.kubernetes.ksm.targets
         job_name   = "kube-state-metrics"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -244,6 +256,9 @@ alloy:
       }
 
       prometheus.scrape "cilium_agent" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.cilium_agent.output
         job_name   = "cilium-agent"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -274,6 +289,9 @@ alloy:
       }
 
       prometheus.scrape "cilium_operator" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.cilium_operator.output
         job_name   = "cilium-operator"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -300,6 +318,9 @@ alloy:
       }
 
       prometheus.scrape "hubble" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.hubble.output
         job_name   = "hubble"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -328,6 +349,9 @@ alloy:
       }
 
       prometheus.scrape "cert_manager" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.cert_manager.output
         job_name   = "cert-manager"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -356,6 +380,9 @@ alloy:
       }
 
       prometheus.scrape "external_secrets" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.external_secrets.output
         job_name   = "external-secrets"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -384,6 +411,9 @@ alloy:
       }
 
       prometheus.scrape "metrics_server" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.metrics_server.output
         job_name   = "metrics-server"
         scheme     = "https"
@@ -425,6 +455,9 @@ alloy:
       }
 
       prometheus.scrape "loki" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.loki.output
         job_name   = "loki"
         forward_to = [prometheus.relabel.loki.receiver]
@@ -468,6 +501,9 @@ alloy:
       }
 
       prometheus.scrape "tempo" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.tempo.output
         job_name   = "tempo"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -500,6 +536,9 @@ alloy:
       }
 
       prometheus.scrape "cnpg_operator" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.cnpg_operator.output
         job_name   = "cnpg-operator"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -536,6 +575,9 @@ alloy:
       }
 
       prometheus.scrape "cnpg_cluster" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.cnpg_cluster.output
         job_name   = "postgres-cluster"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -564,6 +606,9 @@ alloy:
       }
 
       prometheus.scrape "rook_ceph_mgr" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.rook_ceph_mgr.output
         job_name   = "rook-ceph"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -592,6 +637,9 @@ alloy:
       }
 
       prometheus.scrape "ray_head" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.ray_head.output
         job_name   = "ray-head"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -618,6 +666,9 @@ alloy:
       }
 
       prometheus.scrape "ray_workers" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.ray_workers.output
         job_name   = "ray-workers"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -653,6 +704,9 @@ alloy:
       }
 
       prometheus.scrape "airflow" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.airflow.output
         job_name   = "airflow"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -681,6 +735,9 @@ alloy:
       }
 
       prometheus.scrape "clickhouse" {
+        clustering {
+          enabled = true
+        }
         targets      = discovery.relabel.clickhouse.output
         job_name     = "clickhouse"
         metrics_path = "/metrics"
@@ -718,6 +775,9 @@ alloy:
       }
 
       prometheus.scrape "spark" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.spark.output
         job_name   = "spark"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -758,6 +818,9 @@ alloy:
       }
 
       prometheus.scrape "scylladb" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.scylladb.output
         job_name   = "scylladb"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -786,6 +849,9 @@ alloy:
       }
 
       prometheus.scrape "nfd" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.nfd.output
         job_name   = "nfd"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -794,6 +860,9 @@ alloy:
       // ── Kubernetes API server ─────────────────────────────────────────────────
 
       prometheus.scrape "apiserver" {
+        clustering {
+          enabled = true
+        }
         targets      = [{"__address__" = "kubernetes.default.svc:443"}]
         job_name     = "apiserver"
         scheme       = "https"
@@ -828,6 +897,9 @@ alloy:
       }
 
       prometheus.scrape "coredns" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.coredns.output
         job_name   = "coredns"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -864,6 +936,9 @@ alloy:
       }
 
       prometheus.scrape "argocd" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.argocd.output
         job_name   = "argocd"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -913,6 +988,9 @@ alloy:
       }
 
       prometheus.scrape "mimir_self" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.mimir_self.output
         job_name   = "mimir"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -941,6 +1019,9 @@ alloy:
       }
 
       prometheus.scrape "mysql" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.mysqld_exporter.output
         job_name   = "mysql"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -969,6 +1050,9 @@ alloy:
       }
 
       prometheus.scrape "hdfs" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.hdfs.output
         job_name   = "hdfs"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -997,6 +1081,9 @@ alloy:
       }
 
       prometheus.scrape "trino" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.trino_jmx.output
         job_name   = "jmx"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -1035,6 +1122,9 @@ alloy:
       }
 
       prometheus.scrape "redis" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.redis.output
         job_name   = "redis"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -1065,6 +1155,9 @@ alloy:
       }
 
       prometheus.scrape "hive" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.hive.output
         job_name   = "hive"
         forward_to = [prometheus.remote_write.mimir.receiver]
@@ -1103,6 +1196,9 @@ alloy:
       }
 
       prometheus.scrape "llama_cpp" {
+        clustering {
+          enabled = true
+        }
         targets    = discovery.relabel.llama_cpp.output
         job_name   = "llama-cpp"
         forward_to = [prometheus.remote_write.mimir.receiver]
