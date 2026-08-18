@@ -6,7 +6,7 @@ alloy:
     requests:
       memory: 512Mi
     limits:
-      memory: 1Gi
+      memory: 1536Mi
 
   configMap:
     create: true
