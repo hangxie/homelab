@@ -120,7 +120,23 @@ print_df_row() {
     printf "%-20s %-40s %-10s %-10s %-10s %-6s\n" "$ns" "$pvc_name" "$size" "$used" "$avail" "$pct"
 }
 
+if ! PVC_ROWS=$(set -o pipefail; kubectl get pvc -A -o json | jq -r --arg sc "$STORAGE_CLASS" '
+    .items[]
+    | select(.spec.storageClassName == $sc)
+    | [
+        .metadata.namespace,
+        .metadata.name,
+        (.status.capacity.storage // .spec.resources.requests.storage // "?")
+      ]
+    | @tsv
+'); then
+    echo "Error: failed to list PVCs (kubectl/jq)." >&2
+    exit 1
+fi
+
 while IFS=$'\t' read -r ns pvc_name capacity; do
+    [[ -z "$ns" || -z "$pvc_name" ]] && continue
+
     # Find a running pod that mounts this PVC; resolve the container, mount path,
     # node, and pod UID all in one jq pass to minimise API calls.
     pod_info=$(kubectl get pods -n "$ns" -o json | jq -r --arg pvc "$pvc_name" '
@@ -167,13 +183,4 @@ while IFS=$'\t' read -r ns pvc_name capacity; do
 
     print_df_row "$ns" "$pvc_name" "$capacity" "$df_line"
 
-done < <(kubectl get pvc -A -o json | jq -r --arg sc "$STORAGE_CLASS" '
-    .items[]
-    | select(.spec.storageClassName == $sc)
-    | [
-        .metadata.namespace,
-        .metadata.name,
-        (.status.capacity.storage // .spec.resources.requests.storage // "?")
-      ]
-    | @tsv
-')
+done <<< "$PVC_ROWS"

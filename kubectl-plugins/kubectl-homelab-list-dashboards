@@ -55,6 +55,17 @@ print_secret_user_pass_row() {
 print_row "URL" "USER" "CREDENTIAL"
 print_row "$(repeat_char "-" "$URL_WIDTH")" "$(repeat_char "-" "$USER_WIDTH")" "$(repeat_char "-" 20)"
 
+if ! ROUTE_ROWS=$(set -o pipefail; kubectl get httproute -A -o json | jq -r '
+    .items[]
+    | . as $route
+    | ($route.spec.hostnames // [])[]
+    | [$route.metadata.namespace, $route.metadata.name, .]
+    | @tsv
+'); then
+    echo "Error: failed to list HTTPRoutes (kubectl/jq)." >&2
+    exit 1
+fi
+
 while IFS=$'\t' read -r ns name hostname; do
     [[ -z "$hostname" ]] && continue
     url="${URL_SCHEME}://$hostname"
@@ -121,10 +132,4 @@ while IFS=$'\t' read -r ns name hostname; do
             print_row "$url" "-" "(credentials unknown)"
             ;;
     esac
-done < <(kubectl get httproute -A -o json 2>/dev/null | jq -r '
-    .items[]
-    | . as $route
-    | ($route.spec.hostnames // [])[]
-    | [$route.metadata.namespace, $route.metadata.name, .]
-    | @tsv
-') | sort
+done <<< "$ROUTE_ROWS" | sort

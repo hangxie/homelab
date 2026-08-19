@@ -3,7 +3,6 @@ set -e
 
 NAMESPACE="llama-cpp"
 PVC_NAME="${LLAMA_PVC_NAME:-llama-cpp-models}"
-PVC_SIZE="${LLAMA_PVC_SIZE:-20Gi}"
 HARBOR_REGISTRY="${LLAMA_HARBOR_REGISTRY:-registry.xiehang.com}"
 HARBOR_PROJECT="${LLAMA_HARBOR_PROJECT:-llm-models}"
 HARBOR_SECRET_NAME="${LLAMA_HARBOR_SECRET_NAME:-harbor-credentials}"
@@ -22,7 +21,6 @@ Examples:
 
 Environment:
   LLAMA_PVC_NAME=<name>           PVC name; default llama-cpp-models
-  LLAMA_PVC_SIZE=<size>           PVC size on first create; default 20Gi
   LLAMA_HARBOR_REGISTRY=<host>    Harbor registry; default registry.xiehang.com
   LLAMA_HARBOR_PROJECT=<project>  Harbor project; default llm-models
   LLAMA_HARBOR_SECRET_NAME=<name> Secret in llama-cpp namespace with username/password keys; default harbor-credentials
@@ -31,17 +29,13 @@ EOF
 
 split_spec() {
     local SPEC="${1}"
-    if [[ "${SPEC}" != *"/"* || "${SPEC}" != *".gguf" ]]; then
-        echo "Error: spec must look like '<hf-org>/<hf-repo>/<file>.gguf'" >&2
+    if [[ ! "${SPEC}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*\.gguf$ ]]; then
+        echo "Error: spec must look like '<hf-org>/<hf-repo>/<file>.gguf' using only letters, digits, '.', '_', '-' in each segment" >&2
         echo "Got: ${SPEC}" >&2
         return 1
     fi
     HF_FILE="${SPEC##*/}"
     HF_REPO="${SPEC%/*}"
-    if [[ "${HF_REPO}" != *"/"* ]]; then
-        echo "Error: hf-repo must include the org, e.g. unsloth/Qwen2.5-...-GGUF" >&2
-        return 1
-    fi
 }
 
 make_job_name() {
@@ -134,22 +128,17 @@ delete_harbor_file() {
     esac
 }
 
-ensure_namespace_and_pvc() {
-    kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-    cat <<EOF | kubectl apply -f - >/dev/null
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: ${PVC_NAME}
-  namespace: ${NAMESPACE}
-spec:
-  accessModes:
-    - ReadWriteMany
-  storageClassName: rook-cephfs
-  resources:
-    requests:
-      storage: ${PVC_SIZE}
-EOF
+require_namespace_and_pvc() {
+    if ! kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1; then
+        echo "Error: namespace ${NAMESPACE} not found." >&2
+        echo "It is managed by gitops/workloads/raw/llama-cpp; apply that first." >&2
+        exit 1
+    fi
+    if ! kubectl -n "${NAMESPACE}" get pvc "${PVC_NAME}" >/dev/null 2>&1; then
+        echo "Error: PVC ${NAMESPACE}/${PVC_NAME} not found." >&2
+        echo "It is managed by gitops/workloads/raw/llama-cpp; apply that first." >&2
+        exit 1
+    fi
 }
 
 delete_job_if_present() {
@@ -246,7 +235,7 @@ EOF
 
 
 cmd_list() {
-    ensure_namespace_and_pvc
+    require_namespace_and_pvc
 
     local POD_NAME="llama-list-$(date +%s | tail -c 5)"
     kubectl -n "${NAMESPACE}" delete pod "${POD_NAME}" --ignore-not-found >/dev/null
@@ -326,7 +315,7 @@ cmd_delete() {
     fi
     split_spec "${SPEC}" || exit 1
 
-    ensure_namespace_and_pvc
+    require_namespace_and_pvc
 
     if ! pvc_has_file "${SPEC}"; then
         echo "No complete file marker found; deleting any leftovers for: ${HF_REPO}/${HF_FILE}"
