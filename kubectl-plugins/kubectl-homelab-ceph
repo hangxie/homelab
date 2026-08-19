@@ -1,0 +1,134 @@
+#!/bin/bash
+
+set -uo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: kubectl homelab ceph [ceph-args...]
+
+Run a Ceph CLI command against the cluster from a one-shot pod. Credentials
+and mon endpoints are read live from the rook-ceph-mon Secret and
+rook-ceph-mon-endpoints ConfigMap — no local ceph.conf or keyring needed.
+
+Examples:
+  kubectl homelab ceph -s
+  kubectl homelab ceph osd df
+  kubectl homelab ceph health detail
+
+Environment:
+  ROOK_NAMESPACE     Namespace holding the Ceph cluster (default: rook-ceph)
+  ROOK_CEPH_IMAGE    Ceph CLI image (default: the cluster's own ceph image)
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required" >&2
+    exit 1
+fi
+
+ROOK_NAMESPACE="${ROOK_NAMESPACE:-rook-ceph}"
+ROOK_CEPH_IMAGE="${ROOK_CEPH_IMAGE:-}"
+
+if ! kubectl get secret rook-ceph-mon -n "$ROOK_NAMESPACE" >/dev/null 2>&1; then
+    echo "Secret rook-ceph-mon not found in namespace $ROOK_NAMESPACE" >&2
+    exit 1
+fi
+
+if [[ -z "$ROOK_CEPH_IMAGE" ]]; then
+    ROOK_CEPH_IMAGE=$(kubectl get cephcluster -n "$ROOK_NAMESPACE" \
+        -o jsonpath='{.items[0].spec.cephVersion.image}' 2>/dev/null)
+    [[ -z "$ROOK_CEPH_IMAGE" ]] && ROOK_CEPH_IMAGE="quay.io/ceph/ceph:v19.2.4"
+fi
+
+# Rebuilds the same /etc/ceph/ceph.conf + keyring rook's own toolbox writes,
+# from the mon-endpoints ConfigMap and rook-ceph-mon Secret mounted below,
+# then execs the ceph CLI with the args this script was invoked with.
+SETUP_SCRIPT='set -euo pipefail
+mkdir -p /etc/ceph
+client_name=$(cat /etc/rook-ceph-mon/ceph-username)
+mon_host=$(sed -E "s/[a-z0-9_-]+=//g" /etc/rook-ceph-mon-endpoints/data)
+cat > /etc/ceph/ceph.conf <<CONF
+[global]
+mon_host = ${mon_host}
+
+[${client_name}]
+keyring = /etc/ceph/keyring
+CONF
+{
+  echo "[${client_name}]"
+  echo "    key = $(cat /etc/rook-ceph-mon/ceph-secret)"
+} > /etc/ceph/keyring
+exec ceph "$@"'
+
+POD_NAME="homelab-ceph-cli-$$-${RANDOM}"
+INTERACTIVE=false
+[[ -t 0 && -t 1 ]] && INTERACTIVE=true
+
+build_overrides() {
+    local tty="$1"
+    shift
+    jq -nc \
+        --arg name "$POD_NAME" \
+        --arg image "$ROOK_CEPH_IMAGE" \
+        --arg script "$SETUP_SCRIPT" \
+        --argjson tty "$tty" \
+        '{
+            apiVersion: "v1",
+            kind: "Pod",
+            metadata: { name: $name },
+            spec: {
+                restartPolicy: "Never",
+                containers: [{
+                    name: "ceph",
+                    image: $image,
+                    stdin: $tty,
+                    tty: $tty,
+                    command: ["/bin/bash", "-c", $script, "homelab-ceph"],
+                    args: $ARGS.positional,
+                    volumeMounts: [
+                        { name: "mon-endpoints", mountPath: "/etc/rook-ceph-mon-endpoints", readOnly: true },
+                        { name: "mon-secret", mountPath: "/etc/rook-ceph-mon", readOnly: true }
+                    ]
+                }],
+                volumes: [
+                    { name: "mon-endpoints", configMap: { name: "rook-ceph-mon-endpoints", items: [{ key: "data", path: "data" }] } },
+                    { name: "mon-secret", secret: { secretName: "rook-ceph-mon" } }
+                ]
+            }
+        }' \
+        --args -- "$@"
+}
+
+if [[ "$INTERACTIVE" == true ]]; then
+    # Real terminal on both ends: attach directly so interactive/streaming
+    # commands (e.g. `ceph -w`) work, same as kubectl-homelab-psql does.
+    OVERRIDES=$(build_overrides true "$@")
+    kubectl run "$POD_NAME" -n "$ROOK_NAMESPACE" --rm -it --restart=Never \
+        --image="$ROOK_CEPH_IMAGE" --overrides="$OVERRIDES"
+    exit $?
+fi
+
+# No terminal to attach (script/pipe usage): `kubectl run --rm -i` races
+# between attach and the pod finishing, so create the pod, wait for it to
+# finish, print its logs, then clean up — mirrors kubectl-homelab-df-pvc's pattern.
+OVERRIDES=$(build_overrides false "$@")
+kubectl run "$POD_NAME" -n "$ROOK_NAMESPACE" --restart=Never \
+    --image="$ROOK_CEPH_IMAGE" --overrides="$OVERRIDES" >/dev/null
+
+PHASE=""
+for _ in $(seq 60); do
+    PHASE=$(kubectl get pod "$POD_NAME" -n "$ROOK_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)
+    [[ "$PHASE" == "Succeeded" || "$PHASE" == "Failed" ]] && break
+    sleep 1
+done
+
+kubectl logs "$POD_NAME" -n "$ROOK_NAMESPACE"
+EXIT_CODE=0
+[[ "$PHASE" != "Succeeded" ]] && EXIT_CODE=1
+kubectl delete pod "$POD_NAME" -n "$ROOK_NAMESPACE" --ignore-not-found >/dev/null 2>&1
+exit "$EXIT_CODE"
