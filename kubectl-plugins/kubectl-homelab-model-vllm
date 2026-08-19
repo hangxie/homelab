@@ -3,7 +3,6 @@ set -e
 
 NAMESPACE="${VLLM_NAMESPACE:-ray}"
 PVC_NAME="${VLLM_PVC_NAME:-llm-models}"
-PVC_SIZE="${VLLM_PVC_SIZE:-20Gi}"
 HARBOR_REGISTRY="registry.xiehang.com"
 HARBOR_PROJECT="llm-models"
 RAY_IMAGE="hangxie/ray-vllm:v0.1.0"
@@ -25,7 +24,6 @@ Examples:
 Environment:
   VLLM_NAMESPACE=<name>  Kubernetes namespace; default ray
   VLLM_PVC_NAME=<name>  Model PVC name; default llm-models
-  VLLM_PVC_SIZE=<size>  PVC size on first create; default 20Gi
 EOF
 }
 
@@ -33,22 +31,26 @@ harbor_repo_name() {
     echo "${1}" | tr '[:upper:]/.+_' '[:lower:]----' | tr -cd 'a-z0-9-' | tr -s '-'
 }
 
-ensure_namespace_and_pvc() {
-    kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1
-    cat <<EOF | kubectl apply -f - >/dev/null 2>&1
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: ${PVC_NAME}
-  namespace: ${NAMESPACE}
-spec:
-  accessModes:
-    - ReadWriteMany
-  storageClassName: rook-cephfs
-  resources:
-    requests:
-      storage: ${PVC_SIZE}
-EOF
+validate_model_id() {
+    local MODEL_ID="${1}"
+    if [[ ! "${MODEL_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+        echo "Error: model id must look like '<org>/<repo>' using only letters, digits, '.', '_', '-'." >&2
+        echo "Got: ${MODEL_ID}" >&2
+        return 1
+    fi
+}
+
+require_namespace_and_pvc() {
+    if ! kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1; then
+        echo "Error: namespace ${NAMESPACE} not found." >&2
+        echo "It is managed by gitops/workloads/raw/ray; apply that first." >&2
+        exit 1
+    fi
+    if ! kubectl get pvc "${PVC_NAME}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+        echo "Error: PVC ${NAMESPACE}/${PVC_NAME} not found." >&2
+        echo "It is managed by gitops/workloads/raw/ray; apply that first." >&2
+        exit 1
+    fi
 }
 
 validate_pvc_model() {
@@ -388,8 +390,9 @@ cmd_verify() {
         echo "  e.g.: kubectl homelab model vllm verify Qwen/Qwen3-8B-AWQ"
         exit 1
     fi
+    validate_model_id "${MODEL_ID}" || exit 1
 
-    ensure_namespace_and_pvc
+    require_namespace_and_pvc
     echo "Verifying ${MODEL_ID}..."
 
     local PVC_VALID=false HARBOR_VALID=false DRIFT_FREE=false
@@ -439,7 +442,7 @@ cmd_verify() {
 }
 
 cmd_list() {
-    ensure_namespace_and_pvc
+    require_namespace_and_pvc
 
     # --- Collect PVC models ---
     local POD_NAME="vllm-model-list-$(date +%s)"
@@ -536,17 +539,41 @@ cmd_delete() {
         echo "  e.g.: kubectl homelab model vllm delete Qwen/Qwen3-8B-AWQ"
         exit 1
     fi
+    validate_model_id "${MODEL_ID}" || exit 1
 
     # Safety: refuse if the model is currently listed in the live
     # RayService's MODELS env var. Operator must remove it from
     # gitops/workloads/raw/ray/manifests/ray.yaml and commit first.
-    if kubectl -n "${NAMESPACE}" get rayservice ray-vllm >/dev/null 2>&1; then
+    # Only a confirmed NotFound skips this check; any other lookup
+    # failure (RBAC, missing CRD, API outage) aborts the delete.
+    local RS_ERR RS_PRESENT=1 SERVE_CONFIG=""
+    RS_ERR=$(mktemp)
+    if ! SERVE_CONFIG=$(kubectl -n "${NAMESPACE}" get rayservice ray-vllm -o jsonpath='{.spec.serveConfigV2}' 2>"${RS_ERR}"); then
+        if grep -q 'Error from server (NotFound)' "${RS_ERR}" && grep -q 'rayservice' "${RS_ERR}"; then
+            RS_PRESENT=0
+        else
+            echo "Error: failed to look up RayService ray-vllm:" >&2
+            sed 's/^/  /' "${RS_ERR}" >&2
+            echo "Refusing to delete without the in-use model check." >&2
+            rm -f "${RS_ERR}"
+            exit 1
+        fi
+    fi
+    rm -f "${RS_ERR}"
+
+    if [[ "${RS_PRESENT}" == "1" ]]; then
+        if ! command -v yq >/dev/null 2>&1; then
+            echo "Error: yq is required to check RayService MODELS before deleting." >&2
+            exit 1
+        fi
+
         local LIVE_MODELS
-        LIVE_MODELS=$(kubectl -n "${NAMESPACE}" get rayservice ray-vllm \
-            -o jsonpath='{.spec.serveConfigV2}' 2>/dev/null \
-            | yq '.applications[0].runtime_env.env_vars.MODELS' - 2>/dev/null \
+        if ! LIVE_MODELS=$(set -o pipefail; yq -r '.applications[0].runtime_env.env_vars.MODELS // ""' <<<"${SERVE_CONFIG}" \
             | tr ',' '\n' \
-            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'); then
+            echo "Error: failed to parse RayService MODELS; refusing to delete without this safety check." >&2
+            exit 1
+        fi
         if echo "${LIVE_MODELS}" | grep -Fxq -- "${MODEL_ID}"; then
             echo "Error: ${MODEL_ID} is still listed in RayService MODELS." >&2
             echo "Remove it from gitops/workloads/raw/ray/manifests/ray.yaml and commit first." >&2
@@ -560,7 +587,7 @@ cmd_delete() {
     MODEL_SLUG="$(echo "${MODEL_ID}" | tr '[:upper:]/' '[:lower:]-' | tr -cd 'a-z0-9-')"
     JOB_NAME="vllm-delete-$(echo "${MODEL_SLUG}" | cut -c1-50)"
 
-    ensure_namespace_and_pvc
+    require_namespace_and_pvc
 
     local HARBOR_USERNAME HARBOR_PASSWORD
     HARBOR_USERNAME=$(kubectl get secret harbor-credentials -n "${NAMESPACE}" -o jsonpath='{.data.username}' | base64 -d)
