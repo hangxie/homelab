@@ -1,0 +1,107 @@
+#!/bin/bash
+
+set -uo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: kubectl homelab hdfs [hdfs-args...]
+
+Run an `hdfs` CLI command against the cluster from a one-shot pod, using the
+cluster's own hdfs-config ConfigMap (core-site.xml/hdfs-site.xml). No auth
+is configured on this HDFS deployment.
+
+Examples:
+  kubectl homelab hdfs dfs -ls /
+  kubectl homelab hdfs dfsadmin -report
+  kubectl homelab hdfs fsck /
+
+Environment:
+  HDFS_NAMESPACE  Namespace holding HDFS (default: hdfs)
+  HDFS_IMAGE      hdfs CLI image (default: the cluster's own namenode image)
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required" >&2
+    exit 1
+fi
+
+HDFS_NAMESPACE="${HDFS_NAMESPACE:-hdfs}"
+HDFS_IMAGE="${HDFS_IMAGE:-}"
+
+if ! kubectl get configmap hdfs-config -n "$HDFS_NAMESPACE" >/dev/null 2>&1; then
+    echo "ConfigMap hdfs-config not found in namespace $HDFS_NAMESPACE" >&2
+    exit 1
+fi
+
+if [[ -z "$HDFS_IMAGE" ]]; then
+    HDFS_IMAGE=$(kubectl get statefulset namenode -n "$HDFS_NAMESPACE" \
+        -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)
+    [[ -z "$HDFS_IMAGE" ]] && HDFS_IMAGE="apache/hadoop:3.4.0"
+fi
+
+POD_NAME="homelab-hdfs-cli-$$-${RANDOM}"
+INTERACTIVE=false
+[[ -t 0 && -t 1 ]] && INTERACTIVE=true
+
+build_overrides() {
+    local tty="$1"
+    shift
+    jq -nc \
+        --arg name "$POD_NAME" \
+        --arg image "$HDFS_IMAGE" \
+        --argjson tty "$tty" \
+        '{
+            apiVersion: "v1",
+            kind: "Pod",
+            metadata: { name: $name },
+            spec: {
+                restartPolicy: "Never",
+                containers: [{
+                    name: "hdfs",
+                    image: $image,
+                    stdin: $tty,
+                    tty: $tty,
+                    env: [{ name: "HADOOP_CONF_DIR", value: "/opt/hadoop/etc/hadoop" }],
+                    command: ["hdfs"],
+                    args: $ARGS.positional,
+                    volumeMounts: [
+                        { name: "config", mountPath: "/opt/hadoop/etc/hadoop", readOnly: true }
+                    ]
+                }],
+                volumes: [
+                    { name: "config", configMap: { name: "hdfs-config" } }
+                ]
+            }
+        }' \
+        --args -- "$@"
+}
+
+if [[ "$INTERACTIVE" == true ]]; then
+    OVERRIDES=$(build_overrides true "$@")
+    kubectl run "$POD_NAME" -n "$HDFS_NAMESPACE" --rm -it --restart=Never \
+        --image="$HDFS_IMAGE" --overrides="$OVERRIDES"
+    exit $?
+fi
+
+OVERRIDES=$(build_overrides false "$@")
+kubectl run "$POD_NAME" -n "$HDFS_NAMESPACE" --restart=Never \
+    --image="$HDFS_IMAGE" --overrides="$OVERRIDES" >/dev/null
+
+PHASE=""
+for _ in $(seq 60); do
+    PHASE=$(kubectl get pod "$POD_NAME" -n "$HDFS_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)
+    [[ "$PHASE" == "Succeeded" || "$PHASE" == "Failed" ]] && break
+    sleep 1
+done
+
+kubectl logs "$POD_NAME" -n "$HDFS_NAMESPACE"
+EXIT_CODE=0
+[[ "$PHASE" != "Succeeded" ]] && EXIT_CODE=1
+kubectl delete pod "$POD_NAME" -n "$HDFS_NAMESPACE" --ignore-not-found >/dev/null 2>&1
+exit "$EXIT_CODE"
