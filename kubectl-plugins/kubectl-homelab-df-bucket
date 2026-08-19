@@ -4,7 +4,7 @@ set -uo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: kubectl df-bucket [storage-class] [--all-rgw]
+Usage: kubectl homelab df bucket [storage-class] [--all-rgw]
 
 Report Ceph RGW bucket usage for ObjectBucketClaims in a bucket StorageClass.
 Defaults to storage class: rook-ceph-bucket
