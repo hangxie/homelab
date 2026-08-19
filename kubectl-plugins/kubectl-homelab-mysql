@@ -1,0 +1,112 @@
+#!/bin/bash
+
+set -uo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: kubectl homelab mysql [mysql-args...]
+
+Run the `mysql` CLI against the cluster from a one-shot pod, authenticated
+as root with the credentials read live from the mysql-root Secret.
+
+Examples:
+  kubectl homelab mysql -e 'SHOW DATABASES'
+  kubectl homelab mysql some_database
+
+Environment:
+  MYSQL_NAMESPACE  Namespace holding MySQL (default: mysql)
+  MYSQL_IMAGE      mysql CLI image (default: the cluster's own server image)
+  MYSQL_HOST       Server host (default: mysql-cluster.<namespace>.svc.cluster.local)
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required" >&2
+    exit 1
+fi
+
+MYSQL_NAMESPACE="${MYSQL_NAMESPACE:-mysql}"
+MYSQL_IMAGE="${MYSQL_IMAGE:-}"
+MYSQL_HOST="${MYSQL_HOST:-mysql-cluster.${MYSQL_NAMESPACE}.svc.cluster.local}"
+
+if ! kubectl get secret mysql-root -n "$MYSQL_NAMESPACE" >/dev/null 2>&1; then
+    echo "Secret mysql-root not found in namespace $MYSQL_NAMESPACE" >&2
+    exit 1
+fi
+
+if [[ -z "$MYSQL_IMAGE" ]]; then
+    MYSQL_IMAGE=$(kubectl get pods -n "$MYSQL_NAMESPACE" -l mysql.oracle.com/cluster=mysql-cluster \
+        -o jsonpath='{.items[0].spec.containers[?(@.name=="mysql")].image}' 2>/dev/null)
+    [[ -z "$MYSQL_IMAGE" ]] && MYSQL_IMAGE="container-registry.oracle.com/mysql/community-server:9.7.0"
+fi
+
+# MYSQL_PWD keeps the password out of argv (avoids it showing in `ps`).
+SETUP_SCRIPT="set -euo pipefail
+export MYSQL_PWD=\"\$(cat /etc/mysql-admin/rootPassword)\"
+exec mysql -h ${MYSQL_HOST} -u\"\$(cat /etc/mysql-admin/rootUser)\" \"\$@\""
+
+POD_NAME="homelab-mysql-cli-$$-${RANDOM}"
+INTERACTIVE=false
+[[ -t 0 && -t 1 ]] && INTERACTIVE=true
+
+build_overrides() {
+    local tty="$1"
+    shift
+    jq -nc \
+        --arg name "$POD_NAME" \
+        --arg image "$MYSQL_IMAGE" \
+        --arg script "$SETUP_SCRIPT" \
+        --argjson tty "$tty" \
+        '{
+            apiVersion: "v1",
+            kind: "Pod",
+            metadata: { name: $name },
+            spec: {
+                restartPolicy: "Never",
+                containers: [{
+                    name: "mysql",
+                    image: $image,
+                    stdin: $tty,
+                    tty: $tty,
+                    command: ["/bin/bash", "-c", $script, "homelab-mysql"],
+                    args: $ARGS.positional,
+                    volumeMounts: [
+                        { name: "admin-secret", mountPath: "/etc/mysql-admin", readOnly: true }
+                    ]
+                }],
+                volumes: [
+                    { name: "admin-secret", secret: { secretName: "mysql-root" } }
+                ]
+            }
+        }' \
+        --args -- "$@"
+}
+
+if [[ "$INTERACTIVE" == true ]]; then
+    OVERRIDES=$(build_overrides true "$@")
+    kubectl run "$POD_NAME" -n "$MYSQL_NAMESPACE" --rm -it --restart=Never \
+        --image="$MYSQL_IMAGE" --overrides="$OVERRIDES"
+    exit $?
+fi
+
+OVERRIDES=$(build_overrides false "$@")
+kubectl run "$POD_NAME" -n "$MYSQL_NAMESPACE" --restart=Never \
+    --image="$MYSQL_IMAGE" --overrides="$OVERRIDES" >/dev/null
+
+PHASE=""
+for _ in $(seq 60); do
+    PHASE=$(kubectl get pod "$POD_NAME" -n "$MYSQL_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)
+    [[ "$PHASE" == "Succeeded" || "$PHASE" == "Failed" ]] && break
+    sleep 1
+done
+
+kubectl logs "$POD_NAME" -n "$MYSQL_NAMESPACE"
+EXIT_CODE=0
+[[ "$PHASE" != "Succeeded" ]] && EXIT_CODE=1
+kubectl delete pod "$POD_NAME" -n "$MYSQL_NAMESPACE" --ignore-not-found >/dev/null 2>&1
+exit "$EXIT_CODE"
