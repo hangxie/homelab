@@ -1,0 +1,111 @@
+#!/bin/bash
+
+set -uo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: kubectl homelab clickhouse [clickhouse-client-args...]
+
+Run the `clickhouse-client` CLI against the cluster from a one-shot pod,
+authenticated with the credentials read live from the clickhouse-credentials
+Secret.
+
+Examples:
+  kubectl homelab clickhouse --query 'SHOW DATABASES'
+  kubectl homelab clickhouse --database some_db
+
+Environment:
+  CLICKHOUSE_NAMESPACE  Namespace holding ClickHouse (default: clickhouse)
+  CLICKHOUSE_IMAGE      clickhouse-client image (default: the cluster's own server image)
+  CLICKHOUSE_HOST       Server host (default: clickhouse.<namespace>.svc.cluster.local)
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required" >&2
+    exit 1
+fi
+
+CLICKHOUSE_NAMESPACE="${CLICKHOUSE_NAMESPACE:-clickhouse}"
+CLICKHOUSE_IMAGE="${CLICKHOUSE_IMAGE:-}"
+CLICKHOUSE_HOST="${CLICKHOUSE_HOST:-clickhouse.${CLICKHOUSE_NAMESPACE}.svc.cluster.local}"
+
+if ! kubectl get secret clickhouse-credentials -n "$CLICKHOUSE_NAMESPACE" >/dev/null 2>&1; then
+    echo "Secret clickhouse-credentials not found in namespace $CLICKHOUSE_NAMESPACE" >&2
+    exit 1
+fi
+
+if [[ -z "$CLICKHOUSE_IMAGE" ]]; then
+    CLICKHOUSE_IMAGE=$(kubectl get pods -n "$CLICKHOUSE_NAMESPACE" -l clickhouse.com/role=clickhouse-server \
+        -o jsonpath='{.items[0].spec.containers[?(@.name=="clickhouse-server")].image}' 2>/dev/null)
+    [[ -z "$CLICKHOUSE_IMAGE" ]] && CLICKHOUSE_IMAGE="clickhouse/clickhouse-server:25.7"
+fi
+
+SETUP_SCRIPT="set -euo pipefail
+exec clickhouse-client --host ${CLICKHOUSE_HOST} --user \"\$(cat /etc/clickhouse-admin/username)\" --password \"\$(cat /etc/clickhouse-admin/password)\" \"\$@\""
+
+POD_NAME="homelab-clickhouse-cli-$$-${RANDOM}"
+INTERACTIVE=false
+[[ -t 0 && -t 1 ]] && INTERACTIVE=true
+
+build_overrides() {
+    local tty="$1"
+    shift
+    jq -nc \
+        --arg name "$POD_NAME" \
+        --arg image "$CLICKHOUSE_IMAGE" \
+        --arg script "$SETUP_SCRIPT" \
+        --argjson tty "$tty" \
+        '{
+            apiVersion: "v1",
+            kind: "Pod",
+            metadata: { name: $name },
+            spec: {
+                restartPolicy: "Never",
+                containers: [{
+                    name: "clickhouse",
+                    image: $image,
+                    stdin: $tty,
+                    tty: $tty,
+                    command: ["/bin/bash", "-c", $script, "homelab-clickhouse"],
+                    args: $ARGS.positional,
+                    volumeMounts: [
+                        { name: "admin-secret", mountPath: "/etc/clickhouse-admin", readOnly: true }
+                    ]
+                }],
+                volumes: [
+                    { name: "admin-secret", secret: { secretName: "clickhouse-credentials" } }
+                ]
+            }
+        }' \
+        --args -- "$@"
+}
+
+if [[ "$INTERACTIVE" == true ]]; then
+    OVERRIDES=$(build_overrides true "$@")
+    kubectl run "$POD_NAME" -n "$CLICKHOUSE_NAMESPACE" --rm -it --restart=Never \
+        --image="$CLICKHOUSE_IMAGE" --overrides="$OVERRIDES"
+    exit $?
+fi
+
+OVERRIDES=$(build_overrides false "$@")
+kubectl run "$POD_NAME" -n "$CLICKHOUSE_NAMESPACE" --restart=Never \
+    --image="$CLICKHOUSE_IMAGE" --overrides="$OVERRIDES" >/dev/null
+
+PHASE=""
+for _ in $(seq 60); do
+    PHASE=$(kubectl get pod "$POD_NAME" -n "$CLICKHOUSE_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)
+    [[ "$PHASE" == "Succeeded" || "$PHASE" == "Failed" ]] && break
+    sleep 1
+done
+
+kubectl logs "$POD_NAME" -n "$CLICKHOUSE_NAMESPACE"
+EXIT_CODE=0
+[[ "$PHASE" != "Succeeded" ]] && EXIT_CODE=1
+kubectl delete pod "$POD_NAME" -n "$CLICKHOUSE_NAMESPACE" --ignore-not-found >/dev/null 2>&1
+exit "$EXIT_CODE"
