@@ -5,7 +5,7 @@
 #
 # Operator workflow:
 #   - Add a model:    edit MODELS env var (comma-separated), commit, push.
-#   - Remove a model: same; then optionally `scripts/vllm-model.sh delete <id>`.
+#   - Remove a model: same; then optionally `kubectl homelab model vllm delete <id>`.
 ---
 apiVersion: v1
 kind: ServiceAccount

@@ -167,8 +167,8 @@ externally minted credentials marked `generate: false` in
 with the same `VAULT_TOKEN` used for seeding. Current entries:
 
 - `harbor/llm-models` — Harbor robot account used by Ray and llama-cpp init
-  containers, plus `kubectl llama-model` / `kubectl vllm-model`, to manage the
-  model cache.
+  containers, plus `kubectl homelab model llama` / `kubectl homelab model vllm`,
+  to manage the model cache.
 - `huggingface/api-token` — HuggingFace read token used by Ray and llama-cpp
   model-pull init containers. Anonymous HuggingFace downloads are not allowed.
 - `cloudflare/api-token` — scoped Cloudflare API token used by cert-manager's
@@ -202,8 +202,8 @@ Bearer-token enforcement is deferred until a dedicated API gateway is added.
 
 DBeaver/CloudBeaver is intentionally not Vault-seeded. It is an internal
 admin-only tool, and the first browser login creates the CloudBeaver admin in
-the workspace PVC. `kubectl list-endpoints` reports that setup step instead
-of a Vault-backed credential.
+the workspace PVC. `kubectl homelab list dashboards` reports that setup step
+instead of a Vault-backed credential.
 
 Headlamp is intentionally not Vault-seeded. It uses operator-issued
 ServiceAccount tokens (no static credential). The chart provisions the
@@ -215,7 +215,7 @@ screen:
 kubectl -n headlamp create token headlamp --duration=8h
 ```
 
-`scripts/list-endpoints.sh` reports that step instead of a Vault-backed
+`kubectl homelab list dashboards` reports that step instead of a Vault-backed
 credential.
 
 OpenWebUI's admin user is seeded by a PostSync `openwebui-admin-bootstrap`
@@ -386,12 +386,30 @@ kubectl plugin list
 
 | Plugin | Invocation | Purpose |
 |---|---|---|
-| `kubectl-df_bucket` | `kubectl df-bucket [storage-class]` | RGW bucket usage for ObjectBucketClaims in a bucket storage class |
-| `kubectl-df_pvc` | `kubectl df-pvc <storage-class>` | Disk usage for all PVCs in a storage class |
-| `kubectl-list_endpoints` | `kubectl list-endpoints` | All HTTPRoute URLs with credentials |
-| `kubectl-llama_model` | `kubectl llama-model list\|delete` | Manage GGUF models on the llama-cpp PVC |
-| `kubectl-psql` | `kubectl psql [--database db-name]` | connect to postgres-cluster rw service, default DB is postgres |
-| `kubectl-vllm_model` | `kubectl vllm-model verify\|list\|delete` | Manage vLLM models on PVC and Harbor |
+| `kubectl-homelab-argocd` | `kubectl homelab argocd [argocd-args...]` | Run the `argocd` CLI from a one-shot pod, logged in with the live admin secret |
+| `kubectl-homelab-ceph` | `kubectl homelab ceph [ceph-args...]` | Run the `ceph` CLI from a one-shot pod, credentials read live from Rook's own Secret/ConfigMap |
+| `kubectl-homelab-clickhouse` | `kubectl homelab clickhouse [clickhouse-client-args...]` | Run `clickhouse-client` from a one-shot pod, credentials read live from clickhouse-credentials |
+| `kubectl-homelab-df-bucket` | `kubectl homelab df bucket [storage-class]` | RGW bucket usage for ObjectBucketClaims in a bucket storage class |
+| `kubectl-homelab-df-pvc` | `kubectl homelab df pvc <storage-class>` | Disk usage for all PVCs in a storage class |
+| `kubectl-homelab-hdfs` | `kubectl homelab hdfs [hdfs-args...]` | Run the `hdfs` CLI from a one-shot pod, using the cluster's own core-site/hdfs-site config |
+| `kubectl-homelab-list-dashboards` | `kubectl homelab list dashboards` | All HTTPRoute URLs with credentials |
+| `kubectl-homelab-model-llama` | `kubectl homelab model llama list\|delete` | Manage GGUF models on the llama-cpp PVC |
+| `kubectl-homelab-model-vllm` | `kubectl homelab model vllm verify\|list\|delete` | Manage vLLM models on PVC and Harbor |
+| `kubectl-homelab-mysql` | `kubectl homelab mysql [mysql-args...]` | Run the `mysql` CLI as root from a one-shot pod, credentials read live from mysql-root |
+| `kubectl-homelab-psql` | `kubectl homelab psql [--database db-name]` | connect to postgres-cluster rw service, default DB is postgres |
+| `kubectl-homelab-redis` | `kubectl homelab redis [redis-cli-args...]` | Run `redis-cli` against the write master from a one-shot pod, credentials read live from redis-default |
+| `kubectl-homelab-trino` | `kubectl homelab trino [trino-args...]` | Run the `trino` CLI from a one-shot pod, credentials read live from trino-credentials — currently blocked, see note below |
+
+`kubectl-homelab-trino` cannot complete a query yet: the CLI refuses password
+auth over the in-cluster plaintext service, so it must go through the
+gateway's HTTPS route (`trino.homelab.xiehang.com`); but Trino's coordinator
+then rejects the request itself (`HTTP 406: Server configuration does not
+allow processing of the X-Forwarded-For header`), because
+`http-server.process-forwarded` isn't enabled for the gateway (Envoy) as a
+trusted proxy. Fixing this means setting that property in
+`gitops/workloads/helm/trino/values.yaml` — a real change to a security-
+relevant setting, so it's left for a deliberate follow-up rather than bundled
+into this plugin.
 
 ## Repo layout
 

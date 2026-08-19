@@ -10,4 +10,4 @@ Three-node ScyllaDB cluster managed by the ScyllaDB Operator.
 
 This intentionally does not reuse the old Cassandra namespace, service name, or
 Vault secret path. ScyllaDB does not expose a built-in web UI/admin panel here,
-so there is no `HTTPRoute` or `scripts/list-endpoints.sh` entry.
+so there is no `HTTPRoute` or `kubectl homelab list dashboards` entry.
