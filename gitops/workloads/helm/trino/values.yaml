@@ -68,6 +68,11 @@ server:
 
 additionalConfigProperties:
   - internal-communication.shared-secret=homelab-trino-internal-shared-secret-20260603
+  # The gateway (Envoy) fronts every client request and adds X-Forwarded-For.
+  # Trino's PASSWORD authenticator refuses to process that header from an
+  # untrusted client by default, which made every request through the gateway
+  # fail with HTTP 406 — this trusts the gateway as the reverse proxy it is.
+  - http-server.process-forwarded=true
 
 auth:
   passwordAuthSecret: trino-credentials

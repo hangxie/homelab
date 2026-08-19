@@ -398,18 +398,7 @@ kubectl plugin list
 | `kubectl-homelab-mysql` | `kubectl homelab mysql [mysql-args...]` | Run the `mysql` CLI as root from a one-shot pod, credentials read live from mysql-root |
 | `kubectl-homelab-psql` | `kubectl homelab psql [--database db-name]` | connect to postgres-cluster rw service, default DB is postgres |
 | `kubectl-homelab-redis` | `kubectl homelab redis [redis-cli-args...]` | Run `redis-cli` against the write master from a one-shot pod, credentials read live from redis-default |
-| `kubectl-homelab-trino` | `kubectl homelab trino [trino-args...]` | Run the `trino` CLI from a one-shot pod, credentials read live from trino-credentials — currently blocked, see note below |
-
-`kubectl-homelab-trino` cannot complete a query yet: the CLI refuses password
-auth over the in-cluster plaintext service, so it must go through the
-gateway's HTTPS route (`trino.homelab.xiehang.com`); but Trino's coordinator
-then rejects the request itself (`HTTP 406: Server configuration does not
-allow processing of the X-Forwarded-For header`), because
-`http-server.process-forwarded` isn't enabled for the gateway (Envoy) as a
-trusted proxy. Fixing this means setting that property in
-`gitops/workloads/helm/trino/values.yaml` — a real change to a security-
-relevant setting, so it's left for a deliberate follow-up rather than bundled
-into this plugin.
+| `kubectl-homelab-trino` | `kubectl homelab trino [trino-args...]` | Run the `trino` CLI from a one-shot pod, credentials read live from trino-credentials |
 
 ## Repo layout
 
