@@ -1,0 +1,124 @@
+#!/bin/bash
+
+set -uo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: kubectl homelab argocd [argocd-args...]
+
+Run an Argo CD CLI command against the cluster from a one-shot pod, logged
+in with the admin password read live from the argocd-initial-admin-secret
+Secret. No local argocd config or token needed.
+
+Examples:
+  kubectl homelab argocd app list
+  kubectl homelab argocd app get rook-ceph-cluster
+  kubectl homelab argocd app diff rook-ceph-cluster
+
+Environment:
+  ARGOCD_NAMESPACE  Namespace holding Argo CD (default: argocd)
+  ARGOCD_IMAGE      argocd CLI image (default: the cluster's own argocd-server image)
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required" >&2
+    exit 1
+fi
+
+ARGOCD_NAMESPACE="${ARGOCD_NAMESPACE:-argocd}"
+ARGOCD_IMAGE="${ARGOCD_IMAGE:-}"
+
+if ! kubectl get secret argocd-initial-admin-secret -n "$ARGOCD_NAMESPACE" >/dev/null 2>&1; then
+    echo "Secret argocd-initial-admin-secret not found in namespace $ARGOCD_NAMESPACE" >&2
+    echo "(it is deleted by some hardening guides after first login — if so, this plugin needs a different credential source)" >&2
+    exit 1
+fi
+
+if [[ -z "$ARGOCD_IMAGE" ]]; then
+    ARGOCD_IMAGE=$(kubectl get deploy argocd-server -n "$ARGOCD_NAMESPACE" \
+        -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)
+    [[ -z "$ARGOCD_IMAGE" ]] && ARGOCD_IMAGE="quay.io/argoproj/argocd:v3.4.3"
+fi
+
+# In-cluster service, plaintext per gitops/platform/argocd/values.yaml
+# (server.insecure: "true" — TLS is terminated at the gateway, not here).
+ARGOCD_SERVER="argocd-server.${ARGOCD_NAMESPACE}.svc.cluster.local:80"
+
+# Logs in with the mounted admin password (never touches the local shell),
+# then execs the argocd CLI with the args this script was invoked with —
+# the CLI reuses the session written by login for the rest of the command.
+SETUP_SCRIPT="set -euo pipefail
+argocd login ${ARGOCD_SERVER} --username admin --password \"\$(cat /etc/argocd-admin/password)\" --plaintext >/dev/null
+exec argocd \"\$@\""
+
+POD_NAME="homelab-argocd-cli-$$-${RANDOM}"
+INTERACTIVE=false
+[[ -t 0 && -t 1 ]] && INTERACTIVE=true
+
+build_overrides() {
+    local tty="$1"
+    shift
+    jq -nc \
+        --arg name "$POD_NAME" \
+        --arg image "$ARGOCD_IMAGE" \
+        --arg script "$SETUP_SCRIPT" \
+        --argjson tty "$tty" \
+        '{
+            apiVersion: "v1",
+            kind: "Pod",
+            metadata: { name: $name },
+            spec: {
+                restartPolicy: "Never",
+                containers: [{
+                    name: "argocd",
+                    image: $image,
+                    stdin: $tty,
+                    tty: $tty,
+                    command: ["/bin/bash", "-c", $script, "homelab-argocd"],
+                    args: $ARGS.positional,
+                    volumeMounts: [
+                        { name: "admin-secret", mountPath: "/etc/argocd-admin", readOnly: true }
+                    ]
+                }],
+                volumes: [
+                    { name: "admin-secret", secret: { secretName: "argocd-initial-admin-secret" } }
+                ]
+            }
+        }' \
+        --args -- "$@"
+}
+
+if [[ "$INTERACTIVE" == true ]]; then
+    # Real terminal on both ends: attach directly so interactive/streaming
+    # commands (e.g. `app diff`, `app logs -f`) work, same as kubectl-homelab-psql does.
+    OVERRIDES=$(build_overrides true "$@")
+    kubectl run "$POD_NAME" -n "$ARGOCD_NAMESPACE" --rm -it --restart=Never \
+        --image="$ARGOCD_IMAGE" --overrides="$OVERRIDES"
+    exit $?
+fi
+
+# No terminal to attach (script/pipe usage): `kubectl run --rm -i` races
+# between attach and the pod finishing, so create the pod, wait for it to
+# finish, print its logs, then clean up — mirrors kubectl-homelab-df-pvc's pattern.
+OVERRIDES=$(build_overrides false "$@")
+kubectl run "$POD_NAME" -n "$ARGOCD_NAMESPACE" --restart=Never \
+    --image="$ARGOCD_IMAGE" --overrides="$OVERRIDES" >/dev/null
+
+PHASE=""
+for _ in $(seq 60); do
+    PHASE=$(kubectl get pod "$POD_NAME" -n "$ARGOCD_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)
+    [[ "$PHASE" == "Succeeded" || "$PHASE" == "Failed" ]] && break
+    sleep 1
+done
+
+kubectl logs "$POD_NAME" -n "$ARGOCD_NAMESPACE"
+EXIT_CODE=0
+[[ "$PHASE" != "Succeeded" ]] && EXIT_CODE=1
+kubectl delete pod "$POD_NAME" -n "$ARGOCD_NAMESPACE" --ignore-not-found >/dev/null 2>&1
+exit "$EXIT_CODE"
