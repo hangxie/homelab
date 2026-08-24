@@ -22,7 +22,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-kubectl -n postgres-cluster run lab-psql-client-${CLIENT_ID} --rm -it --image=postgres:18 --overrides='
+kubectl -n postgres-cluster run lab-psql-client-${CLIENT_ID} --rm -it --quiet --image=postgres:18 --overrides='
 {
   "apiVersion": "v1",
   "spec": {

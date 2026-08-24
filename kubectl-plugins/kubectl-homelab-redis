@@ -93,7 +93,7 @@ build_overrides() {
 
 if [[ "$INTERACTIVE" == true ]]; then
     OVERRIDES=$(build_overrides true "$@")
-    kubectl run "$POD_NAME" -n "$REDIS_NAMESPACE" --rm -it --restart=Never \
+    kubectl run "$POD_NAME" -n "$REDIS_NAMESPACE" --rm -it --quiet --restart=Never \
         --image="$REDIS_IMAGE" --overrides="$OVERRIDES"
     exit $?
 fi

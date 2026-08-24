@@ -108,7 +108,7 @@ if [[ "$INTERACTIVE" == true ]]; then
     # Real terminal on both ends: attach directly so interactive/streaming
     # commands (e.g. `ceph -w`) work, same as kubectl-homelab-psql does.
     OVERRIDES=$(build_overrides true "$@")
-    kubectl run "$POD_NAME" -n "$ROOK_NAMESPACE" --rm -it --restart=Never \
+    kubectl run "$POD_NAME" -n "$ROOK_NAMESPACE" --rm -it --quiet --restart=Never \
         --image="$ROOK_CEPH_IMAGE" --overrides="$OVERRIDES"
     exit $?
 fi

@@ -89,7 +89,7 @@ build_overrides() {
 
 if [[ "$INTERACTIVE" == true ]]; then
     OVERRIDES=$(build_overrides true "$@")
-    kubectl run "$POD_NAME" -n "$MYSQL_NAMESPACE" --rm -it --restart=Never \
+    kubectl run "$POD_NAME" -n "$MYSQL_NAMESPACE" --rm -it --quiet --restart=Never \
         --image="$MYSQL_IMAGE" --overrides="$OVERRIDES"
     exit $?
 fi
