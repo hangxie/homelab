@@ -46,6 +46,10 @@ spec:
       max_connections: "200"
       shared_buffers: "256MB"
       effective_cache_size: "1GB"
+      # CNPG defaults to 5min, but a forced switch still writes a full 16 MiB
+      # segment — ~98% padding here, and ~30% of all client writes to Ceph.
+      # Costs archive RPO.
+      archive_timeout: "30min"
 
   resources:
     requests:
