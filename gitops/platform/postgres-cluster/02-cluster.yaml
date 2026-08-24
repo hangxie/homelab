@@ -50,6 +50,14 @@ spec:
       # segment — ~98% padding here, and ~30% of all client writes to Ceph.
       # Costs archive RPO.
       archive_timeout: "30min"
+      # Fewer checkpoints, so full-page images are not re-paid for the same
+      # hot pages every 5min.
+      checkpoint_timeout: "15min"
+      # Shrinks full-page images. Insurance for bulk bursts, not steady state.
+      wal_compression: "zstd"
+      # HA replication slots are what protect the replicas; this is only a
+      # backstop. pg_wal was 577M against a 100M database.
+      wal_keep_size: "128MB"
 
   resources:
     requests:
