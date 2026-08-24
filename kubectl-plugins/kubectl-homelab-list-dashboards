@@ -2,6 +2,23 @@
 
 set -uo pipefail
 
+usage() {
+    cat <<'EOF'
+Usage: kubectl homelab list dashboards
+
+Print every HTTPRoute URL in the cluster alongside the user and credential
+read live from the Secret backing it. Takes no arguments.
+
+Environment:
+  DASHBOARD_CREDS_SCHEME  URL scheme for the printed links (default: https)
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
 URL_WIDTH=55
 USER_WIDTH=28
 URL_SCHEME="${DASHBOARD_CREDS_SCHEME:-https}"

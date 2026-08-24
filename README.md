@@ -384,8 +384,13 @@ Verify discovery:
 kubectl plugin list
 ```
 
+`kubectl homelab -h` lists whatever is installed with a one-line summary of
+each. `kubectl homelab <command> -h` prints that plugin's own full usage, and
+the group commands (`df`, `list`, `model`) list their subcommands the same way.
+
 | Plugin | Invocation | Purpose |
 |---|---|---|
+| `kubectl-homelab` | `kubectl homelab [group] -h` | List the installed homelab plugins, or one group's subcommands |
 | `kubectl-homelab-argocd` | `kubectl homelab argocd [argocd-args...]` | Run the `argocd` CLI from a one-shot pod, logged in with the live admin secret |
 | `kubectl-homelab-ceph` | `kubectl homelab ceph [ceph-args...]` | Run the `ceph` CLI from a one-shot pod, credentials read live from Rook's own Secret/ConfigMap |
 | `kubectl-homelab-clickhouse` | `kubectl homelab clickhouse [clickhouse-client-args...]` | Run `clickhouse-client` from a one-shot pod, credentials read live from clickhouse-credentials |
@@ -396,7 +401,7 @@ kubectl plugin list
 | `kubectl-homelab-model-llama` | `kubectl homelab model llama list\|delete` | Manage GGUF models on the llama-cpp PVC |
 | `kubectl-homelab-model-vllm` | `kubectl homelab model vllm verify\|list\|delete` | Manage vLLM models on PVC and Harbor |
 | `kubectl-homelab-mysql` | `kubectl homelab mysql [mysql-args...]` | Run the `mysql` CLI as root from a one-shot pod, credentials read live from mysql-root |
-| `kubectl-homelab-psql` | `kubectl homelab psql [--database db-name]` | connect to postgres-cluster rw service, default DB is postgres |
+| `kubectl-homelab-psql` | `kubectl homelab psql [-d\|--database <database>]` | connect to postgres-cluster rw service, default DB is postgres |
 | `kubectl-homelab-redis` | `kubectl homelab redis [redis-cli-args...]` | Run `redis-cli` against the write master from a one-shot pod, credentials read live from redis-default |
 | `kubectl-homelab-trino` | `kubectl homelab trino [trino-args...]` | Run the `trino` CLI from a one-shot pod, credentials read live from trino-credentials |
 

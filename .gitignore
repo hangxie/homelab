@@ -46,3 +46,6 @@ terraform.rc
 # TLS certificates (managed locally, seeded into cluster on deploy)
 certs/*.pem
 certs/.certbot/
+
+# vi
+.*.swp

@@ -11,7 +11,8 @@ while [[ $# -gt 0 ]]; do
       shift 2 # Shift past the flag and its value
       ;;
     -h|--help)
-      echo "Usage: $0 --database <database>"
+      echo "Usage: kubectl homelab psql [-d|--database <database>]"
+      echo "       Connect to the postgres-cluster rw service; default database is postgres."
       exit 0
       ;;
     *)

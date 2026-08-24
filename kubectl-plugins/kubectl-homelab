@@ -1,0 +1,143 @@
+#!/bin/bash
+
+set -uo pipefail
+
+# kubectl stops building a plugin name at the first argument that starts with
+# a dash, so `kubectl homelab -h` lands here. Leaf commands never do: kubectl
+# resolves `kubectl homelab ceph -h` straight to kubectl-homelab-ceph, which
+# answers for itself. What reaches this file is the bare listing and the
+# group commands (df, list, model), which have no plugin file of their own.
+
+# One-line purpose per plugin, keyed by the plugin's command name (the file
+# name minus the kubectl-homelab- prefix, dashes turned into spaces).
+purpose_of() {
+    case "$1" in
+        argocd)            echo "Run the argocd CLI from a one-shot pod, logged in with the live admin secret" ;;
+        ceph)              echo "Run the ceph CLI from a one-shot pod, credentials read live from Rook's Secret/ConfigMap" ;;
+        clickhouse)        echo "Run clickhouse-client from a one-shot pod, credentials read live from clickhouse-credentials" ;;
+        "df bucket")       echo "RGW bucket usage for ObjectBucketClaims in a bucket storage class" ;;
+        "df pvc")          echo "Disk usage for all PVCs in a storage class" ;;
+        hdfs)              echo "Run the hdfs CLI from a one-shot pod, using the cluster's own core-site/hdfs-site config" ;;
+        "list dashboards") echo "All HTTPRoute URLs with credentials" ;;
+        "model llama")     echo "Manage GGUF models on the llama-cpp PVC and the Harbor cache" ;;
+        "model vllm")      echo "Manage vLLM models on the PVC and Harbor" ;;
+        mysql)             echo "Run the mysql CLI as root from a one-shot pod, credentials read live from mysql-root" ;;
+        psql)              echo "Connect to the postgres-cluster rw service, default DB is postgres" ;;
+        redis)             echo "Run redis-cli against the write master from a one-shot pod, credentials read live from redis-default" ;;
+        trino)             echo "Run the trino CLI from a one-shot pod, credentials read live from trino-credentials" ;;
+        *)                 echo "" ;;
+    esac
+}
+
+# Directory this script really lives in, so running it straight out of the
+# repo (before anything is symlinked) still finds its siblings.
+SELF="${BASH_SOURCE[0]}"
+while [[ -L "$SELF" ]]; do
+    LINK="$(readlink "$SELF")"
+    if [[ "$LINK" == /* ]]; then
+        SELF="$LINK"
+    else
+        SELF="$(dirname "$SELF")/$LINK"
+    fi
+done
+SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+
+# Emits "<command name><TAB><on PATH?><TAB><path>" for every kubectl-homelab-*
+# executable, first occurrence winning — the same precedence kubectl itself
+# applies when it resolves a plugin. SCRIPT_DIR is searched last and flagged,
+# so a plugin that exists in the repo but was never symlinked is reported as
+# such instead of silently looking installed.
+discover() {
+    local dir f base name on_path
+    for dir in "${PATH_DIRS[@]}" "$SCRIPT_DIR"; do
+        [[ -d "$dir" ]] || continue
+        on_path=yes
+        [[ "$dir" == "$SCRIPT_DIR" ]] && on_path=no
+        for f in "$dir"/kubectl-homelab-*; do
+            [[ -f "$f" && -x "$f" ]] || continue
+            base="${f##*/}"
+            name="${base#kubectl-homelab-}"
+            printf '%s\t%s\t%s\n' "${name//-/ }" "$on_path" "$f"
+        done
+    done | awk -F'\t' '!seen[$1]++' | sort -t"$(printf '\t')" -k1,1
+}
+
+# Prints a COMMAND/PURPOSE table from "<label><TAB><full name><TAB><on PATH?>"
+# rows on stdin. The label is what to show; the full name keys the purpose.
+print_table() {
+    local rows="$1" width=7 label name on_path desc
+    while IFS=$'\t' read -r label name on_path; do
+        (( ${#label} > width )) && width=${#label}
+    done < <(printf '%s\n' "$rows")
+
+    printf "%-${width}s  %s\n" "COMMAND" "PURPOSE"
+    printf "%-${width}s  %s\n" "$(printf '%*s' "$width" '' | tr ' ' '-')" "$(printf '%*s' 60 '' | tr ' ' '-')"
+    while IFS=$'\t' read -r label name on_path; do
+        desc=$(purpose_of "$name")
+        [[ "$on_path" == "no" ]] && desc="${desc:+$desc }(not on PATH)"
+        printf "%-${width}s  %s\n" "$label" "$desc"
+    done < <(printf '%s\n' "$rows")
+}
+
+PATH_DIRS=()
+while IFS= read -r d; do
+    [[ -n "$d" ]] && PATH_DIRS+=("$d")
+done < <(printf '%s' "$PATH" | tr ':' '\n')
+
+PLUGINS=$(discover)
+
+if [[ -z "$PLUGINS" ]]; then
+    echo "No kubectl-homelab-* plugins found on PATH or in $SCRIPT_DIR" >&2
+    exit 1
+fi
+
+# Same rule kubectl uses to turn arguments into a plugin name: take leading
+# arguments until the first flag. `df -h` and a bare `df` both name "df".
+NAME_PARTS=()
+for arg in "$@"; do
+    [[ "$arg" == -* ]] && break
+    NAME_PARTS+=("$arg")
+done
+NAME="${NAME_PARTS[*]:-}"
+
+if [[ -n "$NAME" ]]; then
+    # A group command (df, list, model) — no plugin file of its own, so its
+    # -h is answered here by listing the leaves underneath it.
+    SUBS=$(printf '%s\n' "$PLUGINS" | awk -F'\t' -v g="$NAME " '
+        index($1, g) == 1 { sub(g, "", $1); print $1 "\t" g $1 "\t" $2 }')
+    if [[ -n "$SUBS" ]]; then
+        echo "Usage: kubectl homelab $NAME <command> [args...]"
+        echo
+        print_table "$SUBS"
+        echo
+        echo "Run 'kubectl homelab $NAME <command> -h' for one command's full help."
+        # A bare group is an incomplete command line, not a request for help.
+        [[ ${#NAME_PARTS[@]} -eq $# ]] && exit 1
+        exit 0
+    fi
+
+    # Reaching here with a leaf name means kubectl could not resolve it —
+    # either a typo, or a plugin sitting in the repo that was never linked.
+    NOT_LINKED=$(printf '%s\n' "$PLUGINS" | awk -F'\t' -v n="$NAME" '$1 == n && $2 == "no" { print $3; exit }')
+    if [[ -n "$NOT_LINKED" ]]; then
+        echo "kubectl homelab $NAME exists at $NOT_LINKED but is not on your PATH." >&2
+        echo "Symlink it (see the kubectl plugins section of README.md) and retry." >&2
+    else
+        echo "Unknown command: kubectl homelab $NAME" >&2
+        echo "Run 'kubectl homelab -h' to see what is available." >&2
+    fi
+    exit 1
+fi
+
+if [[ $# -gt 0 && "$1" != "-h" && "$1" != "--help" ]]; then
+    echo "Unknown option: $1" >&2
+    echo "Run 'kubectl homelab -h' to see what is available." >&2
+    exit 1
+fi
+
+echo "Usage: kubectl homelab <command> [args...]"
+echo
+print_table "$(printf '%s\n' "$PLUGINS" | awk -F'\t' '{ print $1 "\t" $1 "\t" $2 }')"
+echo
+echo "Run 'kubectl homelab <command> -h' for one command's full help,"
+echo "e.g. 'kubectl homelab ceph -h' or 'kubectl homelab model vllm -h'."
