@@ -24,7 +24,7 @@ See `README.md` for architecture, bootstrap flow, and rebuild modes.
 
 - **Helm workload:** create `gitops/workloads/helm/<name>/{config.json,values.yaml}` (+ `extras/`), add `- name: <name>` to `gitops/cluster/applications/workloads-helm.yaml`.
 - **Raw workload:** create `gitops/workloads/raw/<name>/manifests/*.yaml`, add `- name: <name>` to `workloads-raw.yaml`.
-- **Disable a workload:** comment out its line. Pruning (incl. PVCs) is automatic.
+- **Disable a workload:** comment out its line. Pruning is automatic except StatefulSet `volumeClaimTemplates` PVCs.
 - **Platform component:** edit `gitops/platform/<component>/`. Respect sync waves in `gitops/cluster/applications/<component>.yaml`.
 - **New secret path:** add to `scripts/vault-secrets.template.yaml`, re-run `scripts/seed-vault.sh`. `generate: false` entries must be `vault kv put` first.
 - `config.json` schema: `chart_repo` / `chart_name` / `chart_version` only.
@@ -61,3 +61,4 @@ kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrit
 - `workloads-helm` ApplicationSet is multi-source (chart + `$values` + `extras/`). Don't collapse.
 - Gateway terminates TLS on 443; upstream services are plain HTTP.
 - `ansible/inventory.ini` is generated from `terraform/templates/inventory.tftpl`. Don't hand-edit.
+- StatefulSet `volumeClaimTemplates` PVCs aren't Argo-tracked; they survive a prune. Delete by hand.
