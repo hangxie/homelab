@@ -11,6 +11,7 @@ See `README.md` for architecture, bootstrap flow, and rebuild modes.
 - **Fix in place.** Edit the existing file/resource. No parallel versions, shim files, or "v2" copies — clean up the old thing first.
 - **No one-off migration code.** Operator resets or redeploys per README; don't add transition branches or backfill jobs.
 - **HF token always required.** Every HuggingFace download path reads the token and fails loudly if missing.
+- **No hard-wrapped Markdown.** One line per paragraph or list item. Rewrapping turns a one-word edit into a whole-block diff.
 
 ## Ownership (don't cross)
 
