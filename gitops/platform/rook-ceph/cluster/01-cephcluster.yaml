@@ -18,21 +18,20 @@ spec:
       mgr/prometheus/exclude_perf_counters: "false"
     osd:
       # BLUESTORE_SLOW_OP_ALERT defaults to threshold 1 over a 24h window, so a
-      # single slow op pins the cluster to HEALTH_WARN for a whole day. All
-      # three OSD disks are thin LVs on one consumer SATA SSD on the hypervisor,
-      # so a handful of slow commits per day is the normal floor — measured
-      # baseline is ~1.5/day/OSD against ~500k KV commits/day (0.0003%), with
-      # average txc_commit_lat at 6.6ms. 20/day keeps the alert ~13x above that
-      # floor, so it still fires on real degradation instead of on the baseline.
+      # single slow op pins the cluster to HEALTH_WARN for a whole day. A
+      # handful of slow commits per day is the normal floor here — measured
+      # baseline is ~1.5/day/OSD against ~500k KV commits/day (0.0003%). 20/day
+      # keeps the alert ~13x above that floor, so it still fires on real
+      # degradation instead of on the baseline.
       # Note the window is trailing: the warning persists for the full lifetime
       # after the last slow op, so it clears on its own well after a fix lands.
       bluestore_slow_ops_warn_threshold: "20"
       bluestore_slow_ops_warn_lifetime: "86400"
-      # Nothing above ever returned freed blocks to that SSD — QEMU had
-      # discard=ignore — so its FTL treated every LBA ever written as live and
-      # fell into garbage collection under sustained fsync load. With discard
-      # passthrough now in place (terraform, and the thin pool already passes
-      # down), BlueStore returns freed extents to the device.
+      # Nothing above ever returned freed blocks to the backing device — QEMU
+      # had discard=ignore — so its FTL treated every LBA ever written as live
+      # and fell into garbage collection under sustained fsync load. With
+      # discard passthrough now in place (terraform, and the thin pool already
+      # passes down), BlueStore returns freed extents to the device.
       bdev_enable_discard: "true"
       # Must be non-zero. At 0 the discards are issued inline on the I/O path,
       # which would reintroduce the very stalls this is meant to remove.
