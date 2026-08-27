@@ -360,7 +360,7 @@ Destroys: VMs, disks, all cluster state.
 
 - Live migration / blue-green cutover.
 - In-cluster backup/restore — DR is deferred.
-- Partial node replacement while a cluster is healthy — use `scripts/remove-worker.sh` ad-hoc.
+- Partial node replacement while a cluster is healthy — drain, remove the Rook-Ceph OSD, and deregister the node by hand.
 - Vault unavailable. The cluster cannot fully converge without Vault; restore Vault from its own backups.
 
 ## kubectl plugins
@@ -413,5 +413,5 @@ the group commands (`df`, `list`, `model`) list their subcommands the same way.
 - `gitops/platform/` — Helm values and supporting CRs for platform components.
 - `gitops/workloads/helm/<name>/` — `config.json` (`chart_repo`, `chart_name`, `chart_version` only; validated by `gitops/workloads/.schema.json`), `values.yaml`, `extras/` (ExternalSecrets, init Jobs, HTTPRoutes).
 - `gitops/workloads/raw/<name>/` — `manifests/` of raw YAML.
-- `scripts/` — operator utilities (Vault seed/nuke, node removal, redeploy, Proxmox GPU passthrough).
+- `scripts/` — operator utilities (Vault seed/nuke, certificate seeding, redeploy).
 - `kubectl-plugins/` — kubectl plugins for cluster inspection and model cache management (see [kubectl plugins](#kubectl-plugins)).
