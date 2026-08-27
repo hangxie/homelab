@@ -62,3 +62,5 @@ kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrit
 - Gateway terminates TLS on 443; upstream services are plain HTTP.
 - `ansible/inventory.ini` is generated from `terraform/templates/inventory.tftpl`. Don't hand-edit.
 - StatefulSet `volumeClaimTemplates` PVCs aren't Argo-tracked; they survive a prune. Delete by hand.
+- Every StorageClass is `reclaimPolicy: Delete`, so deleting a PVC destroys the PV and the RBD image or CephFS subvolume with it. Nothing is left to recover from — check what is bound before deleting. Same for an `ObjectBucketClaim`: removing it drops the bucket and its objects, Postgres backups included.
+- `reclaimPolicy` is immutable on a StorageClass. Changing it means deleting and recreating the object by hand — Argo CD cannot, and its sync will fail on the immutable field. Existing PVs keep the policy they were provisioned with; patch them separately.
