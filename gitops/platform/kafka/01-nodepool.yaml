@@ -21,12 +21,23 @@ spec:
     volumes:
       - id: 0
         type: persistent-claim
-        # Transient ingest buffer — every durable block is already in the
-        # mimir-blocks bucket, so Ceph would duplicate Kafka's own replication.
-        class: local-path
-        # Advisory only: local-path is unquota'd hostPath. retention.bytes in
-        # 03-topic-mimir-ingest.yaml is the real bound. Sized for the worst case
-        # it permits: 2 active partitions x 6Gi, plus metadata.
+        # Was local-path, on the reasoning that this is a transient ingest
+        # buffer and Ceph would duplicate Kafka's own replication. It still
+        # does, but the copies are cheap (~11 GiB raw at RF 3 on EC 2+1,
+        # against 65 GiB used of 1.5 TiB) and local-path was the worse tier:
+        # unquota'd hostPath on the node system disk, which also carries the
+        # 41-44 GiB container image cache and has hit DiskPressure before. This
+        # was the largest local-path consumer at 2.4 GiB per broker. On Ceph
+        # the size below is enforced and a broker is no longer pinned to its
+        # node, so a drain can move it instead of parking it.
+        #
+        # Strimzi ignores a class change on an existing volume — moving this
+        # again means recreating the Kafka and KafkaNodePool resources and
+        # their PVCs, or the JBOD add-then-remove dance.
+        class: rook-ceph-block
+        # retention.bytes in 03-topic-mimir-ingest.yaml is the tighter bound.
+        # Sized for the worst case it permits: 2 active partitions x 6Gi, plus
+        # metadata.
         size: 16Gi
         kraftMetadata: shared
         deleteClaim: false
@@ -42,8 +53,8 @@ spec:
   template:
     pod:
       # One broker per node, strictly. topologySpreadConstraints with maxSkew: 1
-      # would allow a 2/1 split on two schedulable nodes, and local-path PV node
-      # affinity would make that split permanent.
+      # would allow a 2/1 split on two schedulable nodes, and three controllers
+      # on two nodes means one node holds the KRaft quorum.
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
