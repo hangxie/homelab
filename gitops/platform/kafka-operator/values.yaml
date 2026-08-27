@@ -1,0 +1,15 @@
+# Cluster-scoped, not watchNamespaces: [kafka]. A namespace list renders
+# RoleBindings into `kafka`, which this app (wave 320) would create before the
+# kafka app (wave 330) creates that namespace — wave 320 never goes healthy, so
+# wave 330 never runs.
+watchAnyNamespace: true
+
+# Chart default is 200m; the operator is idle between reconciliations.
+resources:
+  requests:
+    cpu: 100m
+
+# No networkPolicyPeers on the listener, so the generated policy admits every
+# namespace — Mimir today, other clients later.
+generateNetworkPolicy: true
+generatePodDisruptionBudget: true
