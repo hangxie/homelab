@@ -23,6 +23,21 @@ mimir:
     blocks_storage:
       s3:
         bucket_name: mimir-blocks
+    # The chart only fills this in when its own Kafka subchart is enabled, so
+    # the address has to be set explicitly against the shared cluster. The
+    # topic is declared as a KafkaTopic CR and the broker refuses creation
+    # (auto.create.topics.enable: false), so a client typo surfaces as a failed
+    # fetch rather than a silently auto-created topic with the wrong shape.
+    ingest_storage:
+      enabled: true
+      kafka:
+        address: kafka-kafka-bootstrap.kafka.svc.cluster.local:9092
+        topic: mimir-ingest
+        auto_create_topic_enabled: false
+        # Inert while auto-creation is off, but the chart default is 100 and a
+        # rendered config that disagrees with the KafkaTopic invites a wrong
+        # conclusion later.
+        auto_create_topic_default_partitions: 8
     # The chart only fills these in when the bundled MinIO is enabled, so they
     # have to be set explicitly against Ceph RGW. Both inherit common.storage.
     alertmanager_storage:
@@ -252,34 +267,8 @@ ruler:
 minio:
   enabled: false
 
+# Kafka is a cluster-wide facility, not a Mimir implementation detail — it now
+# runs as a shared Strimzi cluster in gitops/platform/kafka/. Dropping the
+# bundled subchart also drops the last Bitnami image in this release.
 kafka:
-  replicas: 3
-  securityContext:
-    fsGroupChangePolicy: OnRootMismatch
-  persistence:
-    # Node-local disk. Kafka is a transient ingest buffer here — every durable
-    # block already lives in the mimir-blocks bucket — and it was ~77% of all
-    # RBD client writes. Keeping it off rook-ceph-block also keeps it off the
-    # EC 2+1 data pool, where a partial-stripe write costs a read-modify-write
-    # on all three OSDs, which share one physical disk.
-    storageClassName: local-path
-    size: 16Gi
-  affinity:
-    podAntiAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        - labelSelector:
-            matchLabels:
-              app.kubernetes.io/component: kafka
-          topologyKey: kubernetes.io/hostname
-  extraEnv:
-    # Bound each active partition when the chart's hardcoded 24h time-based
-    # retention lags behind ingestion. local-path is an unquota'd hostPath, so
-    # this is the only thing keeping Kafka off the node root filesystem: with
-    # replication factor 2 and 2 active partitions a single broker can hold two
-    # replicas, so the worst case is 2 x 6Gi plus metadata — inside the claim
-    # above. At ~515 KB/s per partition 6Gi is a ~3h20m replay window, well
-    # clear of the 2h TSDB block period.
-    - name: KAFKA_LOG_RETENTION_BYTES
-      value: "6442450944" # 6Gi
-    - name: KAFKA_DEFAULT_REPLICATION_FACTOR
-      value: "2"
+  enabled: false
