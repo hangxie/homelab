@@ -18,6 +18,17 @@ spec:
         memory: 512Mi
       limits:
         memory: 1Gi
+  podTemplate:
+    # One Keeper per node. Two on one node means losing that node loses quorum
+    # and puts ClickHouse read-only — worse than running a single Keeper. Under
+    # the maxUnavailable: 1 PDB it also hangs a drain of that node.
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                clickhouse.com/role: clickhouse-keeper
+            topologyKey: kubernetes.io/hostname
   dataVolumeClaimSpec:
     storageClassName: rook-ceph-block
     accessModes:
