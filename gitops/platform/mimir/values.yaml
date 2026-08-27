@@ -75,13 +75,18 @@ ingester:
   extraEnvFrom:
     - secretRef:
         name: mimir-blocks
-  # Ingesters were ~29% of client RBD writes, which EC 2+1 amplifies ~25x in
-  # IOPS. ingest_storage is on, so an ingester rebuilds its TSDB by replaying
-  # Kafka — Ceph redundancy buys nothing. local-path also lands on the PLP SSD.
-  # It does NOT enforce this size: unquota'd hostPath on the node root disk,
-  # which has hit DiskPressure before. Steady usage is <1Gi.
+  # Was local-path, to keep ingester writes off OSDs that then sat on a slow
+  # consumer SATA SSD. That reversed: the OSDs are on the striped NVMe pool
+  # while local-path is unquota'd hostPath on the node system disk, which is
+  # shared with the container image cache and has hit DiskPressure before. The
+  # write rate does not justify either worry — ~8.6 WAL page flushes/s against
+  # a cluster-wide Ceph client load of ~23 write ops/s. What Ceph buys is that
+  # the pod is no longer pinned to its node: at replication_factor 2 a node
+  # loss otherwise leaves one copy of every series and the second ingester
+  # cannot reschedule. Steady usage is <1Gi; ingest_storage means a fresh
+  # volume rebuilds by replaying Kafka.
   persistentVolume:
-    storageClass: local-path
+    storageClass: rook-ceph-block
     size: 10Gi
   affinity:
     podAntiAffinity:
