@@ -49,3 +49,6 @@ certs/.certbot/
 
 # vi
 .*.swp
+
+# Local working notes
+TODO.md
