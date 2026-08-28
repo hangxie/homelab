@@ -20,13 +20,8 @@ parameters:
   csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
   csi.storage.k8s.io/fstype: ext4
 allowVolumeExpansion: true
-# Delete, not Retain: under Retain a deleted PVC leaves both the PV and the
-# backing RBD image behind, invisible to `kubectl get pvc`, and nothing ever
-# surfaces them — that silently accumulated 165 GiB of dead volumes. Git is the
-# source of truth for which volumes should exist, so deleting a PVC is a
-# deliberate act and the image should go with it. Note the field is immutable:
-# changing it means deleting and recreating the StorageClass by hand, and
-# existing PVs keep whichever policy they were provisioned with.
+# Delete, not Retain: Retain orphaned the PV and the RBD image on every PVC
+# delete. Immutable — changing it means recreating the StorageClass.
 reclaimPolicy: Delete
 ---
 apiVersion: storage.k8s.io/v1
@@ -54,9 +49,7 @@ kind: StorageClass
 metadata:
   name: rook-ceph-bucket
 provisioner: rook-ceph.ceph.rook.io/bucket
-# Deleting an ObjectBucketClaim now drops the bucket and its objects, including
-# the Postgres backup bucket. Removing an OBC from Git is the only way that
-# happens.
+# Deleting an OBC drops the bucket and its objects, backups included.
 reclaimPolicy: Delete
 parameters:
   objectStoreName: object-store
