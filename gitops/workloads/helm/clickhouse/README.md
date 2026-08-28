@@ -12,8 +12,8 @@ operator-managed `KeeperCluster` and `ClickHouseCluster` resources from
 - In-cluster native TCP endpoint: `clickhouse.clickhouse.svc.cluster.local:9000`
 - Credential secret: `clickhouse-credentials` (`username` and `password` keys)
 - Vault path: `homelab/clickhouse/credentials`
-- Storage: `rook-ceph-block`, 20Gi per ClickHouse replica and 5Gi per Keeper
-  replica
+- ClickHouse replica sizing: 500m CPU and 2Gi memory requests, 4 CPU and 8Gi memory limits, and 40Gi `rook-ceph-block` storage
+- Keeper replica storage: 5Gi `rook-ceph-block`
 
 The cluster runs one shard with two ClickHouse replicas and a three-replica
 ClickHouse Keeper ensemble, pinned to official `clickhouse/clickhouse-server`
