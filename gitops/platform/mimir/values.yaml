@@ -75,8 +75,6 @@ ingester:
   extraEnvFrom:
     - secretRef:
         name: mimir-blocks
-  # Not local-path: that pinned the pod to its node, and at replication_factor
-  # 2 a node loss left one copy. Steady usage is <1Gi.
   persistentVolume:
     storageClass: rook-ceph-block
     size: 10Gi
