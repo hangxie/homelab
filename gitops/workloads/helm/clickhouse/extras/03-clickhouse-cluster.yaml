@@ -20,7 +20,8 @@ spec:
         cpu: 500m
         memory: 2Gi
       limits:
-        memory: 4Gi
+        cpu: "4"
+        memory: 8Gi
   podTemplate:
     # Each replica is its own StatefulSet with replicas: 1, so nothing spreads
     # them by default and both landed on worker-0 — where replicas: 2 buys
@@ -38,7 +39,7 @@ spec:
       - ReadWriteOnce
     resources:
       requests:
-        storage: 20Gi
+        storage: 40Gi
   settings:
     defaultUserPassword:
       secret:
