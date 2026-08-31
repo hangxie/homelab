@@ -37,6 +37,7 @@ spec:
   parentRefs:
     - name: default-gateway
       namespace: gateway-system
+      sectionName: https
   hostnames:
     - "clickhouse.homelab.xiehang.com"
   rules:

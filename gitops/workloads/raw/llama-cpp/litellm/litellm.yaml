@@ -67,6 +67,7 @@ spec:
   parentRefs:
     - name: default-gateway
       namespace: gateway-system
+      sectionName: https
   hostnames:
     - "llama-cpp.homelab.xiehang.com"
   rules:

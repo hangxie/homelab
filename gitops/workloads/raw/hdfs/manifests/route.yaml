@@ -7,6 +7,7 @@ spec:
   parentRefs:
     - name: default-gateway
       namespace: gateway-system
+      sectionName: https
   hostnames:
     - "hdfs.homelab.xiehang.com"
   rules:

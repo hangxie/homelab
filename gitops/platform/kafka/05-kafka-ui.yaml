@@ -90,6 +90,7 @@ spec:
   parentRefs:
     - name: default-gateway
       namespace: gateway-system
+      sectionName: https
   hostnames:
     - "kafka.homelab.xiehang.com"
   rules:
