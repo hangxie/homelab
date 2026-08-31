@@ -13,6 +13,7 @@ spec:
   parentRefs:
     - name: default-gateway
       namespace: gateway-system
+      sectionName: https
   hostnames:
     - "openwebui.homelab.xiehang.com"
   rules:

@@ -301,6 +301,7 @@
             parentRefs:
               - name: default-gateway
                 namespace: gateway-system
+                sectionName: https
             hostnames:
               - "hubble.homelab.xiehang.com"
             rules:

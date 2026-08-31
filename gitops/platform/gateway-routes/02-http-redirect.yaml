@@ -1,0 +1,20 @@
+# Port 80 serves nothing but a redirect: every application HTTPRoute pins
+# itself to the `https` listener, so plain HTTP never reaches a backend.
+# No hostnames, so this catches every host on the listener. Cilium renders
+# the Location with an explicit `:443`; that is cosmetic.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: http-to-https
+  namespace: gateway-system
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+      sectionName: http
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

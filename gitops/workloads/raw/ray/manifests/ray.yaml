@@ -450,6 +450,7 @@ spec:
   parentRefs:
     - name: default-gateway
       namespace: gateway-system
+      sectionName: https
   hostnames:
     - "vllm.homelab.xiehang.com"
   rules:

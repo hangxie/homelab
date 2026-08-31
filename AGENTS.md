@@ -59,6 +59,6 @@ kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrit
 
 - Root app uses `directory.recurse: false` — only `Application`/`ApplicationSet` manifests in `gitops/cluster/applications/`.
 - `workloads-helm` ApplicationSet is multi-source (chart + `$values` + `extras/`). Don't collapse.
-- Gateway terminates TLS on 443; upstream services are plain HTTP.
+- Gateway terminates TLS on 443; upstream services are plain HTTP. New `HTTPRoute`s must set `sectionName: https` on the `parentRef` — port 80 only 301-redirects.
 - `ansible/inventory.ini` is generated from `terraform/templates/inventory.tftpl`. Don't hand-edit.
 - StatefulSet `volumeClaimTemplates` PVCs aren't Argo-tracked; they survive a prune. Delete by hand.
