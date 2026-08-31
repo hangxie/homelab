@@ -49,6 +49,8 @@ flowchart TD
 
     subgraph cluster-svcs["300s — cluster services"]
         metrics-server["metrics-server (300)"] --> descheduler["descheduler (310)"]
+        descheduler --> kafka-operator["kafka-operator (320)"]
+        kafka-operator --> kafka["kafka (330)"]
     end
 
     subgraph observability["400s — observability"]
