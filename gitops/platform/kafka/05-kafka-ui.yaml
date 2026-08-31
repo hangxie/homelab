@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-ui
+  namespace: kafka
+  labels:
+    app.kubernetes.io/name: kafka-ui
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka-ui
+    spec:
+      containers:
+        - name: kafka-ui
+          # kafbat is the maintained fork; provectuslabs/kafka-ui is archived.
+          image: ghcr.io/kafbat/kafka-ui:v1.5.0
+          ports:
+            - { name: http, containerPort: 8080 }
+          env:
+            # Single local login. The UI is read-write — it can delete
+            # topics and produce messages — so unlike the other dashboards
+            # it is not left open on the gateway. Kafbat reads the one
+            # account straight from Spring Security's user properties; no
+            # proxy or identity provider involved.
+            - { name: AUTH_TYPE, value: LOGIN_FORM }
+            - name: SPRING_SECURITY_USER_NAME
+              valueFrom:
+                secretKeyRef: { name: kafka-ui-admin, key: username }
+            - name: SPRING_SECURITY_USER_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kafka-ui-admin, key: password }
+            - { name: KAFKA_CLUSTERS_0_NAME, value: homelab }
+            # Plaintext internal listener from 02-kafka.yaml.
+            - { name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS, value: kafka-kafka-bootstrap:9092 }
+            # Dynamic config writes cluster definitions to disk. Clusters are
+            # declared here, so leaving it off keeps the pod stateless — no PVC,
+            # and no live edits that Git would not know about.
+            - { name: DYNAMIC_CONFIG_ENABLED, value: "false" }
+            # Default heap is a fraction of the cgroup limit; pin it so the
+            # non-heap overhead fits under the 1Gi limit instead of OOMKilling.
+            - { name: JAVA_OPTS, value: "-Xms256m -Xmx512m" }
+          # Spring Boot startup runs ~30-60s before the port answers; the
+          # startup probe absorbs that so the liveness probe can stay tight.
+          startupProbe:
+            httpGet: { path: /actuator/health, port: http }
+            periodSeconds: 10
+            failureThreshold: 18
+          livenessProbe:
+            httpGet: { path: /actuator/health, port: http }
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /actuator/health, port: http }
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui
+  namespace: kafka
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  selector:
+    app.kubernetes.io/name: kafka-ui
+  ports:
+    - port: 80
+      targetPort: http
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kafka-ui
+  namespace: kafka
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+  hostnames:
+    - "kafka.homelab.xiehang.com"
+  rules:
+    - backendRefs:
+        - name: kafka-ui
+          port: 80
