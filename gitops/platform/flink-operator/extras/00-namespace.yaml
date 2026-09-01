@@ -1,0 +1,12 @@
+# CreateNamespace only makes the Application's own destination namespace, but
+# watchNamespaces puts the job ServiceAccount and both Roles in flink, so this
+# has to exist before the chart's resources are applied.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flink
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    # Pruning this would take another project's jobs and the checkpoint
+    # bucket with it. Teardown steps in the README.
+    argocd.argoproj.io/sync-options: Prune=confirm,Delete=confirm

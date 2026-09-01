@@ -64,6 +64,7 @@ flowchart TD
         kuberay --> redis-op["redis-operator (560)"]
         redis-op --> mysql-op["mysql-operator (570)"]
         mysql-op --> scylla-op["scylla-operator (580)"]
+        scylla-op --> flink-op["flink-operator (590)"]
     end
 
     subgraph platform-svcs["600s — platform services"]
