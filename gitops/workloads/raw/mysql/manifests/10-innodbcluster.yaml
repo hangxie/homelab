@@ -1,5 +1,5 @@
 # InnoDBCluster: 3-instance MySQL Group Replication managed by the Oracle
-# MySQL Operator, fronted by 1 MySQL Router. Clients connect via the
+# MySQL Operator, fronted by 2 MySQL Routers. Clients connect via the
 # mysql-cluster.mysql.svc service on port 3306 (read/write, follows the
 # elected primary). Authenticates against mysql-root, synced from Vault
 # path mysql/root by the ExternalSecret in this directory.
@@ -12,8 +12,57 @@ spec:
   secretName: mysql-root
   tlsUseSelfSigned: true
   instances: 3
+  # podSpec is merged into the server StatefulSet pod template at buildup only:
+  # the operator never re-reads it, so edits here need the StatefulSet patched by
+  # hand (or deleted) to take effect on an existing cluster.
+  podSpec:
+    # Group Replication loses quorum when 2 of 3 members die together. Without
+    # this the scheduler is free to stack all three on one worker, which turns a
+    # single node failure into a cluster that needs a manual reboot-from-complete-
+    # outage. 5 workers, 3 instances, so "required" always has somewhere to go.
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                component: mysqld
+                mysql.oracle.com/cluster: mysql-cluster
   router:
-    instances: 1
+    # Two routers so a router that bootstrapped against a half-started cluster
+    # is not the whole data path. The Service drops it once it fails liveness.
+    instances: 2
+    # Same buildup-only caveat as spec.podSpec: the operator builds the Router
+    # Deployment once and never reconciles this field, so changes here need the
+    # Deployment deleted once for the operator to rebuild it.
+    podSpec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    component: mysqlrouter
+                    mysql.oracle.com/cluster: mysql-cluster
+      containers:
+        - name: router
+          env:
+            # The router entrypoint bootstraps as soon as it can open a TCP
+            # connection to a member, which after an ungraceful whole-cluster
+            # power-off means it bootstraps against a group that has not been
+            # rebooted from complete outage yet and then serves a dead routing
+            # table forever. With this set the entrypoint additionally polls
+            # replication_group_members until at least one member is ONLINE,
+            # and exits non-zero if it never is, so the pod retries instead.
+            - name: MYSQL_INNODB_CLUSTER_MEMBERS
+              value: "1"
+          livenessProbe:
+            # The wait loops above burn up to ~130s before bootstrap even
+            # starts. The default probe has no initial delay, so it killed the
+            # container ~30s in and restarted the race from the top.
+            initialDelaySeconds: 180
   datadirVolumeClaimTemplate:
     storageClassName: rook-ceph-block
     accessModes:

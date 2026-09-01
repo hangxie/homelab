@@ -36,6 +36,7 @@ pre-commit run --all-files
 terraform -chdir=terraform {init,apply,destroy}
 ansible-playbook -i ansible/inventory.ini ansible/bootstrap-k8s.yml
 ansible-playbook -i ansible/inventory.ini ansible/reset.yml
+ansible-playbook -i ansible/inventory.ini ansible/shutdown.yml   # quiesce + halt before powering off the VMs
 scripts/seed-vault.sh                            # needs VAULT_ADDR + VAULT_TOKEN
 scripts/seed-certs.sh                            # needs CF_API_TOKEN or VAULT_ADDR+VAULT_TOKEN; issues cert if certs/ is empty
 kubectl -n argocd get applications,applicationsets
