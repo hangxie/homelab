@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: flink-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "590"
+    # Deleting this file would prune the app and cascade into the flink
+    # namespace and its checkpoint bucket. Teardown steps in the README.
+    argocd.argoproj.io/sync-options: Prune=confirm,Delete=confirm
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    # No rolling Helm repo: each release publishes its own index.yaml under a
+    # version-stamped path, so the version appears twice and both move
+    # together. archive.apache.org, not downloads.apache.org — the latter
+    # drops the directory when the next release ships.
+    - repoURL: https://archive.apache.org/dist/flink/flink-kubernetes-operator-1.15.0/
+      chart: flink-kubernetes-operator
+      targetRevision: 1.15.0
+      helm:
+        valueFiles:
+          - $values/gitops/platform/flink-operator/values.yaml
+    - repoURL: https://github.com/hangxie/homelab.git
+      targetRevision: main
+      ref: values
+    - repoURL: https://github.com/hangxie/homelab.git
+      targetRevision: main
+      path: gitops/platform/flink-operator/extras
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: flink-operator
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # Load-bearing: the flinkdeployments (544 KiB) and
+      # flinkbluegreendeployments (641 KiB) CRDs are far over the 262 KiB
+      # last-applied-configuration limit, so a client-side apply fails.
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

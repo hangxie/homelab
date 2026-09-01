@@ -1,0 +1,17 @@
+# Checkpoints, savepoints and Kubernetes HA metadata. An OBC rather than the
+# CephObjectStoreUser + ExternalSecret pair spark and trino use: no Flink S3
+# filesystem creates a bucket, and the claim also drops a like-named Secret
+# with AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY into the flink namespace.
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: flink-checkpoints
+  namespace: flink
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    # rook-ceph-bucket reclaims with Delete, so losing the claim loses every
+    # checkpoint. Teardown steps in the README.
+    argocd.argoproj.io/sync-options: Prune=confirm,Delete=confirm
+spec:
+  bucketName: flink-checkpoints
+  storageClassName: rook-ceph-bucket

@@ -786,6 +786,42 @@ alloy:
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
+      // ── Flink operator ────────────────────────────────────────────────────────
+
+      // Same shape as the Spark operator above: the chart's only Service is
+      // the webhook, so there are no Endpoints in front of the metrics port
+      // and discovery has to go through the pod. Job clusters are not covered
+      // here — a FlinkDeployment exposes metrics only if it sets its own
+      // metrics.reporter.prom.* in flinkConfiguration.
+      discovery.kubernetes "flink_operator" {
+        role = "pod"
+        namespaces {
+          names = ["flink-operator"]
+        }
+        selectors {
+          role  = "pod"
+          label = "app.kubernetes.io/name=flink-kubernetes-operator"
+        }
+      }
+
+      discovery.relabel "flink_operator" {
+        targets = discovery.kubernetes.flink_operator.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_port_name"]
+          regex         = "metrics"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "flink_operator" {
+        clustering {
+          enabled = true
+        }
+        targets    = discovery.relabel.flink_operator.output
+        job_name   = "flink-operator"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
       // ── ScyllaDB ──────────────────────────────────────────────────────────────
 
       discovery.kubernetes "scylladb" {

@@ -1,0 +1,75 @@
+# Apache Flink Kubernetes Operator. Jobs are FlinkDeployment / FlinkSessionJob
+# CRs, each bringing its own JobManager and TaskManagers; see the README.
+#
+# https://github.com/apache/flink-kubernetes-operator/blob/release-1.15/helm/flink-kubernetes-operator/values.yaml
+
+# Namespaced rather than cluster-wide: for every entry the chart also creates
+# the `flink` job ServiceAccount and the Role/RoleBinding Kubernetes HA needs
+# for its leader ConfigMaps. Empty would watch every namespace but create
+# those only in flink-operator. A second job namespace is a line here plus a
+# Namespace in extras/.
+watchNamespaces:
+  - flink
+
+# Argo CD names the release after the Application, so without this the default
+# fullname helper prefixes everything flink-operator-flink-kubernetes-operator-.
+fullnameOverride: flink-operator
+
+operatorPod:
+  # The chart ships no requests at all.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+  webhook:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        memory: 512Mi
+
+# Validating/mutating webhook for the Flink CRs. Its cert is chart-internal
+# PKI — a self-signed cert-manager Issuer and Certificate, unrelated to the
+# Let's Encrypt ClusterIssuers — so the dependency is cert-manager (wave 100),
+# not cert-manager-config.
+webhook:
+  create: true
+
+metrics:
+  port: 9999
+
+defaultConfiguration:
+  create: true
+  # Keep the chart's own flink-conf.yaml (the --add-opens sets), add to it.
+  append: true
+  # The template emits both a config.yaml and a flink-conf.yaml key but the
+  # pod projects only the one set here. Setting config.yaml instead switches
+  # the mount to the nested format — one or the other, never both.
+  flink-conf.yaml: |+
+    kubernetes.operator.metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    kubernetes.operator.metrics.reporter.prom.port: 9999
+
+    # Inherited by every FlinkDeployment: endpoint and addressing only, no
+    # keys — presto falls through to the AWS default credential chain, so jobs
+    # pull the flink-checkpoints Secret in as env. RGW needs path-style;
+    # virtual-host style resolves <bucket>.rook-ceph-rgw-... , which has no DNS.
+    s3.endpoint: http://rook-ceph-rgw-object-store.rook-ceph.svc
+    s3.path-style-access: true
+
+    # s3p:// deliberately, so a job loading the hadoop plugin too does not hit
+    # two factories registered for s3. Each job lands under <dir>/<job-id>/,
+    # so one bucket is shared safely. These keys are deprecated on Flink 2.x
+    # but their replacements exist only from 1.20. Both explained in the
+    # README.
+    state.checkpoints.dir: s3p://flink-checkpoints/checkpoints
+    state.savepoints.dir: s3p://flink-checkpoints/savepoints
+
+    # Survives a JobManager restart instead of replaying from the source;
+    # cluster-id keeps deployments apart under the shared prefix. A job missing
+    # ENABLE_BUILT_IN_PLUGINS fails at startup rather than checkpointing
+    # nowhere.
+    high-availability.type: kubernetes
+    high-availability.storageDir: s3p://flink-checkpoints/ha
