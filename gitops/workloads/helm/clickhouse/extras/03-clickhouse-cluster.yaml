@@ -16,9 +16,11 @@ spec:
       tag: "25.7"
     imagePullPolicy: IfNotPresent
     resources:
+      # ClickHouse sizes itself off the limit, not the request, so a 2Gi
+      # request let it grow to ~7Gi on a node that guaranteed it 2Gi.
       requests:
-        cpu: 500m
-        memory: 2Gi
+        cpu: "1"
+        memory: 4Gi
       limits:
         cpu: "4"
         memory: 8Gi
@@ -60,3 +62,14 @@ spec:
         "@remove": remove
       asynchronous_metric_log:
         "@remove": remove
+      # 0.9 of 8Gi leaves too little for what the memory tracker can't see,
+      # so the kernel OOM-kills before ClickHouse ever refuses a query.
+      max_server_memory_usage_to_ram_ratio: 0.8
+    # Otherwise the default profile is unbounded and one query can take the
+    # pod down. Also what creates users.d/ — the operator omits it until set.
+    extraUsersConfig:
+      profiles:
+        default:
+          max_memory_usage: 4294967296
+          max_bytes_before_external_group_by: 2147483648
+          max_bytes_before_external_sort: 2147483648
