@@ -1,0 +1,311 @@
+#!/bin/bash
+
+set -uo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: kubectl homelab ceph-s3 ls [<bucket>[/<prefix>]] [aws-ls-flags...]
+
+List Ceph RGW buckets and their contents. RGW scopes every S3 call to the
+bucket's owner, so there is no one credential that reaches all of them — the
+bucket named in the arguments decides which namespace the pod runs in and which
+Secret supplies its credentials.
+
+Buckets provisioned by an ObjectBucketClaim are served by the OBC's generated
+Secret in the claim's namespace; the rest by their CephObjectStoreUser Secret in
+rook-ceph. Both are read live.
+
+Commands:
+  ls                         Every bucket, with the namespace and Secret that
+                             reaches it. Read via radosgw-admin, the only
+                             listing that spans all owners.
+  ls <bucket>                Objects at the top level of that bucket
+  ls <bucket>/<prefix>       Objects under that prefix
+  -h, --help                 Show this help
+
+Flags after the operand go to `aws s3 ls`, e.g. --recursive, --human-readable,
+--summarize, --page-size. An `s3://` operand prefix is accepted and ignored.
+
+Examples:
+  kubectl homelab ceph-s3 ls
+  kubectl homelab ceph-s3 ls tempo-traces
+  kubectl homelab ceph-s3 ls loki-chunks/index --recursive --human-readable
+
+Listing is all this does. cp and sync are not wired up yet. The mutating verbs
+(mb, rb, rm, mv) and presign stay unsupported on purpose: these buckets back
+live workloads and their storage class reclaims on Delete.
+
+Environment:
+  ROOK_NAMESPACE       Namespace holding the object store (default: rook-ceph)
+  ROOK_TOOLS_TARGET    kubectl exec target for Ceph tools (default: deploy/rook-ceph-tools)
+  RGW_ENDPOINT         S3 endpoint URL (default: discovered from the RGW Service)
+  AWS_CLI_IMAGE        aws CLI image (default: amazon/aws-cli:2.15.0)
+EOF
+}
+
+if [[ $# -eq 0 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    [[ $# -eq 0 ]] && exit 1
+    exit 0
+fi
+
+SUBCOMMAND="$1"
+shift
+
+case "$SUBCOMMAND" in
+    ls) ;;
+    cp|sync|mv)
+        echo "'$SUBCOMMAND' is not wired up yet — this plugin only lists." >&2
+        echo "Until it is, run aws yourself with the Secret that" >&2
+        echo "'kubectl homelab ceph-s3 ls' names for the bucket." >&2
+        exit 1
+        ;;
+    mb|rb|rm|presign|website|s3api)
+        echo "'$SUBCOMMAND' is intentionally unsupported." >&2
+        echo "These buckets back live workloads and the storage class reclaims on Delete," >&2
+        echo "so creation, deletion and credential handout stay off this path." >&2
+        exit 1
+        ;;
+    *)
+        echo "Unknown command: $SUBCOMMAND" >&2
+        echo "Run 'kubectl homelab ceph-s3 -h' to see what is available." >&2
+        exit 1
+        ;;
+esac
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required" >&2
+    exit 1
+fi
+
+ROOK_NAMESPACE="${ROOK_NAMESPACE:-rook-ceph}"
+ROOK_TOOLS_TARGET="${ROOK_TOOLS_TARGET:-deploy/rook-ceph-tools}"
+AWS_CLI_IMAGE="${AWS_CLI_IMAGE:-amazon/aws-cli:2.15.0}"
+RGW_ENDPOINT="${RGW_ENDPOINT:-}"
+
+# Both lookups below distinguish "the query failed" from "the query came back
+# empty". An empty result steers the diagnosis, so a failed kubectl call must
+# never reach the caller looking like an absent bucket or a missing Secret.
+
+OBC_ROWS=""
+OBC_ROWS_LOADED=false
+RGW_STATS=""
+RGW_STATS_LOADED=false
+SECRET_NAMES=""
+SECRETS_LOADED=false
+
+# ObjectBucketClaims, as "<bucket><TAB><namespace><TAB><secret>". The generated
+# Secret carries the claim's own name and is already keyed AWS_ACCESS_KEY_ID /
+# AWS_SECRET_ACCESS_KEY, so it needs no key remapping.
+load_obc_rows() {
+    local out
+    [[ "$OBC_ROWS_LOADED" == true ]] && return 0
+
+    if ! out=$(kubectl get objectbucketclaims.objectbucket.io -A -o json 2>&1); then
+        echo "Failed to list ObjectBucketClaims:" >&2
+        printf '%s\n' "$out" >&2
+        return 1
+    fi
+    if ! jq empty <<<"$out" >/dev/null 2>&1; then
+        echo "ObjectBucketClaim listing did not return valid JSON" >&2
+        return 1
+    fi
+
+    OBC_ROWS=$(jq -r '
+        .items[]
+        | select((.spec.bucketName // "") != "")
+        | [.spec.bucketName, .metadata.namespace, .metadata.name]
+        | @tsv' <<<"$out")
+    OBC_ROWS_LOADED=true
+}
+
+# Every bucket RGW knows about. Fetched whole and validated once, so a bucket
+# missing from the result means it genuinely does not exist rather than that
+# the tools pod was unreachable.
+load_rgw_stats() {
+    local out
+    [[ "$RGW_STATS_LOADED" == true ]] && return 0
+
+    if ! out=$(kubectl exec -n "$ROOK_NAMESPACE" "$ROOK_TOOLS_TARGET" -- \
+        radosgw-admin bucket stats 2>&1); then
+        echo "Failed to run radosgw-admin in $ROOK_NAMESPACE/$ROOK_TOOLS_TARGET:" >&2
+        printf '%s\n' "$out" >&2
+        return 1
+    fi
+    if ! jq empty <<<"$out" >/dev/null 2>&1; then
+        echo "radosgw-admin bucket stats did not return valid JSON:" >&2
+        printf '%s\n' "$out" >&2
+        return 1
+    fi
+
+    RGW_STATS="$out"
+    RGW_STATS_LOADED=true
+}
+
+load_secret_names() {
+    local out
+    [[ "$SECRETS_LOADED" == true ]] && return 0
+
+    if ! out=$(kubectl get secret -n "$ROOK_NAMESPACE" -o name 2>&1); then
+        echo "Failed to list Secrets in $ROOK_NAMESPACE:" >&2
+        printf '%s\n' "$out" >&2
+        return 1
+    fi
+
+    SECRET_NAMES=$(sed 's|^secret/||' <<<"$out")
+    SECRETS_LOADED=true
+}
+
+# Rook names a CephObjectStoreUser Secret rook-ceph-object-user-<store>-<uid>;
+# match on the uid suffix so the store name never has to be hardcoded.
+user_secret_for() {
+    grep -E "^rook-ceph-object-user-.*-$1\$" <<<"$SECRET_NAMES" | head -1
+}
+
+# Emits "<namespace><TAB><secret><TAB><key-style>". Key style "aws" means the
+# Secret already uses the AWS_* names; "rook" means AccessKey/SecretKey.
+# Returns 2 when the lookups succeeded but have no credential to offer, and 1
+# when a lookup itself failed — the caller must not confuse the two.
+resolve_credential() {
+    local bucket="$1" secret obc_bucket obc_ns obc_name owner
+
+    load_obc_rows || return 1
+    while IFS=$'\t' read -r obc_bucket obc_ns obc_name; do
+        [[ -n "$obc_bucket" ]] || continue
+        if [[ "$obc_bucket" == "$bucket" ]]; then
+            printf '%s\t%s\taws\n' "$obc_ns" "$obc_name"
+            return 0
+        fi
+    done <<<"$OBC_ROWS"
+
+    # No OBC claims it, so the owner decides. The tools pod is only needed here.
+    load_rgw_stats || return 1
+    owner=$(jq -r --arg b "$bucket" '.[] | select(.bucket == $b) | .owner' <<<"$RGW_STATS" | head -1)
+    if [[ -z "$owner" ]]; then
+        echo "Bucket '$bucket' not found in RGW, and no ObjectBucketClaim declares it" >&2
+        echo "Run 'kubectl homelab ceph-s3 ls' to see what exists" >&2
+        return 2
+    fi
+
+    load_secret_names || return 1
+    secret=$(user_secret_for "$owner")
+    if [[ -n "$secret" ]]; then
+        printf '%s\t%s\trook\n' "$ROOK_NAMESPACE" "$secret"
+        return 0
+    fi
+
+    echo "Bucket '$bucket' is owned by RGW user '$owner', which has no Secret in $ROOK_NAMESPACE" >&2
+    echo "Its keys live only in RGW: radosgw-admin user info --uid=$owner" >&2
+    return 2
+}
+
+# The operand is the first argument that is not a flag; everything else is
+# handed to aws untouched. `aws s3 ls` has no mutating flags to screen for.
+OPERAND=""
+PASSTHROUGH=()
+for arg in "$@"; do
+    if [[ -z "$OPERAND" && "$arg" != -* ]]; then
+        OPERAND="$arg"
+    else
+        PASSTHROUGH+=("$arg")
+    fi
+done
+
+# No operand: the cross-owner inventory, which S3 itself cannot produce.
+if [[ -z "$OPERAND" ]]; then
+    if [[ ${#PASSTHROUGH[@]} -gt 0 ]]; then
+        echo "Flags need a bucket: ${PASSTHROUGH[*]}" >&2
+        echo "A bare 'ls' lists buckets and takes none." >&2
+        exit 1
+    fi
+
+    # Preloaded here so a lookup failure aborts the whole table rather than
+    # turning every row into a misleading "(no Secret)".
+    load_rgw_stats || exit 1
+    load_obc_rows || exit 1
+    load_secret_names || exit 1
+
+    printf "%-26s %-18s %s\n" "BUCKET" "NAMESPACE" "SECRET"
+    printf "%-26s %-18s %s\n" \
+        "$(printf '%0.s-' {1..26})" "$(printf '%0.s-' {1..18})" "$(printf '%0.s-' {1..44})"
+    while IFS= read -r bucket; do
+        [[ -n "$bucket" ]] || continue
+        CRED=$(resolve_credential "$bucket" 2>/dev/null)
+        case $? in
+            0) IFS=$'\t' read -r ns secret _ <<<"$CRED" ;;
+            2) ns="-"; secret="(no Secret — see radosgw-admin user info)" ;;
+            *) echo "Lookup failed while resolving '$bucket'" >&2; exit 1 ;;
+        esac
+        printf "%-26s %-18s %s\n" "$bucket" "$ns" "$secret"
+    done < <(jq -r '.[].bucket' <<<"$RGW_STATS" | sort)
+    exit 0
+fi
+
+TARGET="${OPERAND#s3://}"
+BUCKET="${TARGET%%/*}"
+PREFIX=""
+[[ "$TARGET" == */* ]] && PREFIX="${TARGET#*/}"
+
+if [[ -z "$BUCKET" ]]; then
+    echo "No bucket in '$OPERAND'" >&2
+    exit 1
+fi
+
+CRED=$(resolve_credential "$BUCKET") || exit 1
+IFS=$'\t' read -r POD_NAMESPACE SECRET_NAME KEY_STYLE <<<"$CRED"
+
+if [[ -z "$RGW_ENDPOINT" ]]; then
+    read -r RGW_SVC RGW_PORT < <(kubectl get svc -n "$ROOK_NAMESPACE" -l app=rook-ceph-rgw \
+        -o jsonpath='{.items[0].metadata.name} {.items[0].spec.ports[0].port}' 2>/dev/null)
+    if [[ -z "${RGW_SVC:-}" ]]; then
+        echo "No RGW Service found in $ROOK_NAMESPACE (label app=rook-ceph-rgw); set RGW_ENDPOINT" >&2
+        exit 1
+    fi
+    RGW_ENDPOINT="http://${RGW_SVC}.${ROOK_NAMESPACE}.svc:${RGW_PORT}"
+fi
+
+if [[ "$KEY_STYLE" == "aws" ]]; then
+    ENV_JSON=$(jq -nc --arg s "$SECRET_NAME" '{
+        envFrom: [{ secretRef: { name: $s } }],
+        env: []
+    }')
+else
+    ENV_JSON=$(jq -nc --arg s "$SECRET_NAME" '{
+        envFrom: [],
+        env: [
+            { name: "AWS_ACCESS_KEY_ID",     valueFrom: { secretKeyRef: { name: $s, key: "AccessKey" } } },
+            { name: "AWS_SECRET_ACCESS_KEY", valueFrom: { secretKeyRef: { name: $s, key: "SecretKey" } } }
+        ]
+    }')
+fi
+
+POD_NAME="homelab-ceph-s3-$$-${RANDOM}"
+
+OVERRIDES=$(jq -nc \
+    --arg name "$POD_NAME" \
+    --arg image "$AWS_CLI_IMAGE" \
+    --arg endpoint "$RGW_ENDPOINT" \
+    --arg uri "s3://${BUCKET}/${PREFIX}" \
+    --argjson creds "$ENV_JSON" \
+    '{
+        apiVersion: "v1",
+        kind: "Pod",
+        metadata: { name: $name },
+        spec: {
+            restartPolicy: "Never",
+            containers: [{
+                name: "aws",
+                image: $image,
+                envFrom: $creds.envFrom,
+                env: ($creds.env + [
+                    { name: "AWS_EC2_METADATA_DISABLED", value: "true" },
+                    { name: "AWS_DEFAULT_REGION", value: "us-east-1" }
+                ]),
+                args: (["--endpoint-url", $endpoint, "s3", "ls", $uri] + $ARGS.positional)
+            }]
+        }
+    }' \
+    --args -- ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"})
+
+kubectl run "$POD_NAME" -n "$POD_NAMESPACE" --rm --attach --restart=Never --quiet \
+    --image="$AWS_CLI_IMAGE" --overrides="$OVERRIDES"

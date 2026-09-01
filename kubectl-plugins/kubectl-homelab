@@ -9,11 +9,13 @@ set -uo pipefail
 # group commands (df, list, model), which have no plugin file of their own.
 
 # One-line purpose per plugin, keyed by the plugin's command name (the file
-# name minus the kubectl-homelab- prefix, dashes turned into spaces).
+# name minus the kubectl-homelab- prefix, dashes turned into spaces and
+# underscores into dashes — the same rewrite kubectl applies).
 purpose_of() {
     case "$1" in
         argocd)            echo "Run the argocd CLI from a one-shot pod, logged in with the live admin secret" ;;
         ceph)              echo "Run the ceph CLI from a one-shot pod, credentials read live from Rook's Secret/ConfigMap" ;;
+        ceph-s3)           echo "List Ceph RGW buckets and their contents, credential picked from the bucket name" ;;
         clickhouse)        echo "Run clickhouse-client from a one-shot pod, credentials read live from clickhouse-credentials" ;;
         "df bucket")       echo "RGW bucket usage for ObjectBucketClaims in a bucket storage class" ;;
         "df pvc")          echo "Disk usage for all PVCs in a storage class" ;;
@@ -57,7 +59,9 @@ discover() {
             [[ -f "$f" && -x "$f" ]] || continue
             base="${f##*/}"
             name="${base#kubectl-homelab-}"
-            printf '%s\t%s\t%s\n' "${name//-/ }" "$on_path" "$f"
+            # Dashes separate words; underscores are a dash inside one word.
+            name="${name//-/ }"
+            printf '%s\t%s\t%s\n' "${name//_/-}" "$on_path" "$f"
         done
     done | awk -F'\t' '!seen[$1]++' | sort -t"$(printf '\t')" -k1,1
 }

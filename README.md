@@ -395,6 +395,7 @@ the group commands (`df`, `list`, `model`) list their subcommands the same way.
 | `kubectl-homelab` | `kubectl homelab [group] -h` | List the installed homelab plugins, or one group's subcommands |
 | `kubectl-homelab-argocd` | `kubectl homelab argocd [argocd-args...]` | Run the `argocd` CLI from a one-shot pod, logged in with the live admin secret |
 | `kubectl-homelab-ceph` | `kubectl homelab ceph [ceph-args...]` | Run the `ceph` CLI from a one-shot pod, credentials read live from Rook's own Secret/ConfigMap |
+| `kubectl-homelab-ceph_s3` | `kubectl homelab ceph-s3 ls [<bucket>[/<prefix>]]` | List Ceph RGW buckets and their contents from a one-shot pod, namespace and credential Secret picked from the bucket name |
 | `kubectl-homelab-clickhouse` | `kubectl homelab clickhouse [clickhouse-client-args...]` | Run `clickhouse-client` from a one-shot pod, credentials read live from clickhouse-credentials |
 | `kubectl-homelab-df-bucket` | `kubectl homelab df bucket [storage-class]` | RGW bucket usage for ObjectBucketClaims in a bucket storage class |
 | `kubectl-homelab-df-pvc` | `kubectl homelab df pvc <storage-class>` | Disk usage for all PVCs in a storage class |
