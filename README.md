@@ -330,6 +330,14 @@ kubectl get cluster -n postgres-cluster postgres-cluster -o jsonpath='{.status.p
 
 Browse `https://grafana.homelab.xiehang.com` and `https://argocd.homelab.xiehang.com`.
 
+## Shutting the lab down
+
+```bash
+ansible-playbook -i ansible/inventory.ini ansible/shutdown.yml
+```
+
+Stops pods namespace by namespace in reverse Argo CD sync-wave order (Ceph last), then halts the guests so the Proxmox VMs can be powered off. Skipping it leaves every stateful workload in crash recovery on the next boot; MySQL in particular comes back through a Group Replication reboot-from-complete-outage. Pass `-e poweroff_nodes=false` to quiesce without halting.
+
 ## Rebuild modes
 
 Routine changes live in the values files and don't require either of these.
