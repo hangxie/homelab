@@ -13,8 +13,10 @@ spec:
           - list:
               elements:
                 # Optional — comment a line out to disable that workload.
-                # Pruning is automatic: a disabled workload's resources
-                # (including PVCs) are deleted on the next Argo sync.
+                # Pruning is automatic: a disabled workload's resources are
+                # deleted on the next Argo sync. StatefulSet volumeClaimTemplates
+                # PVCs are the exception — Argo never tracked them, so they
+                # survive the prune and must be deleted by hand.
                 - name: airflow
                 # - name: cassandra
                 - name: clickhouse
