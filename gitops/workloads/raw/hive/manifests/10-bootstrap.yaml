@@ -1,0 +1,73 @@
+# Creates the `hive` role and database in CNPG. The metastore's own
+# schematool runs -initOrUpgradeSchema on every start, so it fills in the
+# tables; this Job only has to make the database exist and be owned by a role
+# whose password matches Vault.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hive-postgres-bootstrap
+  namespace: hive
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: psql
+          image: postgres:18
+          env:
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-superuser, key: password } }
+            - name: HIVE_PASSWORD
+              valueFrom: { secretKeyRef: { name: hive-db-credentials, key: password } }
+          command: [bash, -ec]
+          args:
+            - |
+              psql -h postgres-cluster-rw.postgres-cluster -U postgres \
+                   -v ON_ERROR_STOP=1 \
+                   -v HIVE_PASSWORD="${HIVE_PASSWORD}" <<SQL
+              SELECT format('CREATE USER hive WITH PASSWORD %L', :'HIVE_PASSWORD')
+                WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname='hive')\gexec
+              ALTER USER hive WITH PASSWORD :'HIVE_PASSWORD';
+              SELECT 'CREATE DATABASE hive OWNER hive'
+                WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='hive')\gexec
+              GRANT ALL PRIVILEGES ON DATABASE hive TO hive;
+              SQL
+---
+# The warehouse bucket. An ObjectBucketClaim would mint its own RGW user and
+# could not reach the CephObjectStoreUser/hive credentials the metastore
+# authenticates as, so create it under those credentials instead — the same
+# pattern spark-logs uses.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hive-bucket-bootstrap
+  namespace: hive
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mkbucket
+          image: amazon/aws-cli:2.15.0
+          envFrom:
+            - secretRef:
+                name: hive-s3
+          env:
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+          command: [sh, -ec]
+          args:
+            - |
+              EP=http://rook-ceph-rgw-object-store.rook-ceph.svc:80
+              aws --endpoint-url "$EP" s3api head-bucket --bucket hive 2>/dev/null ||
+                aws --endpoint-url "$EP" s3api create-bucket --bucket hive

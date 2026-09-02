@@ -1,0 +1,240 @@
+# Apache Hive standalone metastore. This replaces the Stackable SDP operator
+# stack (commons + secret + listener + hive operators), which cost four
+# Deployments, two CSI DaemonSets and nine CRDs to run this single pod.
+#
+# The upstream image ships neither the PostgreSQL JDBC driver nor the AWS SDK,
+# so both are fetched at first start (see the fetch-jars initContainer).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hive-metastore-jmx
+  namespace: hive
+data:
+  config.yaml: |
+    startDelaySeconds: 0
+    ssl: false
+    # No `rules:` on purpose. jmx_exporter then falls back to its default
+    # naming for every bean, which is what produced the metric names the
+    # HiveMetastoreHeapHigh/GCPauses rules in the Mimir ruler already query
+    # (metrics_memory_heap_used_value, metrics_jvm_pause_warn_threshold_count).
+    # Adding a pattern here renames them and silences those alerts.
+    lowercaseOutputName: true
+    lowercaseOutputLabelNames: true
+    attrNameSnakeCase: true
+---
+# The AWS SDK v2 bundle is a 558 MiB uber-jar — Stackable bakes it into its
+# image, and re-downloading it from Maven Central on every restart would add
+# minutes to each start. Cache it on a small volume instead; fetch-jars is a
+# no-op once the jars are there.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hive-metastore-auxlib
+  namespace: hive
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: rook-ceph-block
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hive-metastore
+  namespace: hive
+spec:
+  replicas: 1
+  # auxlib is ReadWriteOnce, so a rolling update would deadlock on the old pod
+  # still holding the volume.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app.kubernetes.io/name: hive-metastore }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: hive-metastore }
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+      initContainers:
+        - name: fetch-jars
+          image: alpine:3
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              # hadoop-aws ships inside the image under
+              # share/hadoop/tools/lib, but the metastore classpath is built
+              # from $HIVE_HOME/lib plus METASTORE_AUX_JARS_PATH only, so pull
+              # a matching copy here rather than reaching into the Hadoop tree.
+              #
+              # 2.24.6 is the aws-java-sdk-v2.version hadoop-aws 3.4.1 is built
+              # against; a mismatch surfaces as NoSuchMethodError on s3a init.
+              M=https://repo1.maven.org/maven2
+              G=https://github.com/prometheus/jmx_exporter/releases/download
+              MANIFEST="postgresql.jar $M/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar
+              hadoop-aws.jar $M/org/apache/hadoop/hadoop-aws/3.4.1/hadoop-aws-3.4.1.jar
+              aws-sdk-bundle.jar $M/software/amazon/awssdk/bundle/2.24.6/bundle-2.24.6.jar
+              jmx_prometheus_javaagent.jar $G/1.6.0/jmx_prometheus_javaagent-1.6.0.jar"
+
+              # The jars land under fixed names, so METASTORE_AUX_JARS_PATH and
+              # the -javaagent path stay stable across version bumps. That also
+              # means "file already present" says nothing about *which* version
+              # is present: editing a URL above would otherwise leave the old
+              # jar on this PVC forever. Key the cache on the URL list itself
+              # rather than a hand-maintained counter — any edit changes the
+              # stamp and wipes the volume. lost+found is left alone; it is
+              # root-owned and not ours to delete.
+              STAMP=$(printf '%s' "$MANIFEST" | md5sum | cut -d' ' -f1)
+              if [ "$(cat /auxlib/.stamp 2>/dev/null || true)" != "$STAMP" ]; then
+                echo "jar set changed (stamp $STAMP); clearing cache"
+                rm -f /auxlib/.stamp /auxlib/*.jar /auxlib/*.part
+              fi
+
+              while read -r name url; do
+                if [ -n "$name" ] && [ ! -s "/auxlib/$name" ]; then
+                  echo "fetching $name"
+                  wget -q -O "/auxlib/$name.part" "$url"
+                  mv "/auxlib/$name.part" "/auxlib/$name"
+                fi
+              done <<MANIFEST_EOF
+              $MANIFEST
+              MANIFEST_EOF
+
+              # Written last: set -e aborts above on a failed fetch, so a
+              # partial cache never gets stamped as complete.
+              echo "$STAMP" > /auxlib/.stamp
+              ls -l /auxlib
+          volumeMounts:
+            - { name: auxlib, mountPath: /auxlib }
+        - name: render-conf
+          image: alpine:3
+          # The config carries the Postgres password and the RGW keys, so it
+          # cannot be a ConfigMap. Render it from the mounted Secrets into an
+          # emptyDir; HIVE_CUSTOM_CONF_DIR symlinks it into $HIVE_HOME/conf.
+          # Passing them as -D flags instead would expose both in `ps`.
+          #
+          # It must be metastore-site.xml, not hive-site.xml: the image ships
+          # its own metastore-site.xml pinning metastore.warehouse.dir to the
+          # local /opt/hive/data/warehouse, and the native metastore.* keys
+          # there beat the hive.metastore.* aliases wherever they are set. The
+          # entrypoint's `ln -sfn` replaces the file outright, so the three
+          # metastore.event/catalog.servlet settings are carried over from it.
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              cat > /conf/metastore-site.xml <<EOF
+              <?xml version="1.0"?>
+              <configuration>
+                <property><name>metastore.thrift.port</name><value>9083</value></property>
+                <property><name>metastore.warehouse.dir</name><value>s3a://hive/warehouse/</value></property>
+                <property><name>metastore.metrics.enabled</name><value>true</value></property>
+                <property><name>metastore.event.db.notification.api.auth</name><value>false</value></property>
+                <property><name>metastore.catalog.servlet.port</name><value>9001</value></property>
+                <property><name>metastore.catalog.servlet.auth</name><value>none</value></property>
+                <property><name>javax.jdo.option.ConnectionDriverName</name><value>org.postgresql.Driver</value></property>
+                <property><name>javax.jdo.option.ConnectionURL</name><value>jdbc:postgresql://postgres-cluster-rw.postgres-cluster.svc:5432/hive</value></property>
+                <property><name>javax.jdo.option.ConnectionUserName</name><value>${DB_USERNAME}</value></property>
+                <property><name>javax.jdo.option.ConnectionPassword</name><value>${DB_PASSWORD}</value></property>
+                <property><name>fs.s3a.endpoint</name><value>http://rook-ceph-rgw-object-store.rook-ceph.svc/</value></property>
+                <property><name>fs.s3a.endpoint.region</name><value>us-east-1</value></property>
+                <property><name>fs.s3a.path.style.access</name><value>true</value></property>
+                <property><name>fs.s3a.connection.ssl.enabled</name><value>false</value></property>
+                <property><name>fs.s3a.access.key</name><value>${AWS_ACCESS_KEY_ID}</value></property>
+                <property><name>fs.s3a.secret.key</name><value>${AWS_SECRET_ACCESS_KEY}</value></property>
+              </configuration>
+              EOF
+          env:
+            - name: DB_USERNAME
+              valueFrom: { secretKeyRef: { name: hive-db-credentials, key: username } }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: hive-db-credentials, key: password } }
+          envFrom:
+            - secretRef: { name: hive-s3 }
+          volumeMounts:
+            - { name: conf, mountPath: /conf }
+      containers:
+        - name: metastore
+          image: apache/hive:standalone-metastore-4.2.1
+          env:
+            - name: DB_DRIVER
+              value: postgres
+            # IS_RESUME/SKIP_SCHEMA_INIT are left unset on purpose: the
+            # entrypoint then runs `schematool -dbType postgres
+            # -initOrUpgradeSchema` on every start, which is idempotent and
+            # lets the pod rebuild its own schema after a database restore.
+            - name: HIVE_CUSTOM_CONF_DIR
+              value: /hive-custom-conf
+            - name: METASTORE_AUX_JARS_PATH
+              value: /opt/hive/auxlib
+            # Appended after the entrypoint's own `-Xmx1G`, so the later -Xmx
+            # wins. 768Mi was the Stackable limit and the heap alert fired
+            # against it.
+            - name: SERVICE_OPTS
+              value: >-
+                -Xmx1536m
+                -javaagent:/opt/hive/auxlib/jmx_prometheus_javaagent.jar=9084:/jmx/config.yaml
+          ports:
+            - { name: thrift,  containerPort: 9083 }
+            - { name: metrics, containerPort: 9084 }
+          startupProbe:
+            tcpSocket: { port: thrift }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket: { port: thrift }
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: thrift }
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 250m, memory: 1Gi }
+            limits:   { cpu: "1",  memory: 2Gi }
+          volumeMounts:
+            - { name: auxlib, mountPath: /opt/hive/auxlib }
+            - { name: conf,   mountPath: /hive-custom-conf }
+            - name: jmx-config
+              mountPath: /jmx/config.yaml
+              subPath: config.yaml
+      volumes:
+        - name: auxlib
+          persistentVolumeClaim: { claimName: hive-metastore-auxlib }
+        - name: conf
+          emptyDir: {}
+        - name: jmx-config
+          configMap: { name: hive-metastore-jmx }
+---
+# Named to match the thrift URI Trino's hive catalog already points at
+# (thrift://hive-metastore.hive.svc:9083). The Stackable listener published
+# `hive-metastore-metastore` instead, so that catalog never resolved.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hive-metastore
+  namespace: hive
+  labels: { app.kubernetes.io/name: hive-metastore }
+spec:
+  selector: { app.kubernetes.io/name: hive-metastore }
+  ports:
+    - { name: thrift, port: 9083, targetPort: thrift }
+---
+# Alloy discovers endpoints in this namespace by the prometheus.io/scrape
+# label and keeps only the port named `metrics` — see the Hive block in
+# gitops/platform/alloy/values.yaml.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hive-metastore-metrics
+  namespace: hive
+  labels:
+    app.kubernetes.io/name: hive-metastore
+    prometheus.io/scrape: "true"
+spec:
+  clusterIP: None
+  selector: { app.kubernetes.io/name: hive-metastore }
+  ports:
+    - { name: metrics, port: 9084, targetPort: metrics }

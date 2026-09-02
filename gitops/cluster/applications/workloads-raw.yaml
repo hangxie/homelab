@@ -12,6 +12,7 @@ spec:
         elements:
           # Mandatory — required for the cluster's data platform.
           - name: hdfs
+          - name: hive
           - name: ray
           - name: redis
           # Optional — comment a line out to disable that workload.

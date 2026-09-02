@@ -44,9 +44,10 @@ spec:
   store: object-store
   displayName: "spark s3 backend"
 ---
-# RGW user reserved for the Hive metastore warehouse. No HiveCluster CR
-# is deployed yet; the user/bucket are provisioned so wiring up a future
-# HiveCluster is a single chart-values change.
+# RGW user for the Hive warehouse bucket (s3a://hive/warehouse). RGW denies
+# cross-user bucket access, so every warehouse client authenticates as this
+# one user: the metastore itself, Trino's hive catalog (trino-s3), and Spark
+# jobs that touch warehouse tables (hive-s3 in the spark namespace).
 apiVersion: ceph.rook.io/v1
 kind: CephObjectStoreUser
 metadata:
@@ -55,13 +56,3 @@ metadata:
 spec:
   store: object-store
   displayName: "hive metastore warehouse"
----
-# RGW user consumed by Trino's hive connector catalog.
-apiVersion: ceph.rook.io/v1
-kind: CephObjectStoreUser
-metadata:
-  name: trino
-  namespace: rook-ceph
-spec:
-  store: object-store
-  displayName: "trino hive catalog s3 backend"
