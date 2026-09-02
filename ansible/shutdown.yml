@@ -95,6 +95,20 @@
       # A namespace that overruns its grace period must not strand the rest.
       failed_when: false
 
+    - name: Force out whatever overran its grace period
+      # kubectl delete returns on timeout with the pod object still in the API,
+      # and the next play stops the kubelets. A pod left mid-termination then
+      # has nothing to finish it, so the power-off strands the object and it
+      # comes back Unknown or ContainerStatusUnknown on the next boot. The
+      # graceful pass above has already had its full grace period by now.
+      command: >-
+        kubectl delete pod --all --namespace {{ item }}
+        --force --grace-period=0
+      environment: "{{ kubectl_env }}"
+      loop: "{{ shutdown_namespaces }}"
+      changed_when: true
+      failed_when: false
+
 - name: Stop the worker kubelets
   hosts: workers
   become: true

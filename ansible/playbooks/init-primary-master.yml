@@ -70,6 +70,10 @@
           controllerManager:
             extraArgs:
               bind-address: "0.0.0.0"
+              # Default is 12500, so terminated pods are never collected at
+              # homelab scale. An ungraceful power-off leaves a Failed pod per
+              # container the kubelet cannot account for on the way back up.
+              terminated-pod-gc-threshold: "50"
           ---
           apiVersion: kubeproxy.config.k8s.io/v1alpha1
           kind: KubeProxyConfiguration
