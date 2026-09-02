@@ -47,7 +47,6 @@ containerd_registry_hosts:
   - { name: docker.io,                  server: "https://registry-1.docker.io", mirror: "https://registry.xiehang.com/v2/docker-io" }
   - { name: ghcr.io,                    server: "https://ghcr.io",              mirror: "https://registry.xiehang.com/v2/ghcr-io" }
   - { name: nvcr.io,                    server: "https://nvcr.io",              mirror: "https://registry.xiehang.com/v2/nvcr-io" }
-  - { name: oci.stackable.tech,         server: "https://oci.stackable.tech",   mirror: "https://registry.xiehang.com/v2/stackable" }
   - { name: container-registry.oracle.com, server: "https://container-registry.oracle.com", mirror: "https://registry.xiehang.com/v2/oracle" }
   - { name: quay.io,                    server: "https://quay.io",              mirror: "https://registry.xiehang.com/v2/quay-io" }
   - { name: registry.k8s.io,            server: "https://registry.k8s.io",      mirror: "https://registry.xiehang.com/v2/k8s-io" }

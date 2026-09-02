@@ -1,4 +1,0 @@
-# The chart deploys only the Stackable hive-operator. The HiveCluster CR and
-# its supporting secrets live in extras/.
-serviceAccount:
-  create: true

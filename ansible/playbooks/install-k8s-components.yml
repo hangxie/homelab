@@ -17,9 +17,6 @@
       - name: nvcr.io
         server: https://nvcr.io
         mirror: https://registry.xiehang.com/v2/nvcr-io
-      - name: oci.stackable.tech
-        server: https://oci.stackable.tech
-        mirror: https://registry.xiehang.com/v2/stackable
       - name: container-registry.oracle.com
         server: https://container-registry.oracle.com
         mirror: https://registry.xiehang.com/v2/oracle

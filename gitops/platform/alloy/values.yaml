@@ -1171,8 +1171,9 @@ alloy:
 
       // ── Hive metastore ────────────────────────────────────────────────────────
 
-      // Stackable exposes the JMX exporter on a headless -metrics Service
-      // labelled prometheus.io/scrape=true.
+      // The metastore runs the JMX exporter as a javaagent on 9084, published
+      // by the headless hive-metastore-metrics Service labelled
+      // prometheus.io/scrape=true.
       discovery.kubernetes "hive" {
         role = "endpoints"
         namespaces {

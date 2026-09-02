@@ -58,8 +58,7 @@ flowchart TD
     end
 
     subgraph operators["500s — operators"]
-        stackable["stackable commons/secret/listener (500/510/520)"] --> nfd["nfd (530)"]
-        nfd --> nvidia["nvidia-device-plugin (540)"]
+        nfd["nfd (530)"] --> nvidia["nvidia-device-plugin (540)"]
         nvidia --> kuberay["kuberay-operator (550)"]
         kuberay --> redis-op["redis-operator (560)"]
         redis-op --> mysql-op["mysql-operator (570)"]
