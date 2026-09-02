@@ -332,11 +332,13 @@ Browse `https://grafana.homelab.xiehang.com` and `https://argocd.homelab.xiehang
 
 ## Shutting the lab down
 
-```bash
-ansible-playbook -i ansible/inventory.ini ansible/shutdown.yml
-```
+Stop the VMs from Proxmox. Nothing needs to be quiesced first.
 
-Stops pods namespace by namespace in reverse Argo CD sync-wave order (Ceph last), then halts the guests so the Proxmox VMs can be powered off. Skipping it leaves every stateful workload in crash recovery on the next boot; MySQL in particular comes back through a Group Replication reboot-from-complete-outage. Pass `-e poweroff_nodes=false` to quiesce without halting.
+Every stateful workload here is crash-safe by design — etcd and Ceph journal, Postgres and MySQL replay their logs — so an abrupt power-off costs boot time, not data. MySQL is the one that used to need help, and that fix lives in `gitops/workloads/raw/mysql/manifests/10-innodbcluster.yaml`: the router polls `replication_group_members` for an ONLINE member before bootstrapping instead of racing the group's reboot-from-complete-outage, and there are two of them.
+
+Halting the guests first (`shutdown --halt now`, ~5 min) is fine but buys nothing over a Proxmox stop (<1 min). The VM disks carry no `cache` setting, so they use the PVE default, which honors guest fsync — a stop is no worse than pulling the plug on bare metal.
+
+Don't stop the nodes one at a time over more than five minutes. Taint-based eviction fires at 300s, so a staggered shutdown has the control plane deleting pods on nodes that are already gone, which strands the pod objects as `Unknown` for the kubelet to trip over on the way back up. Killing the whole cluster inside a minute never starts that timer.
 
 ## Rebuild modes
 

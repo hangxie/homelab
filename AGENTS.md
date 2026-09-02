@@ -34,7 +34,7 @@ terraform -chdir=terraform {init,apply,destroy}  # no root .tf
 scripts/seed-certs.sh                            # needs CF_API_TOKEN or VAULT_ADDR+VAULT_TOKEN; issues cert if certs/ is empty
 ```
 
-Bootstrap, reset/shutdown, Vault seeding, and secret rotation: see `README.md` — the commands there carry the caveats (`--regenerate`, rolling pods after a force-sync).
+Bootstrap, reset, Vault seeding, and secret rotation: see `README.md` — the commands there carry the caveats (`--regenerate`, rolling pods after a force-sync).
 
 ## Change workflow (bug fixes and new features)
 
