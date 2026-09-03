@@ -82,6 +82,12 @@
           apiVersion: kubelet.config.k8s.io/v1beta1
           kind: KubeletConfiguration
           imageMaximumGCAge: 168h
+          # imagefs and nodefs are the same disk here, so the default image GC
+          # high threshold (85%) coincides with the default imagefs.available
+          # hard-eviction threshold (15%). GC never gets to reclaim before the
+          # kubelet starts evicting; drop it so images are pruned first.
+          imageGCHighThresholdPercent: 75
+          imageGCLowThresholdPercent: 65
 
     - name: Prepare dedicated etcd disk
       ansible.builtin.include_tasks: prep-etcd-disk.yml
