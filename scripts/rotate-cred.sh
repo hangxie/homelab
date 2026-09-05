@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Rotate the auto-generated credentials end to end: mint fresh values in Vault,
-# push them through External Secrets, re-run the bootstrap Jobs that apply a
-# password to its app or database, and restart the workloads that only read
-# their Secret at startup.
+# push them through External Secrets, wait for the operators that own a
+# credential to adopt it, re-run the bootstrap Jobs that apply a password to its
+# app or database, and restart the workloads that only read their Secret at
+# startup.
 #
 # Externally minted credentials are never touched. Those are the entries marked
 # `generate: false` in scripts/vault-secrets.template.yaml -- the Harbor robot,
@@ -262,6 +263,68 @@ refreshed_json() {
   fi
 }
 
+# --- step 2b: operators that still have to push the value onward ------------
+
+# ESO writing a Secret is not the same as the credential being live. CNPG owns
+# the postgres superuser role: it copies that Secret into the database only when
+# it reconciles, and records what it applied in
+# status.secretsResourceVersion.superuserSecretVersion. A cluster reporting
+# "healthy" can sit on a stale value indefinitely -- nothing re-triggers it --
+# and every *-postgres-bootstrap Job authenticates as that superuser, so
+# re-running them first fails with "password authentication failed for user
+# postgres" while the Secret and Vault both look correct.
+#
+# Annotating the Cluster forces the reconcile; the annotation is removed again
+# so Argo CD sees no drift.
+cnpg_superuser_clusters() {
+  kubectl get clusters.postgresql.cnpg.io -A -o json 2>/dev/null | jq -r '
+    .items[]
+    | select(.spec.enableSuperuserAccess != false)
+    | [ .metadata.namespace,
+        .metadata.name,
+        (.spec.superuserSecret.name // "\(.metadata.name)-superuser") ]
+    | @tsv
+  '
+}
+
+wait_for_cnpg_superuser() {
+  local ns name secret live applied deadline nudged
+  while IFS=$'\t' read -r ns name secret; do
+    [[ -n "${ns}" ]] || continue
+    printf '%s\n' "${REFRESHED[@]}" | grep -qxF "${ns}/${secret}" || continue
+
+    log "Waiting for CNPG to apply the superuser password to ${ns}/${name}"
+    if [[ "${DRY_RUN}" == "true" ]]; then
+      echo "    [dry-run] nudge cluster/${name} and wait for it to adopt secret/${secret}"
+      continue
+    fi
+
+    live="$(kubectl -n "${ns}" get secret "${secret}" \
+              -o jsonpath='{.metadata.resourceVersion}' 2>/dev/null || true)"
+    nudged=false
+    deadline=$(( $(date +%s) + SYNC_TIMEOUT ))
+    while :; do
+      applied="$(kubectl -n "${ns}" get cluster "${name}" \
+                   -o jsonpath='{.status.secretsResourceVersion.superuserSecretVersion}' \
+                   2>/dev/null || true)"
+      [[ -n "${live}" && "${applied}" == "${live}" ]] && break
+      if [[ "${nudged}" == "false" ]]; then
+        kubectl -n "${ns}" annotate cluster "${name}" \
+          "rotate-cred/nudge=$(date +%s)" --overwrite >/dev/null 2>&1 || true
+        nudged=true
+      fi
+      if (( $(date +%s) >= deadline )); then
+        warn "${ns}/${name}: CNPG still on superuser secret version ${applied:-<none>} (want ${live}); the *-postgres-bootstrap Jobs will fail to authenticate"
+        break
+      fi
+      sleep 2
+    done
+    if [[ "${nudged}" == "true" ]]; then
+      kubectl -n "${ns}" annotate cluster "${name}" rotate-cred/nudge- >/dev/null 2>&1 || true
+    fi
+  done < <(cnpg_superuser_clusters)
+}
+
 # --- step 3: the Jobs that apply a credential -------------------------------
 
 # Workloads mounting one of the refreshed Secrets, as
@@ -496,6 +559,7 @@ main() {
   regenerate_in_vault
   refresh_external_secrets
   if (( ${#REFRESHED[@]} )); then
+    wait_for_cnpg_superuser
     rerun_apply_jobs
     restart_consumers
   fi

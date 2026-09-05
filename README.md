@@ -193,7 +193,7 @@ Re-running `scripts/seed-vault.sh` is idempotent: existing Vault values are kept
 
 #### Rotate the auto-generated credentials
 
-`scripts/seed-vault.sh --regenerate` only changes Vault. A new value does not reach a running cluster until the dependent `ExternalSecret` re-syncs, the Job that writes the password into its app or database runs again, and the pods holding the old value restart. `scripts/rotate-cred.sh` does all four:
+`scripts/seed-vault.sh --regenerate` only changes Vault. A new value does not reach a running cluster until the dependent `ExternalSecret` re-syncs, the operator that owns the credential adopts it, the Job that writes the password into its app or database runs again, and the pods holding the old value restart. `scripts/rotate-cred.sh` does all five:
 
 ```bash
 scripts/rotate-cred.sh --dry-run          # print the plan, change nothing
@@ -202,6 +202,8 @@ scripts/rotate-cred.sh redis/default      # only the named paths
 ```
 
 It discovers the affected `ExternalSecret`s from the cluster by matching `remoteRef.key` against the rotated Vault paths, so a new workload is picked up with no change to the script. Externally minted credentials (`generate: false`) are refused outright — rotate those at the source with the per-credential steps below.
+
+The operator wait matters for `postgres-cnpg/superuser`: CNPG copies that Secret into the database only when it reconciles, and a cluster reporting healthy will sit on a stale value indefinitely. Every `*-postgres-bootstrap` Job authenticates as that superuser, so without the wait they all fail with `password authentication failed for user "postgres"` while Vault and the Secret both look correct. The script nudges the `Cluster` and waits for `status.secretsResourceVersion.superuserSecretVersion` to match the live Secret before re-running any Job.
 
 Seven paths are held back from a bare run because nothing in the cluster re-applies them, or because re-applying them destroys data: `mysql/root`, `cassandra/admin`, `dbeaver/admin`, `airflow/admin`, `openwebui/admin`, `airflow/fernet-key` and `superset/secret`. `scripts/rotate-cred.sh --help` prints the reason for each. Naming one on the command line rotates it anyway and prints the manual step that is now outstanding.
 
