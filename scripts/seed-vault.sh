@@ -25,14 +25,20 @@
 # existing Vault value. Entries with a non-empty template default (e.g.
 # usernames) keep that default; externally minted `generate: false` credentials
 # (HuggingFace, Harbor, Cloudflare) are never touched.
+#
+# --only <path>: restrict the KV writes to the named template paths (repeatable).
+# The mount/AppRole/policy setup still runs -- it is idempotent. Used by
+# scripts/rotate-cred.sh so credential rotation reuses this generator rather
+# than growing a second one.
 
 set -euo pipefail
 
 REGENERATE=false
+ONLY_PATHS=()
 
 usage() {
   cat >&2 <<EOF
-Usage: ${0##*/} [--regenerate]
+Usage: ${0##*/} [--regenerate] [--only <path>]...
 
   --regenerate   Regenerate auto-generated secrets even when they already have a
                  value in Vault. Externally minted credentials (generate: false)
@@ -41,7 +47,10 @@ Usage: ${0##*/} [--regenerate]
                  This overwrites live secrets: each 'vault kv put' bumps the KV
                  version, so on a running cluster the dependent ExternalSecrets
                  must re-sync and their consuming pods restart before the new
-                 values take effect.
+                 values take effect. scripts/rotate-cred.sh does that part.
+
+  --only <path>  Only write this template path (repeatable). Everything else in
+                 the template is left alone.
 EOF
 }
 
@@ -49,10 +58,25 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --regenerate) REGENERATE=true ;;
+      --only)
+        [[ $# -ge 2 ]] || { echo "Error: --only needs a path" >&2; usage; exit 1; }
+        ONLY_PATHS+=("$2"); shift ;;
       -h|--help) usage; exit 0 ;;
       *) echo "Error: unknown argument '$1'" >&2; usage; exit 1 ;;
     esac
     shift
+  done
+}
+
+# Fail loudly on a typo rather than silently writing nothing.
+validate_only_paths() {
+  (( ${#ONLY_PATHS[@]} )) || return 0
+  local p
+  for p in "${ONLY_PATHS[@]}"; do
+    if ! yq -e --arg p "${p}" '.secrets[] | select(.path == $p)' "${TEMPLATE}" >/dev/null 2>&1; then
+      echo "Error: --only '${p}' is not a path in ${TEMPLATE##*/}" >&2
+      exit 1
+    fi
   done
 }
 
@@ -110,8 +134,13 @@ ensure_role() {
 # `format` defaults to "password"; set `format: fernet` for Fernet keys, or
 # `format: hex` for consumers that require a hex-encoded secret.
 extract_template_entries() {
-  yq -r '
+  local only_json='[]'
+  if (( ${#ONLY_PATHS[@]} )); then
+    only_json="$(printf '%s\n' "${ONLY_PATHS[@]}" | jq -R . | jq -s -c .)"
+  fi
+  yq -r --argjson only "${only_json}" '
     .secrets[] as $s
+    | select(($only | length) == 0 or ($only | index($s.path)))
     | (if $s.generate == false then "false" else "true" end) as $g
     | ($s.format // "password") as $fmt
     | $s.fields[]? as $f
@@ -211,6 +240,7 @@ write_kv_entries() {
 
 main() {
   parse_args "$@"
+  validate_only_paths
   ensure_kv_mount
   ensure_approle_mount
   write_policy

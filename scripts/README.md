@@ -1,3 +1,3 @@
 # Scripts
 
-Operator utilities. Imperative by design: Vault seed/nuke, certificate seeding, and redeploy.
+Operator utilities. Imperative by design: Vault seed/nuke, credential rotation, certificate seeding, and redeploy.

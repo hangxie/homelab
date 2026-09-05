@@ -189,15 +189,21 @@ with the same `VAULT_TOKEN` used for seeding. Current entries:
   config before Mimir starts. A missing Vault path leaves the Alertmanager pods
   stuck in `CreateContainerConfigError`.
 
-Re-running `scripts/seed-vault.sh` is idempotent: existing Vault values are kept.
-To rotate the auto-generated secrets, run `scripts/seed-vault.sh --regenerate`,
-which mints fresh values even where Vault already has one. Template-pinned
-defaults (usernames) and the `generate: false` credentials above are left
-untouched. This is a live rotation on a running cluster: each `vault kv put`
-bumps the KV version, so the dependent `ExternalSecret`s must re-sync and their
-consuming pods restart before the new secrets take effect. Force a re-sync with
-`kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrite`,
-then roll the affected workloads.
+Re-running `scripts/seed-vault.sh` is idempotent: existing Vault values are kept. `--regenerate` mints fresh values even where Vault already has one, and `--only <path>` narrows the write to named template paths. Template-pinned defaults (usernames) and the `generate: false` credentials above are never touched.
+
+#### Rotate the auto-generated credentials
+
+`scripts/seed-vault.sh --regenerate` only changes Vault. A new value does not reach a running cluster until the dependent `ExternalSecret` re-syncs, the Job that writes the password into its app or database runs again, and the pods holding the old value restart. `scripts/rotate-cred.sh` does all four:
+
+```bash
+scripts/rotate-cred.sh --dry-run          # print the plan, change nothing
+scripts/rotate-cred.sh                    # every safely rotatable path
+scripts/rotate-cred.sh redis/default      # only the named paths
+```
+
+It discovers the affected `ExternalSecret`s from the cluster by matching `remoteRef.key` against the rotated Vault paths, so a new workload is picked up with no change to the script. Externally minted credentials (`generate: false`) are refused outright — rotate those at the source with the per-credential steps below.
+
+Seven paths are held back from a bare run because nothing in the cluster re-applies them, or because re-applying them destroys data: `mysql/root`, `cassandra/admin`, `dbeaver/admin`, `airflow/admin`, `openwebui/admin`, `airflow/fernet-key` and `superset/secret`. `scripts/rotate-cred.sh --help` prints the reason for each. Naming one on the command line rotates it anyway and prints the manual step that is now outstanding.
 
 Public vLLM and llama-cpp `/v1` endpoints are currently unauthenticated.
 Bearer-token enforcement is deferred until a dedicated API gateway is added.
