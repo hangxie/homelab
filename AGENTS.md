@@ -25,6 +25,7 @@ See `README.md` for architecture, bootstrap flow, and rebuild modes.
 - **Disable a workload:** comment out its line. Pruning is automatic.
 - **Platform component:** edit `gitops/platform/<component>/`. Respect sync waves in `gitops/cluster/applications/<component>.yaml`.
 - **New secret path:** add to `scripts/vault-secrets.template.yaml`, re-run `scripts/seed-vault.sh`. `generate: false` entries must be `vault kv put` first.
+- **Grafana dashboard:** drop the vendored `.json` under the component's `dashboards/` directory and add it to the `configMapGenerator` in that directory's `kustomization.yaml`. Ordinary manifests stay plain YAML.
 
 ## Commands
 
@@ -52,6 +53,7 @@ Bootstrap, reset, Vault seeding, and secret rotation: see `README.md` — the co
 
 ## Gotchas
 
+- A `kustomization.yaml` takes over its whole directory: Argo CD stops rendering loose files there, so every manifest must be listed under `resources:` or it is ignored with no error. Currently `gitops/platform/{loki,grafana}/extras` and `gitops/workloads/raw/ray/manifests`.
 - Root app uses `directory.recurse: false` — only `Application`/`ApplicationSet` manifests in `gitops/cluster/applications/`.
 - `workloads-helm` ApplicationSet is multi-source (chart + `$values` + `extras/`). Don't collapse.
 - Gateway terminates TLS on 443; upstream services are plain HTTP. New `HTTPRoute`s must set `sectionName: https` on the `parentRef` — port 80 only 301-redirects.
