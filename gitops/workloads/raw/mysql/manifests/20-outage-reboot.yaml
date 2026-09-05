@@ -1,0 +1,150 @@
+# Self-heal for the one failure mode the operator cannot recover from on its
+# own: after an ungraceful whole-cluster power-off every mysqld comes back
+# healthy but Group Replication stays down, and the InnoDBCluster sits at
+# OFFLINE / ONLINE 0 until somebody runs rebootClusterFromCompleteOutage() by
+# hand. Roughly every second cluster reboot ends up here.
+#
+# The operator does implement the repair (ClusterController.repair_cluster ->
+# reboot_cluster on ClusterDiagStatus.OFFLINE), but the only path that reaches
+# it for a pod that is already Running is on_pod_restarted, and operator_cluster
+# .on_pod_event gates that on the mysql container's restart count having changed
+# relative to g_ephemeral_pod_state -- an in-memory map. A power-off restarts the
+# operator too, so the map is empty and the first pod event after boot merely
+# records the baseline instead of detecting a restart. No pod event ever fires
+# again, so repair_cluster is never called and the outage persists indefinitely.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-outage-reboot
+  namespace: mysql
+data:
+  reboot.sh: |
+    #!/bin/bash
+    # Reports the number of ONLINE group members seen from $1, or nothing if
+    # that member cannot be reached. The password goes into a 0600 script file
+    # rather than argv so it stays out of ps.
+    set -u
+
+    DOMAIN=mysql-cluster-instances.mysql.svc
+    MEMBERS="mysql-cluster-0 mysql-cluster-1 mysql-cluster-2"
+    PASSWORD=$(cat /etc/mysql-root/rootPassword)
+
+    umask 077
+
+    run_js() {
+      local host=$1 body=$2
+      {
+        printf 'shell.connect({host:"%s.%s",port:3306,user:"root",password:"%s","connect-timeout":5000});\n' \
+          "$host" "$DOMAIN" "$PASSWORD"
+        printf '%s\n' "$body"
+      } >/tmp/op.js
+      mysqlsh --js -f /tmp/op.js
+      local rc=$?
+      rm -f /tmp/op.js
+      return $rc
+    }
+
+    online_members() {
+      run_js "$1" 'println(session.runSql("SELECT COUNT(*) FROM performance_schema.replication_group_members WHERE member_state = '"'"'ONLINE'"'"'").fetchOne()[0]);' \
+        2>/dev/null | tail -1
+    }
+
+    # A group with any ONLINE member is either healthy or rejoining members on
+    # its own; either way rebooting it would be wrong. Unreachable members are
+    # not evidence of an outage either -- a rolling restart looks like that --
+    # so only a unanimous, reachable 0 counts.
+    all_offline() {
+      local member count
+      for member in $MEMBERS; do
+        count=$(online_members "$member")
+        case "$count" in
+          0) ;;
+          "") echo "$member: unreachable"; return 1 ;;
+          *)  echo "$member: $count ONLINE member(s)"; return 1 ;;
+        esac
+      done
+      return 0
+    }
+
+    if ! all_offline; then
+      echo "cluster is not in a complete outage, nothing to do"
+      exit 0
+    fi
+
+    # Confirm after a pause. The group is legitimately memberless for a few
+    # seconds during operator-driven work, and a reboot fired into that window
+    # would fight the operator instead of helping it.
+    echo "no ONLINE members on any of the three; re-checking in 60s"
+    sleep 60
+    if ! all_offline; then
+      echo "cluster recovered on its own, nothing to do"
+      exit 0
+    fi
+
+    # rebootClusterFromCompleteOutage() refuses to run from an instance that is
+    # behind another, so walk the members until one is accepted as the seed. It
+    # also refuses outright while any member is unreachable, which is the
+    # safety net against seeding from a stale copy.
+    for member in $MEMBERS; do
+      # Re-check between attempts: a concurrent repair (another run of this job,
+      # or the operator finally seeing a pod event) can bring the group back
+      # mid-loop, and then every remaining seed would just be refused.
+      if ! all_offline; then
+        echo "cluster is ONLINE again, nothing more to do"
+        exit 0
+      fi
+      echo "rebooting cluster from complete outage, seed=$member"
+      if run_js "$member" 'dba.rebootClusterFromCompleteOutage();'; then
+        echo "reboot OK"
+        exit 0
+      fi
+      echo "$member rejected as seed, trying the next member"
+    done
+
+    echo "no member could seed the reboot; manual intervention required" >&2
+    exit 1
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mysql-outage-reboot
+  namespace: mysql
+spec:
+  schedule: "*/5 * * * *"
+  # A run can take just over a minute thanks to the re-check, and a backlog of
+  # them all trying to seed the same reboot helps nobody.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # One attempt per schedule tick. Retrying inside the Job would only
+      # re-run the same 60s re-check against a cluster that has not moved.
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: reboot
+              # Carries the mysqlsh matching the 9.7.0 server, same as the
+              # sidecar the operator injects into each member pod.
+              image: container-registry.oracle.com/mysql/community-operator:9.7.0-2.2.8
+              command: [bash, /opt/reboot/reboot.sh]
+              volumeMounts:
+                - name: script
+                  mountPath: /opt/reboot
+                - name: mysql-root
+                  mountPath: /etc/mysql-root
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: mysql-outage-reboot
+            - name: mysql-root
+              secret:
+                secretName: mysql-root
+            - name: tmp
+              emptyDir: {}
