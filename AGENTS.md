@@ -25,6 +25,7 @@ See `README.md` for architecture, bootstrap flow, and rebuild modes.
 - **Disable a workload:** comment out its line. Pruning is automatic.
 - **Platform component:** edit `gitops/platform/<component>/`. Respect sync waves in `gitops/cluster/applications/<component>.yaml`.
 - **New secret path:** add to `scripts/vault-secrets.template.yaml`, re-run `scripts/seed-vault.sh`. `generate: false` entries must be `vault kv put` first.
+- **Grafana dashboard:** drop the vendored `.json` under the component's `dashboards/` directory and add it to the `configMapGenerator` in that directory's `kustomization.yaml`. Ordinary manifests stay plain YAML — but in a kustomize-rendered directory they must also be listed under `resources:` or Argo CD ignores them silently.
 
 ## Commands
 

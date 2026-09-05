@@ -1,0 +1,33 @@
+# kustomize renders this whole directory: Argo CD switches renderers the moment
+# a kustomization.yaml appears here and stops picking up loose files. A new
+# manifest dropped in this directory is silently ignored until it is listed
+# under `resources:`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - loki-bucket-bootstrap.yaml
+  - loki-s3-externalsecret.yaml
+
+# Dashboards are vendored upstream JSON, kept as .json so they can be jq'd,
+# diffed against a refreshed copy, and pasted into Grafana's import dialog.
+configMapGenerator:
+  - name: grafana-dashboards-loki
+    namespace: grafana
+    files:
+      - dashboards/loki-chunks.json
+      - dashboards/loki-deletion.json
+      - dashboards/loki-gateway.json
+      - dashboards/loki-logs.json
+      - dashboards/loki-mixin-recording-rules.json
+      - dashboards/loki-operational.json
+      - dashboards/loki-reads.json
+      - dashboards/loki-reads-resources.json
+      - dashboards/loki-retention.json
+      - dashboards/loki-writes.json
+      - dashboards/loki-writes-resources.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        k8s-sidecar-target-directory: /tmp/dashboards/Loki
