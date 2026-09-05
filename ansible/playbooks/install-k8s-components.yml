@@ -122,6 +122,17 @@
         # Ceph BlueStore activation needs AIO headroom alongside mounted RBD clients.
         - { name: 'fs.aio-max-nr', value: '1048576' }
 
+    # kernel.core_pattern is a bare "core", so a crashing Ceph daemon dumps into
+    # its cwd - the Rook host log directory - and nothing ever removes it. Two
+    # stale cores held 26G of worker root disk. Age them out; keep the Ceph logs.
+    - name: Age out Ceph core dumps left in the Rook host log directory
+      copy:
+        dest: /etc/tmpfiles.d/rook-core-dumps.conf
+        mode: '0644'
+        content: |
+          X /var/lib/rook/rook-ceph/log/ceph-*
+          e /var/lib/rook/rook-ceph/log - - - 3d
+
     # Install containerd
     - name: Install containerd
       apt:
@@ -183,6 +194,17 @@
         path: /etc/containerd/config.toml
         regexp: 'sandbox_image = "registry.k8s.io/pause:.*"'
         replace: 'sandbox_image = "registry.k8s.io/pause:3.10"'
+      notify: Restart containerd
+
+    # containerd keeps the compressed blob alongside the extracted snapshot, so
+    # an image costs roughly 3x its reported size on disk. Nodes only run images,
+    # they never push or export them, and the registry mirror makes a re-pull
+    # local, so the blob is dead weight on a 100G root disk.
+    - name: Discard unpacked image layers in containerd
+      replace:
+        path: /etc/containerd/config.toml
+        regexp: 'discard_unpacked_layers = false'
+        replace: 'discard_unpacked_layers = true'
       notify: Restart containerd
 
     - name: Set CNI plugin binary directory for containerd
