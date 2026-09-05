@@ -1,3 +1,6 @@
+# Unused today - every VM lands on node2. Kept as the reference for a second
+# hypervisor: aliases can't come from a for_each, so each one needs a literal
+# block here plus a matching VM resource in main.tf.
 provider "proxmox" {
   alias     = "node1"
   endpoint  = var.proxmox_nodes.node1.endpoint
