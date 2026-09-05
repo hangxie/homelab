@@ -73,5 +73,5 @@ gateway:
 monitoring:
   dashboards:
     # Disabled: patched versions with correct datasource/cluster/namespace defaults
-    # are provisioned via extras/loki-dashboards.yaml instead.
+    # are provisioned via extras/dashboards/*.json instead.
     enabled: false
