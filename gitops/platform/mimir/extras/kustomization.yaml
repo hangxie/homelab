@@ -1,0 +1,49 @@
+# kustomize renders this whole directory: Argo CD switches renderers the moment
+# a kustomization.yaml appears here and stops picking up loose files. A new
+# manifest dropped in this directory is silently ignored until it is listed
+# under `resources:`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - 01-mimir-obc.yaml
+  - 02-mimir-slack-externalsecret.yaml
+
+# The ruler mounts this ConfigMap by name (see `ruler.extraVolumes` in
+# values.yaml), so a hash suffix would leave it pointing at a ConfigMap Argo has
+# already pruned. Fixed name, reloaded in place.
+generatorOptions:
+  disableNameSuffixHash: true
+
+# Mounted into the ruler at /rules/anonymous — "anonymous" is the tenant the
+# gateway injects when multitenancy is off, and Mimir's local rule store expects
+# <ruler_storage.local.directory>/<tenant>/<file>.
+#
+# One file per Mimir rule namespace, named after the namespace. Each is a
+# standalone rulefmt.RuleGroups document carrying only the group list — a
+# `namespace:` key inside a file fails to parse — so `promtool check rules
+# rules/*.yaml` validates them as they sit on disk. Unlike Grafana-managed
+# rules, an empty query result simply means "not firing", so no noDataState
+# handling is needed.
+#
+# Two conventions every rule follows:
+#
+#   * Aggregate away `instance`. kube-state-metrics runs two replicas and both
+#     are scraped, so every kube_* series exists twice with a different
+#     `instance`; without a `max by (...)` each KSM alert would fire twice.
+#     Argo CD's application-controller metrics reshard the same way.
+#   * `severity` is either warning or critical. The Alertmanager route groups by
+#     (alertname, severity) and an inhibit rule drops the warning when the
+#     critical of the same alertname is already firing.
+configMapGenerator:
+  - name: mimir-ruler-rules
+    namespace: mimir
+    files:
+      - rules/targets.yaml
+      - rules/kubernetes.yaml
+      - rules/node.yaml
+      - rules/argocd.yaml
+      - rules/ceph.yaml
+      - rules/observability.yaml
+      - rules/platform.yaml
+      - rules/workloads.yaml

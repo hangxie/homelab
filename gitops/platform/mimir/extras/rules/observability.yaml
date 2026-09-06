@@ -1,0 +1,203 @@
+# ── Observability stack ─────────────────────────────────────────────────────
+# Mimir, Loki, Tempo and Alloy. These fail quietly: if Alloy stops writing or
+# the ruler stops evaluating, every other alert here silently stops working,
+# so the monitoring stack monitors itself.
+
+groups:
+  - name: mimir
+    interval: 1m
+    rules:
+      - alert: MimirRuleEvaluationFailing
+        expr: |
+          sum by (job) (rate(cortex_prometheus_rule_evaluation_failures_total[5m])) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Mimir ruler is failing to evaluate rules"
+          description: "{{ $labels.job }} is failing rule evaluations, so the alerts in this file are not being computed."
+
+      # Evaluation and Slack delivery are covered above and below, but the
+      # hop between them — the ruler posting firing alerts to the
+      # Alertmanager — was not: an alert could fire in the ruler and never
+      # arrive anywhere.
+      - alert: MimirRulerNotificationsFailing
+        expr: |
+          sum by (job) (rate(cortex_prometheus_notifications_errors_total[5m])) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Mimir ruler cannot reach the Alertmanager"
+          description: "{{ $labels.job }} is failing to deliver firing alerts to the Alertmanager; rules still evaluate but nothing reaches Slack."
+
+      - alert: MimirAlertmanagerNotificationsFailing
+        expr: |
+          sum by (job, integration) (rate(cortex_alertmanager_notifications_failed_total[5m])) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Mimir Alertmanager cannot deliver notifications"
+          description: "Notifications to {{ $labels.integration }} are failing, so firing alerts are not reaching Slack."
+
+      # A ratio rather than "> 0": the ingesters continuously reject about
+      # 1.5% of samples as err-mimir-sample-out-of-order across every job, so
+      # an absolute threshold would fire forever. 5% catches a real
+      # regression above that standing baseline.
+      - alert: MimirIngestionFailing
+        expr: |
+          sum by (job) (rate(cortex_ingester_ingested_samples_failures_total[5m]))
+          / sum by (job) (rate(cortex_ingester_ingested_samples_total[5m])) * 100 > 5
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Mimir is dropping samples on ingest"
+          description: "{{ $labels.job }} is rejecting {{ printf \"%.2f\" $value }}% of incoming samples."
+
+      # Mimir ingests through Kafka, and the failure that actually happened
+      # here was the topic disappearing under the ingesters — Kafka itself
+      # healthy, Grafana blank. The brokers export no metrics of their own
+      # (no JMX exporter, only 9092/9093), so the reader side is the signal:
+      # receive_delay is the age of a record when the ingester consumes it.
+      - alert: MimirKafkaIngestDelayHigh
+        expr: |
+          sum(rate(cortex_ingest_storage_reader_receive_delay_seconds_sum[5m]))
+          / sum(rate(cortex_ingest_storage_reader_receive_delay_seconds_count[5m])) > 30
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Mimir ingesters are falling behind Kafka"
+          description: "Records are reaching the ingesters {{ printf \"%.0f\" $value }}s after they were produced; recent metrics are missing from queries."
+
+      - alert: MimirKafkaFetchErrors
+        expr: |
+          sum by (job) (rate(cortex_ingest_storage_reader_fetch_errors_total[5m])) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Mimir cannot fetch from Kafka"
+          description: "{{ $labels.job }} is failing Kafka fetches; the ingest path is broken even if the brokers look healthy."
+
+      # The compactor fails quietly: queries slow down as the store-gateway
+      # reads uncompacted blocks and the bucket grows without bound. The
+      # timestamp is zero from process start until the first successful
+      # run, so the > 0 guard keeps a fresh restart from firing this.
+      - alert: MimirCompactorNotRunning
+        expr: |
+          (time() - cortex_compactor_last_successful_run_timestamp_seconds > 4 * 3600)
+          and (cortex_compactor_last_successful_run_timestamp_seconds > 0)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mimir compactor has not run for 4 hours"
+          description: "The last successful compaction was {{ printf \"%.1f\" $value }}s ago; block queries degrade and bucket usage grows until it runs again."
+
+      # One counter covers every component's access to the Ceph RGW bucket:
+      # ingester block uploads, store-gateway reads, compactor, ruler and
+      # alertmanager state. This is the rule that fires when RGW breaks —
+      # the object-storage complement to the Kafka rules above.
+      - alert: MimirObjectStorageFailing
+        expr: |
+          sum by (job) (rate(thanos_objstore_bucket_operation_failures_total[5m])) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Mimir cannot reach object storage"
+          description: "{{ $labels.job }} is failing bucket operations against RGW; blocks are not being uploaded or read."
+
+      - alert: MimirRequestErrors
+        expr: |
+          sum by (job, route) (rate(cortex_request_duration_seconds_count{status_code=~"5.."}[5m]))
+          / sum by (job, route) (rate(cortex_request_duration_seconds_count[5m])) * 100 > 5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mimir is returning 5xx responses"
+          description: "{{ printf \"%.2f\" $value }}% of {{ $labels.route }} requests to {{ $labels.job }} are failing."
+
+  - name: loki-tempo
+    interval: 1m
+    rules:
+      - alert: LokiRequestErrors
+        expr: |
+          sum by (job, route) (rate(loki_request_duration_seconds_count{status_code=~"5.."}[5m]))
+          / sum by (job, route) (rate(loki_request_duration_seconds_count[5m])) * 100 > 5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Loki is returning 5xx responses"
+          description: "{{ printf \"%.2f\" $value }}% of {{ $labels.route }} requests to {{ $labels.job }} are failing."
+
+      # The 5xx rule above only sees requests that arrive. The cluster
+      # pushes ~1000 lines/s at rest, so zero for 15 minutes means the log
+      # pipeline itself is dead, whatever the components report.
+      - alert: LokiNoLogsIngested
+        expr: |
+          sum(rate(loki_distributor_lines_received_total[10m])) == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Loki has stopped receiving logs"
+          description: "The Loki distributor has accepted no log lines for 15 minutes; the ingest pipeline is down."
+
+      - alert: LokiDiscardingSamples
+        expr: |
+          sum by (reason) (rate(loki_discarded_samples_total[5m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Loki is discarding log samples"
+          description: "Loki has been rejecting log entries with reason {{ $labels.reason }} for 15 minutes; those lines are gone."
+
+      - alert: TempoRequestErrors
+        expr: |
+          sum by (job, route) (rate(tempo_request_duration_seconds_count{status_code=~"5.."}[5m]))
+          / sum by (job, route) (rate(tempo_request_duration_seconds_count[5m])) * 100 > 5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tempo is returning 5xx responses"
+          description: "{{ printf \"%.2f\" $value }}% of {{ $labels.route }} requests to {{ $labels.job }} are failing."
+
+      - alert: TempoCompactionFailing
+        expr: sum(rate(tempodb_compaction_errors_total[5m])) > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tempo compaction is erroring"
+          description: "Tempo has been failing block compaction for 30 minutes; trace storage will keep growing."
+
+  - name: alloy
+    interval: 1m
+    rules:
+      - alert: AlloyRemoteWriteFailing
+        expr: |
+          sum by (instance) (rate(prometheus_remote_storage_samples_failed_total[5m])) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alloy cannot write metrics to Mimir"
+          description: "Alloy on {{ $labels.instance }} is dropping samples on remote write; metrics from that node are incomplete."
+
+      - alert: AlloyLogDeliveryFailing
+        expr: |
+          sum by (instance) (rate(loki_write_dropped_entries_total[5m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alloy cannot write logs to Loki"
+          description: "Alloy on {{ $labels.instance }} is dropping log entries on the way to Loki; logs from that node are incomplete."

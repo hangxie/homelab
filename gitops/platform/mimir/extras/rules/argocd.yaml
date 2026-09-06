@@ -1,0 +1,44 @@
+# ── Argo CD ─────────────────────────────────────────────────────────────────
+# Several apps sit Progressing for long stretches by design (hdfs, trino,
+# nvidia-device-plugin, llama-cpp), so Progressing is deliberately not an
+# alerting state. rook-ceph-cluster flaps Degraded, hence the 30m `for`.
+
+groups:
+  - name: argocd
+    interval: 1m
+    rules:
+      - alert: ArgoCDAppNotHealthy
+        expr: |
+          max by (name, project, dest_namespace) (
+            argocd_app_info{health_status=~"Degraded|Missing|Unknown"}
+          ) == 1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Argo CD application is unhealthy"
+          description: "Application {{ $labels.name }} (project {{ $labels.project }}, namespace {{ $labels.dest_namespace }}) has been unhealthy for 30 minutes."
+
+      - alert: ArgoCDAppOutOfSync
+        expr: |
+          max by (name, project, dest_namespace) (
+            argocd_app_info{sync_status="OutOfSync"}
+          ) == 1
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Argo CD application has drifted from Git"
+          description: "Application {{ $labels.name }} (project {{ $labels.project }}) has been OutOfSync for an hour — either self-heal is off or its sync keeps failing."
+
+      - alert: ArgoCDAppSyncFailed
+        expr: |
+          sum by (name, project, dest_namespace, phase) (
+            increase(argocd_app_sync_total{phase=~"Failed|Error"}[15m])
+          ) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Argo CD sync failed"
+          description: "Application {{ $labels.name }} recorded {{ printf \"%.0f\" $value }} {{ $labels.phase }} syncs in the last 15 minutes."

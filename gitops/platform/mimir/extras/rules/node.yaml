@@ -1,0 +1,127 @@
+# ── Nodes ───────────────────────────────────────────────────────────────────
+# prometheus.exporter.unix runs inside the Alloy DaemonSet pod, so `instance`
+# is the node name (overridden in the Alloy relabel) and `job` is
+# "integrations/unix" — the exporter's own name, not the job_name in the
+# scrape block. The pod sees the node root filesystem through four bind
+# mounts (/etc/alloy, /etc/hostname, /etc/hosts, /etc/resolv.conf), so the
+# filesystem rules aggregate by device to collapse the duplicates.
+
+groups:
+  - name: node-filesystem
+    interval: 1m
+    rules:
+      - alert: NodeFilesystemAlmostOutOfSpace
+        expr: |
+          (
+            max by (instance, device, fstype) (node_filesystem_avail_bytes{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"})
+            / max by (instance, device, fstype) (node_filesystem_size_bytes{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"}) * 100 < 15
+          )
+          and
+          min by (instance, device, fstype) (node_filesystem_readonly{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"}) == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Filesystem has less than 15% space left"
+          description: "Filesystem on {{ $labels.device }} at {{ $labels.instance }} has only {{ printf \"%.2f\" $value }}% available space."
+
+      - alert: NodeFilesystemAlmostOutOfSpace
+        expr: |
+          (
+            max by (instance, device, fstype) (node_filesystem_avail_bytes{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"})
+            / max by (instance, device, fstype) (node_filesystem_size_bytes{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"}) * 100 < 5
+          )
+          and
+          min by (instance, device, fstype) (node_filesystem_readonly{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"}) == 0
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Filesystem has less than 5% space left"
+          description: "Filesystem on {{ $labels.device }} at {{ $labels.instance }} has only {{ printf \"%.2f\" $value }}% available space."
+
+      - alert: NodeFilesystemAlmostOutOfInodes
+        expr: |
+          max by (instance, device, fstype) (node_filesystem_files_free{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"})
+          / max by (instance, device, fstype) (node_filesystem_files{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"}) * 100 < 10
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Filesystem has less than 10% inodes left"
+          description: "Filesystem on {{ $labels.device }} at {{ $labels.instance }} has only {{ printf \"%.2f\" $value }}% free inodes."
+
+      - alert: NodeFilesystemReadOnly
+        expr: |
+          min by (instance, device, fstype) (node_filesystem_readonly{job="integrations/unix",fstype!~"tmpfs|ramfs|overlay|squashfs"}) == 1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Filesystem has been remounted read-only"
+          description: "Filesystem on {{ $labels.device }} at {{ $labels.instance }} is read-only, which usually means the underlying device is failing."
+
+  - name: node-resources
+    interval: 1m
+    rules:
+      - alert: NodeMemoryHighUtilisation
+        expr: |
+          (
+            1 - node_memory_MemAvailable_bytes{job="integrations/unix"}
+            / node_memory_MemTotal_bytes{job="integrations/unix"}
+          ) * 100 > 90
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node memory is nearly exhausted"
+          description: "{{ $labels.instance }} has used {{ printf \"%.2f\" $value }}% of its memory for 30 minutes."
+
+      - alert: NodeCPUHighUtilisation
+        expr: |
+          100 - (
+            avg by (instance) (rate(node_cpu_seconds_total{job="integrations/unix",mode="idle"}[5m])) * 100
+          ) > 90
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node CPU is saturated"
+          description: "{{ $labels.instance }} has been {{ printf \"%.2f\" $value }}% busy for 30 minutes."
+
+      - alert: NodeHighLoad
+        expr: |
+          node_load5{job="integrations/unix"}
+          / count by (instance) (node_cpu_seconds_total{job="integrations/unix",mode="idle"}) > 2
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node run queue is more than 2x its CPU count"
+          description: "{{ $labels.instance }} has a 5m load average of {{ printf \"%.2f\" $value }} per core."
+
+  # Ceph mons drop into HEALTH_WARN on clock skew and Kafka ordering
+  # depends on node time, so the clock gets its own rules — this catches
+  # the cause before those symptoms fire.
+  - name: node-clock
+    interval: 1m
+    rules:
+      - alert: NodeClockNotSynchronising
+        expr: |
+          node_timex_sync_status{job="integrations/unix"} == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node clock is not synchronising"
+          description: "{{ $labels.instance }} has not synced its clock via NTP for 10 minutes and is drifting freely."
+
+      - alert: NodeClockSkewed
+        expr: |
+          abs(node_timex_offset_seconds{job="integrations/unix"}) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node clock is skewed by more than 50ms"
+          description: "{{ $labels.instance }} reports a clock offset of {{ printf \"%.3f\" $value }}s."

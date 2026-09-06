@@ -1,0 +1,108 @@
+# ── Platform services ───────────────────────────────────────────────────────
+# The components everything else depends on: DNS, the API server, the CNI,
+# certificates and secret delivery.
+
+groups:
+  - name: certificates
+    interval: 1m
+    rules:
+      - alert: CertificateExpiringSoon
+        expr: |
+          certmanager_certificate_expiration_timestamp_seconds - time() < 14 * 24 * 3600
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Certificate expires in less than 14 days"
+          description: "Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in {{ printf \"%.1f\" $value }} seconds and has not renewed."
+
+      - alert: CertificateNotReady
+        expr: certmanager_certificate_ready_status{condition="True"} == 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Certificate is not ready"
+          description: "Certificate {{ $labels.namespace }}/{{ $labels.name }} issued by {{ $labels.issuer_name }} has not been ready for an hour."
+
+  - name: secrets
+    interval: 1m
+    rules:
+      - alert: ExternalSecretNotReady
+        expr: |
+          max by (namespace, name) (
+            externalsecret_status_condition{condition="Ready",status="false"}
+          ) == 1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ExternalSecret is not syncing from Vault"
+          description: "ExternalSecret {{ $labels.namespace }}/{{ $labels.name }} has been not-Ready for 30 minutes; the Secret it backs is stale or missing."
+
+  - name: cluster-services
+    interval: 1m
+    rules:
+      - alert: KubeAPIServerErrors
+        expr: |
+          sum(rate(apiserver_request_total{code=~"5.."}[5m]))
+          / sum(rate(apiserver_request_total[5m])) * 100 > 5
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API server is returning 5xx responses"
+          description: "{{ printf \"%.2f\" $value }}% of API server requests are failing."
+
+      - alert: CoreDNSServerFailures
+        expr: |
+          sum(rate(coredns_dns_responses_total{rcode="SERVFAIL"}[5m]))
+          / sum(rate(coredns_dns_responses_total[5m])) * 100 > 5
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CoreDNS is returning SERVFAIL"
+          description: "{{ printf \"%.2f\" $value }}% of DNS responses are SERVFAIL; in-cluster service discovery is degraded."
+
+      - alert: CiliumUnreachableNodes
+        expr: max by (instance) (cilium_unreachable_nodes) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Cilium reports unreachable nodes"
+          description: "The Cilium agent on {{ $labels.instance }} cannot reach {{ printf \"%.0f\" $value }} other nodes; pod-to-pod traffic across them is broken."
+
+  # GPU workers have twice lost their NVIDIA kernel module to an
+  # unattended-upgrades kernel bump that left DKMS without matching
+  # headers, and nothing noticed until a workload failed to schedule.
+  #
+  # The count is compared against the device plugin DaemonSet rather than a
+  # fixed number because NFD schedules that DaemonSet from a PCI-presence
+  # label, which stays true no matter what state the driver is in — so
+  # `desired` is the GPU hardware inventory even on a host whose module is
+  # gone. kube_node_labels would express this more directly but this
+  # kube-state-metrics does not expose it.
+  #
+  # `or vector(0)` is load-bearing: when the last GPU node stops
+  # advertising capacity the inner count returns an empty vector, and a
+  # comparison against empty yields empty — so without the fallback the
+  # total-loss case, the one worth paging for, would never fire.
+  - name: gpu
+    interval: 1m
+    rules:
+      - alert: GPUCapacityMissing
+        expr: |
+          max(kube_daemonset_status_desired_number_scheduled{namespace="kube-system",daemonset="nvidia-device-plugin"})
+          >
+          (
+            count(max by (node) (kube_node_status_capacity{resource="nvidia_com_gpu"}) > 0)
+            or vector(0)
+          )
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A GPU node has stopped advertising its GPUs"
+          description: "{{ printf \"%.0f\" $value }} nodes have NVIDIA hardware but fewer are advertising nvidia.com/gpu capacity. Usual cause is a kernel upgrade leaving DKMS without a built module — check `dkms status` and `nvidia-smi` on the GPU workers."

@@ -1,0 +1,88 @@
+# ── Ceph ────────────────────────────────────────────────────────────────────
+# Everything in this cluster with a PVC lands on Ceph, so its own alerts run
+# ahead of the per-workload ones. Fill levels are computed from raw byte
+# counters rather than ceph_pool_percent_used, whose units are ambiguous.
+
+groups:
+  - name: ceph
+    interval: 1m
+    rules:
+      - alert: CephHealthError
+        expr: ceph_health_status == 2
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ceph cluster is in HEALTH_ERR"
+          description: "The Ceph cluster has reported HEALTH_ERR for 15 minutes."
+
+      - alert: CephHealthWarning
+        expr: ceph_health_status == 1
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ceph cluster is in HEALTH_WARN"
+          description: "The Ceph cluster has reported HEALTH_WARN for an hour."
+
+      - alert: CephOSDDown
+        expr: ceph_osd_up == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ceph OSD is down"
+          description: "{{ $labels.ceph_daemon }} has been down for 15 minutes."
+
+      - alert: CephMonQuorumAtRisk
+        expr: count(ceph_mon_quorum_status == 1) < 3
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Fewer than three Ceph monitors are in quorum"
+          description: "Only {{ printf \"%.0f\" $value }} monitors are in quorum; one more failure loses the cluster."
+
+      - alert: CephClusterNearFull
+        expr: |
+          ceph_cluster_total_used_bytes / ceph_cluster_total_bytes * 100 > 80
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ceph cluster is more than 80% full"
+          description: "Raw usage is {{ printf \"%.2f\" $value }}%. Ceph starts blocking writes near the full ratio."
+
+      - alert: CephOSDNearFull
+        expr: |
+          ceph_osd_stat_bytes_used / ceph_osd_stat_bytes * 100 > 85
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ceph OSD is more than 85% full"
+          description: "{{ $labels.ceph_daemon }} is {{ printf \"%.2f\" $value }}% full; the cluster blocks writes once any OSD hits the full ratio."
+
+      # HEALTH_WARN alerts only after an hour, and BLUESTORE_SLOW_OP_ALERT
+      # is muted at the cluster level because it pins the cluster to
+      # HEALTH_WARN on this hardware. This keeps the underlying signal at a
+      # threshold that means something: ops still blocked after 30 minutes.
+      - alert: CephSlowOps
+        expr: ceph_healthcheck_slow_ops > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ceph has operations blocked for too long"
+          description: "{{ printf \"%.0f\" $value }} OSD operations have been blocked for 30 minutes; every PVC-backed workload sees this as I/O stalls."
+
+      - alert: CephPGsUnhealthy
+        expr: |
+          sum(ceph_pg_degraded + ceph_pg_undersized + ceph_pg_inconsistent
+            + ceph_pg_down + ceph_pg_incomplete + ceph_pg_stale) > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ceph placement groups are not clean"
+          description: "{{ printf \"%.0f\" $value }} PGs have been degraded, undersized, inconsistent, down, incomplete or stale for 30 minutes."
