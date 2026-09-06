@@ -57,6 +57,7 @@ Bootstrap, reset, Vault seeding, and secret rotation: see `README.md` — the co
 - Gateway terminates TLS on 443; upstream services are plain HTTP. New `HTTPRoute`s must set `sectionName: https` on the `parentRef` — port 80 only 301-redirects.
 - `ansible/inventory.ini` is generated from `terraform/templates/inventory.tftpl`. Don't hand-edit.
 - StatefulSet `volumeClaimTemplates` PVCs aren't Argo-tracked; they survive a prune. Delete by hand.
+- Guest `sd*` names come from probe order and can swap on reboot. Reference disks as `/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi<N>`, never `sdX`.
 
 ## Response style
 
