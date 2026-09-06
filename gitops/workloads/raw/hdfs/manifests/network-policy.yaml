@@ -1,0 +1,63 @@
+# HDFS runs Hadoop's default simple auth -- hdfs.yaml configures no Kerberos --
+# so the client asserts its own username and the NameNode believes it.
+# Ingress-only, so both pods keep the egress they register and heartbeat over.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: namenode
+  namespace: hdfs
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: namenode
+  ingress:
+    # 8020 RPC: the DataNode's registration and heartbeats, plus Spark jobs as
+    # HDFS clients. Namespace-scoped -- Spark's pods have generated names.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: hdfs
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: spark
+      toPorts:
+        - ports:
+            - port: "8020"
+              protocol: TCP
+    # 9870 UI, published by route.yaml. Cilium's Gateway is Envoy in the agent,
+    # so this arrives as the reserved `ingress` identity, not a pod source.
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: "9870"
+              protocol: TCP
+    # 9087 JMX, scraped by Alloy.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: alloy
+            app.kubernetes.io/name: alloy
+      toPorts:
+        - ports:
+            - port: "9087"
+              protocol: TCP
+---
+# A NameNode-only policy leaves the data exposed: clients read and write blocks
+# by connecting straight to the DataNode on 9866.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: datanode
+  namespace: hdfs
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: datanode
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: hdfs
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: spark
+      toPorts:
+        - ports:
+            - port: "9866"
+              protocol: TCP

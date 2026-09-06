@@ -1,0 +1,34 @@
+# The metastore's Thrift port is unauthenticated by design, so any pod could
+# mutate table metadata. Ingress-only, so egress to Postgres and RGW is
+# untouched.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hive-metastore
+  namespace: hive
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: hive-metastore
+  ingress:
+    # 9083 Thrift. Only Trino's coordinator was seen calling it, but both rules
+    # are namespace-scoped: workers may open their own connections, and Spark's
+    # driver and executor pods have generated names.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: trino
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: spark
+      toPorts:
+        - ports:
+            - port: "9083"
+              protocol: TCP
+    # 9084 JMX, scraped by Alloy off the hive-metastore-metrics Service.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: alloy
+            app.kubernetes.io/name: alloy
+      toPorts:
+        - ports:
+            - port: "9084"
+              protocol: TCP
