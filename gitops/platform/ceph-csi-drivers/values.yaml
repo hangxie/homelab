@@ -1,19 +1,13 @@
-# Rook 1.20+ no longer deploys CSI drivers from the rook-ceph chart; the
-# Driver/OperatorConfig CRs come from this ceph-csi-drivers chart instead.
-# Driver names must match the provisioner names already baked into existing
-# StorageClasses (rook-ceph.{rbd,cephfs}.csi.ceph.com).
+# Rook 1.20+ ships no CSI drivers; these CRs replace them. Names must match the
+# existing StorageClasses' provisioners (rook-ceph.{rbd,cephfs}.csi.ceph.com).
 
 operatorConfig:
   namespace: rook-ceph
   driverSpecDefaults:
     imageSet:
       name: rook-csi-operator-image-set-configmap
-    # Keep these defaults for future Driver CRs. The chart also renders empty
-    # per-driver toleration lists, so enabled drivers below repeat the GPU
-    # toleration explicitly.
-    # Only the nodePlugin needs it: it mounts volumes for GPU-node pods. The
-    # controllerPlugin just provisions against the mons, and at one replica it
-    # would follow a GPU node into a driver/DKMS drain.
+    # The chart renders empty per-driver toleration lists, so the drivers below
+    # repeat this. Only the nodePlugin needs it: it mounts on GPU nodes.
     nodePlugin:
       priorityClassName: system-node-critical
       tolerations:
