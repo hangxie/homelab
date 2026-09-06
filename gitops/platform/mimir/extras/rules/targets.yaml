@@ -1,0 +1,17 @@
+# ── Scrape targets ──────────────────────────────────────────────────────────
+# The broadest net: every exporter Alloy scrapes. A target that stops
+# answering is either the workload being down or its metrics path breaking,
+# and both are worth knowing about.
+
+groups:
+  - name: targets
+    interval: 1m
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scrape target is down"
+          description: "Alloy has failed to scrape {{ $labels.instance }} for job {{ $labels.job }} for 15 minutes."
