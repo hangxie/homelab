@@ -44,6 +44,6 @@ nodes = {
   "worker-3" = { hypervisor = "node2", ip = "192.168.0.223", cores = 8, memory = 16384, disks = ["200", "400"] }
   "worker-4" = { hypervisor = "node2", ip = "192.168.0.224", cores = 8, memory = 16384, disks = ["200", "400"] }
   "worker-5" = { hypervisor = "node2", ip = "192.168.0.225", cores = 8, memory = 16384, disks = ["200", "400"] }
-  "worker-6" = { hypervisor = "node2", ip = "192.168.0.226", cores = 6, memory = 12288, disks = ["100"], gpu_pci_id = "gpu0" }
-  "worker-7" = { hypervisor = "node2", ip = "192.168.0.227", cores = 6, memory = 12288, disks = ["100"], gpu_pci_id = "gpu1" }
+  "worker-6" = { hypervisor = "node2", ip = "192.168.0.226", cores = 6, memory = 12288, disks = ["200"], gpu_pci_id = "gpu0" }
+  "worker-7" = { hypervisor = "node2", ip = "192.168.0.227", cores = 6, memory = 12288, disks = ["200"], gpu_pci_id = "gpu1" }
 }
