@@ -178,7 +178,7 @@ spec:
                 # CephFS root must be writable for the lockfile + model dirs.
                 securityContext: { runAsUser: 0, runAsGroup: 0 }
                 env:
-                  - { name: HARBOR_REGISTRY,              value: registry.xiehang.com }
+                  - { name: HARBOR_REGISTRY,              value: media.xiehang.com }
                   - { name: HARBOR_PROJECT,               value: llm-models }
                   - { name: HF_HUB_DISABLE_PROGRESS_BARS, value: "1" }
                   - { name: RAYSERVICE_NAME,              value: ray-vllm }

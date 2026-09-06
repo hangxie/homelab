@@ -3,7 +3,7 @@ set -e
 
 NAMESPACE="llama-cpp"
 PVC_NAME="${LLAMA_PVC_NAME:-llama-cpp-models}"
-HARBOR_REGISTRY="${LLAMA_HARBOR_REGISTRY:-registry.xiehang.com}"
+HARBOR_REGISTRY="${LLAMA_HARBOR_REGISTRY:-media.xiehang.com}"
 HARBOR_PROJECT="${LLAMA_HARBOR_PROJECT:-llm-models}"
 HARBOR_SECRET_NAME="${LLAMA_HARBOR_SECRET_NAME:-harbor-credentials}"
 
@@ -21,7 +21,7 @@ Examples:
 
 Environment:
   LLAMA_PVC_NAME=<name>           PVC name; default llama-cpp-models
-  LLAMA_HARBOR_REGISTRY=<host>    Harbor registry; default registry.xiehang.com
+  LLAMA_HARBOR_REGISTRY=<host>    Harbor registry; default media.xiehang.com
   LLAMA_HARBOR_PROJECT=<project>  Harbor project; default llm-models
   LLAMA_HARBOR_SECRET_NAME=<name> Secret in llama-cpp namespace with username/password keys; default harbor-credentials
 EOF

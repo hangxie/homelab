@@ -3,7 +3,7 @@ set -e
 
 NAMESPACE="${VLLM_NAMESPACE:-ray}"
 PVC_NAME="${VLLM_PVC_NAME:-llm-models}"
-HARBOR_REGISTRY="registry.xiehang.com"
+HARBOR_REGISTRY="media.xiehang.com"
 HARBOR_PROJECT="llm-models"
 RAY_IMAGE="hangxie/ray-vllm:v0.1.0"
 
