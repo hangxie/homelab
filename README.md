@@ -105,6 +105,17 @@ workloads come from explicit `elements` lists in `workloads-helm.yaml` and
 
 `cert-manager-config` provisions Let's Encrypt `ClusterIssuer`s (`letsencrypt-prod` + `letsencrypt-staging`) using a Cloudflare DNS-01 solver, then issues `homelab-wildcard-tls` in `gateway-system` for `*.homelab.xiehang.com`. The Gateway terminates TLS on 443; upstream services speak plain HTTP. Every application `HTTPRoute` pins `sectionName: https`, so the port-80 listener serves nothing but the `http-to-https` route in `gateway-system`, which answers every host with a 301 to the same URL over HTTPS. The Cloudflare API token comes from Vault (`cloudflare/api-token`) via an `ExternalSecret`. Browsers trust LE out of the box — no operator-side CA import.
 
+### Network policy
+
+Cilium runs with `enable-policy: default`, so an endpoint is firewalled only once some policy selects it, and only in the directions that policy covers. The cluster is otherwise default-allow. Targeted, ingress-only `CiliumNetworkPolicy` objects protect the services that have no authentication of their own: `open-webui-redis` (no password), the Hive metastore (Thrift, unauthenticated), and HDFS (Hadoop simple auth — no Kerberos). Egress stays unrestricted everywhere.
+
+Ansible owns the Cilium install; Argo CD owns the policy objects, which live beside the component they protect — a workload's `manifests/`/`extras/` or `gitops/platform/<component>/`. Two Cilium behaviours to respect when adding one:
+
+- Allow rules must use pod or namespace selectors. Cilium's CIDR selectors do not match Cilium-managed pod endpoints, so an `ipBlock` allow silently fails closed for in-cluster traffic.
+- Allow rules cannot be staged ahead of enforcement. The first ingress policy selecting a pod makes it default-deny for ingress immediately, so a partial allow set is an outage — build the complete set from Hubble first (`kubectl -n kube-system exec ds/cilium -c cilium-agent -- hubble observe --to-pod <ns>/<pod> --follow`), or stage with `enableDefaultDeny.ingress: false` and drop the field once every observed flow has a matching selector.
+
+Gateway traffic arrives with the reserved `ingress` identity, not as a pod in `gateway-system`; kubelet probes need no rule, since the default `allow-localhost: auto` keeps host-sourced traffic forwarded.
+
 ## First-time bootstrap
 
 End-to-end provisioning of a fresh homelab cluster from this repo plus an external Vault.

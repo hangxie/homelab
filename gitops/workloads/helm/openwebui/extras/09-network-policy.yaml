@@ -1,0 +1,22 @@
+# The chart's Redis (WEBSOCKET_MANAGER, see values.yaml) has no password, and
+# its only client is the open-webui Deployment. Ingress-only, so Redis stays
+# default-allow for egress.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: open-webui-redis
+  namespace: openwebui
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: open-webui
+      app.kubernetes.io/component: open-webui-redis
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: open-webui
+            app.kubernetes.io/component: open-webui
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
