@@ -11,26 +11,50 @@ resources:
 
 # The sidecar names files after the ConfigMap's data keys, not the ConfigMap,
 # so a hashed name would have Argo prune the old ConfigMap and delete the very
-# files the new one just wrote. Fixed names reload in place on MODIFIED.
+# files the new one just wrote. Fixed names reload in place on MODIFIED. The
+# serve scripts need fixed names too: the RayService mounts them by name.
 generatorOptions:
   disableNameSuffixHash: true
-  labels:
-    grafana_dashboard: "1"
-  annotations:
-    k8s-sidecar-target-directory: /tmp/dashboards/Workloads
 
 # Dashboards are vendored upstream JSON, kept as .json so they can be jq'd,
-# diffed against a refreshed copy, and pasted into Grafana's import dialog.
+# diffed against a refreshed copy, and pasted into Grafana's import dialog. The
+# sidecar label and target directory sit on each entry rather than in
+# generatorOptions: those apply to every generated ConfigMap, and labelling the
+# serve scripts would have Grafana ingest them as dashboards.
 configMapGenerator:
   - name: ray-dashboard-default
     namespace: ray
     files:
       - dashboards/default.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        k8s-sidecar-target-directory: /tmp/dashboards/Workloads
   - name: ray-dashboard-serve
     namespace: ray
     files:
       - dashboards/serve.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        k8s-sidecar-target-directory: /tmp/dashboards/Workloads
   - name: ray-dashboard-serve-deployment
     namespace: ray
     files:
       - dashboards/serve-deployment.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        k8s-sidecar-target-directory: /tmp/dashboards/Workloads
+
+  # Mounted by the RayService head and worker pods at /home/ray/<name> via
+  # subPath. Kept as .py so they are syntax-highlighted and importable by a
+  # linter instead of living as an opaque block scalar inside ray.yaml.
+  - name: ray-vllm-serve-script
+    namespace: ray
+    files:
+      - serve.py
+      - sitecustomize.py
