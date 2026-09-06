@@ -5,7 +5,7 @@ metadata:
 spec:
   provider:
     vault:
-      server: https://registry.xiehang.com:8200
+      server: https://media.xiehang.com:8200
       path: homelab
       version: v2
       auth:

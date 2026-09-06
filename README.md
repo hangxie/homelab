@@ -125,7 +125,7 @@ End-to-end provisioning of a fresh homelab cluster from this repo plus an extern
 - Operator workstation with `terraform`, `ansible`, `kubectl`, `helm`, `vault`,
   `jq`, `yq`, and `openssl` on PATH.
 - Reachable Proxmox cluster, SSH agent loaded with the key used for VM access.
-- External HashiCorp Vault reachable at `registry.xiehang.com:8200`.
+- External HashiCorp Vault reachable at `media.xiehang.com:8200`.
 - DNS `*.homelab.xiehang.com` pointed at the Gateway VIP (registered manually post-bootstrap).
 - `xiehang.com` zone hosted on Cloudflare, with a scoped API token (`Zone:DNS:Edit` on `xiehang.com` only) ready for cert-manager's DNS-01 solver.
 - Public HTTPS access to `https://github.com/hangxie/homelab.git`.
@@ -133,7 +133,7 @@ End-to-end provisioning of a fresh homelab cluster from this repo plus an extern
 ### Steps
 
 ```bash
-export VAULT_ADDR=https://registry.xiehang.com:8200
+export VAULT_ADDR=https://media.xiehang.com:8200
 export VAULT_TOKEN=...   # operator token with admin perms
 
 # 1. Ensure the KV v2 mount exists so generate:false entries can be pre-loaded.
