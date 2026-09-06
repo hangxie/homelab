@@ -11,6 +11,9 @@ operatorConfig:
     # Keep these defaults for future Driver CRs. The chart also renders empty
     # per-driver toleration lists, so enabled drivers below repeat the GPU
     # toleration explicitly.
+    # Only the nodePlugin needs it: it mounts volumes for GPU-node pods. The
+    # controllerPlugin just provisions against the mons, and at one replica it
+    # would follow a GPU node into a driver/DKMS drain.
     nodePlugin:
       priorityClassName: system-node-critical
       tolerations:
@@ -20,11 +23,6 @@ operatorConfig:
           effect: NoSchedule
     controllerPlugin:
       priorityClassName: system-cluster-critical
-      tolerations:
-        - key: gpu
-          operator: Equal
-          value: "true"
-          effect: NoSchedule
 
 drivers:
   rbd:
@@ -39,11 +37,6 @@ drivers:
           effect: NoSchedule
     controllerPlugin:
       priorityClassName: system-cluster-critical
-      tolerations:
-        - key: gpu
-          operator: Equal
-          value: "true"
-          effect: NoSchedule
   cephfs:
     enabled: true
     name: rook-ceph.cephfs.csi.ceph.com
@@ -56,11 +49,6 @@ drivers:
           effect: NoSchedule
     controllerPlugin:
       priorityClassName: system-cluster-critical
-      tolerations:
-        - key: gpu
-          operator: Equal
-          value: "true"
-          effect: NoSchedule
   nfs:
     enabled: false
     name: rook-ceph.nfs.csi.ceph.com
