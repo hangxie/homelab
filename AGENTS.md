@@ -53,7 +53,7 @@ Bootstrap, reset, Vault seeding, and secret rotation: see `README.md` — the co
 
 ## Gotchas
 
-- A `kustomization.yaml` takes over its whole directory: Argo CD stops rendering loose files there, so every manifest must be listed under `resources:` or it is ignored with no error. Currently `gitops/platform/{loki,grafana}/extras` and `gitops/workloads/raw/ray/manifests`.
+- A `kustomization.yaml` takes over its whole directory: Argo CD stops rendering loose files there, so every manifest must be listed under `resources:` or it is ignored with no error. Check for one before dropping a file into any directory (`git ls-files '*/kustomization.yaml'`).
 - Root app uses `directory.recurse: false` — only `Application`/`ApplicationSet` manifests in `gitops/cluster/applications/`.
 - `workloads-helm` ApplicationSet is multi-source (chart + `$values` + `extras/`). Don't collapse.
 - Gateway terminates TLS on 443; upstream services are plain HTTP. New `HTTPRoute`s must set `sectionName: https` on the `parentRef` — port 80 only 301-redirects.
