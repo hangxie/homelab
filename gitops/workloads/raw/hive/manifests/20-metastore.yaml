@@ -3,7 +3,7 @@
 # Deployments, two CSI DaemonSets and nine CRDs to run this single pod.
 #
 # The upstream image ships neither the PostgreSQL JDBC driver nor the AWS SDK,
-# so both are fetched at first start (see the fetch-jars initContainer).
+# so both are pulled from Harbor at start (see the fetch-auxlib initContainer).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -22,22 +22,6 @@ data:
     lowercaseOutputLabelNames: true
     attrNameSnakeCase: true
 ---
-# The AWS SDK v2 bundle is a 558 MiB uber-jar — Stackable bakes it into its
-# image, and re-downloading it from Maven Central on every restart would add
-# minutes to each start. Cache it on a small volume instead; fetch-jars is a
-# no-op once the jars are there.
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: hive-metastore-auxlib
-  namespace: hive
-spec:
-  accessModes: [ReadWriteOnce]
-  storageClassName: rook-ceph-block
-  resources:
-    requests:
-      storage: 2Gi
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,10 +29,6 @@ metadata:
   namespace: hive
 spec:
   replicas: 1
-  # auxlib is ReadWriteOnce, so a rolling update would deadlock on the old pod
-  # still holding the volume.
-  strategy:
-    type: Recreate
   selector:
     matchLabels: { app.kubernetes.io/name: hive-metastore }
   template:
@@ -61,53 +41,21 @@ spec:
         fsGroup: 1000
         runAsNonRoot: true
       initContainers:
-        - name: fetch-jars
-          image: alpine:3
-          command: ["/bin/sh", "-ec"]
-          args:
-            - |
-              # hadoop-aws ships inside the image under
-              # share/hadoop/tools/lib, but the metastore classpath is built
-              # from $HIVE_HOME/lib plus METASTORE_AUX_JARS_PATH only, so pull
-              # a matching copy here rather than reaching into the Hadoop tree.
-              #
-              # 2.24.6 is the aws-java-sdk-v2.version hadoop-aws 3.4.1 is built
-              # against; a mismatch surfaces as NoSuchMethodError on s3a init.
-              M=https://repo1.maven.org/maven2
-              G=https://github.com/prometheus/jmx_exporter/releases/download
-              MANIFEST="postgresql.jar $M/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar
-              hadoop-aws.jar $M/org/apache/hadoop/hadoop-aws/3.4.1/hadoop-aws-3.4.1.jar
-              aws-sdk-bundle.jar $M/software/amazon/awssdk/bundle/2.24.6/bundle-2.24.6.jar
-              jmx_prometheus_javaagent.jar $G/1.6.0/jmx_prometheus_javaagent-1.6.0.jar"
-
-              # The jars land under fixed names, so METASTORE_AUX_JARS_PATH and
-              # the -javaagent path stay stable across version bumps. That also
-              # means "file already present" says nothing about *which* version
-              # is present: editing a URL above would otherwise leave the old
-              # jar on this PVC forever. Key the cache on the URL list itself
-              # rather than a hand-maintained counter — any edit changes the
-              # stamp and wipes the volume. lost+found is left alone; it is
-              # root-owned and not ours to delete.
-              STAMP=$(printf '%s' "$MANIFEST" | md5sum | cut -d' ' -f1)
-              if [ "$(cat /auxlib/.stamp 2>/dev/null || true)" != "$STAMP" ]; then
-                echo "jar set changed (stamp $STAMP); clearing cache"
-                rm -f /auxlib/.stamp /auxlib/*.jar /auxlib/*.part
-              fi
-
-              while read -r name url; do
-                if [ -n "$name" ] && [ ! -s "/auxlib/$name" ]; then
-                  echo "fetching $name"
-                  wget -q -O "/auxlib/$name.part" "$url"
-                  mv "/auxlib/$name.part" "/auxlib/$name"
-                fi
-              done <<MANIFEST_EOF
-              $MANIFEST
-              MANIFEST_EOF
-
-              # Written last: set -e aborts above on a failed fetch, so a
-              # partial cache never gets stamped as complete.
-              echo "$STAMP" > /auxlib/.stamp
-              ls -l /auxlib
+        # The 558 MiB SDK bundle needed a PVC at Maven Central speeds; off
+        # Harbor the set lands in an emptyDir in ~5s, which is also what lets
+        # this Deployment roll instead of Recreate.
+        #
+        # hadoop-aws is in the image under share/hadoop/tools/lib, but the
+        # metastore classpath is $HIVE_HOME/lib plus METASTORE_AUX_JARS_PATH
+        # only, so the artifact carries its own copy.
+        - name: fetch-auxlib
+          image: ghcr.io/oras-project/oras:v1.2.2
+          command: ["/bin/oras", "pull", "--output", "/auxlib", "media.xiehang.com/jars/hive-metastore-auxlib:4.2.1"]
+          volumeMounts:
+            - { name: auxlib, mountPath: /auxlib }
+        - name: fetch-jmx-agent
+          image: ghcr.io/oras-project/oras:v1.2.2
+          command: ["/bin/oras", "pull", "--output", "/auxlib", "media.xiehang.com/jars/jmx-prometheus-javaagent:1.6.0"]
           volumeMounts:
             - { name: auxlib, mountPath: /auxlib }
         - name: render-conf
@@ -202,7 +150,7 @@ spec:
               subPath: config.yaml
       volumes:
         - name: auxlib
-          persistentVolumeClaim: { claimName: hive-metastore-auxlib }
+          emptyDir: {}
         - name: conf
           emptyDir: {}
         - name: jmx-config

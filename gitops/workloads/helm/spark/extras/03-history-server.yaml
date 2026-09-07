@@ -20,16 +20,12 @@ spec:
           volumeMounts:
             - name: spark-jars
               mountPath: /mnt/jars
-        - name: download-s3-jars
-          image: alpine:3
-          command:
-            - /bin/sh
-            - -c
-            - |
-              wget -q -O /mnt/jars/hadoop-aws-3.3.4.jar \
-                https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar && \
-              wget -q -O /mnt/jars/aws-java-sdk-bundle-1.12.262.jar \
-                https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar
+        # hadoop-aws plus the AWS SDK the image does not ship; see
+        # scripts/seed-jars.sh. Tagged by hadoop-aws version: 3.3.4 pairs with
+        # SDK v1, which is what Spark 3.5.5 is built against.
+        - name: fetch-s3-jars
+          image: ghcr.io/oras-project/oras:v1.2.2
+          command: ["/bin/oras", "pull", "--output", "/mnt/jars", "media.xiehang.com/jars/spark-history-s3a:3.3.4"]
           volumeMounts:
             - name: spark-jars
               mountPath: /mnt/jars

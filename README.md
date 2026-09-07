@@ -101,6 +101,34 @@ workloads come from explicit `elements` lists in `workloads-helm.yaml` and
 - **Rook-Ceph** — block (`rook-ceph-block`, default), CephFS (`rook-cephfs`, RWX), and an object store consumed through `ExternalSecret`-driven copies of Rook-produced RGW Secrets.
 - **CloudNativePG** — three-instance Postgres cluster at `postgres-cluster-rw.postgres-cluster`. Airflow, Superset, Hive, and Jupyter create their users/databases with Sync-hook Jobs at wave -1; superuser credentials flow from Vault into a `postgres-cluster-superuser` Secret.
 
+### Runtime jar cache
+
+Trino, HDFS, the Hive metastore, and the Spark history server all need jars their images do not ship — the jmx_prometheus agent, the PostgreSQL JDBC driver, hadoop-aws, and the AWS SDK bundle. Those used to be `wget`ed from GitHub Releases and Maven Central on every pod start, which put a public-internet dependency on the data platform's startup path and moved 558 MiB per cold start in the metastore's case.
+
+They now come from a `jars` project on the Harbor instance at `media.xiehang.com`, one OCI artifact per consumer, fetched by an `oras pull` init container:
+
+| Artifact | Contents | Consumers |
+| --- | --- | --- |
+| `jars/jmx-prometheus-javaagent:1.6.0` | `jmx_prometheus_javaagent.jar` | Trino coordinator + worker, HDFS namenode, Hive metastore |
+| `jars/hive-metastore-auxlib:4.2.1` | PostgreSQL JDBC 42.7.13, hadoop-aws 3.4.1, AWS SDK v2 bundle 2.24.6 | Hive metastore |
+| `jars/spark-history-s3a:3.3.4` | hadoop-aws 3.3.4, aws-java-sdk-bundle 1.12.262 | Spark history server |
+
+Harbor's proxy-cache projects only mirror OCI registries, and Harbor has no Maven or raw/generic proxy repository, so the original URLs could not simply be repointed at it. Storing the jars as OCI artifacts is the same trick `llm-models` already uses for model weights.
+
+The seeding model is the opposite one, though. `llm-models` self-seeds: its init containers try Harbor, fall back to HuggingFace, and push what they fetched, so the project refills itself and there is no seed script. That works because those pods already hold an HF token, and because the model set is dynamic — it comes from Helm values, so no static list could cover it. Jars are a small fixed set named by manifests in this repo, and self-seeding them would mean Harbor **push** credentials in the Trino, HDFS, Hive, and Spark pods plus keeping the Maven Central URLs around as the fallback path — which is most of the public-internet dependency this exists to remove.
+
+So these init containers are pull-only, with no upstream fallback. The cost is that the cache is not self-healing: an empty or swept `jars` project keeps all four workloads from starting until `scripts/seed-jars.sh` runs again, where `llm-models` would quietly refill itself. That is why seeding is a bootstrap step and why the retention-policy warning below matters.
+
+Operating notes:
+
+- The project and its push robot are created on the media server, the same way `llm-models` and `robot$llm-models+ci` are. This repo consumes them; it does not create them.
+- The project must be **public**. Consumers pull anonymously through the normal token flow, so no `ExternalSecret` and no `imagePullSecret` is involved, and nothing in-cluster holds a registry credential. Only `scripts/seed-jars.sh` needs one, from `harbor/jars` in Vault or a `HARBOR_USERNAME`/`HARBOR_PASSWORD` override.
+- Do **not** attach a tag-retention policy to this project. Retention rules are what sweep stale image tags elsewhere in Harbor; here every tag is live, referenced by a manifest in this repo, and a swept tag is an outage on the next pod restart. Harbor's garbage collection only reclaims untagged blobs and is safe.
+- Filenames inside each artifact are the contract. `oras pull` restores them verbatim, and `METASTORE_AUX_JARS_PATH` plus the `-javaagent` paths in the manifests are written against them.
+- Bumping a jar version means a new tag: add it to `scripts/seed-jars.sh`, run the script, then update the manifest reference. Editing a tag in place is not supported — old pods would keep the cached digest.
+
+Spark jobs are a separate case. `spec.deps.packages` and `spark.sql.hive.metastore.jars: maven` resolve Maven coordinates with Ivy inside the driver JVM, which this cache cannot intercept; those still reach Maven Central.
+
 ### TLS
 
 `cert-manager-config` provisions Let's Encrypt `ClusterIssuer`s (`letsencrypt-prod` + `letsencrypt-staging`) using a Cloudflare DNS-01 solver, then issues `homelab-wildcard-tls` in `gateway-system` for `*.homelab.xiehang.com`. The Gateway terminates TLS on 443; upstream services speak plain HTTP. Every application `HTTPRoute` pins `sectionName: https`, so the port-80 listener serves nothing but the `http-to-https` route in `gateway-system`, which answers every host with a 301 to the same URL over HTTPS. The Cloudflare API token comes from Vault (`cloudflare/api-token`) via an `ExternalSecret`. Browsers trust LE out of the box — no operator-side CA import.
@@ -123,12 +151,15 @@ End-to-end provisioning of a fresh homelab cluster from this repo plus an extern
 ### Prerequisites
 
 - Operator workstation with `terraform`, `ansible`, `kubectl`, `helm`, `vault`,
-  `jq`, `yq`, and `openssl` on PATH.
+  `jq`, `yq`, `oras`, and `openssl` on PATH.
 - Reachable Proxmox cluster, SSH agent loaded with the key used for VM access.
 - External HashiCorp Vault reachable at `media.xiehang.com:8200`.
 - DNS `*.homelab.xiehang.com` pointed at the Gateway VIP (registered manually post-bootstrap).
 - `xiehang.com` zone hosted on Cloudflare, with a scoped API token (`Zone:DNS:Edit` on `xiehang.com` only) ready for cert-manager's DNS-01 solver.
 - Public HTTPS access to `https://github.com/hangxie/homelab.git`.
+- Harbor at `media.xiehang.com` carrying the `llm-models` project and a **public** `jars` project,
+  each with a push robot account. Both are part of media server setup, not this repo — see
+  [Runtime jar cache](#runtime-jar-cache).
 
 ### Steps
 
@@ -145,6 +176,9 @@ vault secrets list -format=json | jq -e '."homelab/"' >/dev/null \
 vault kv put homelab/harbor/llm-models \
   username='robot$llm-models+ci' \
   password='<secret from Harbor>'
+vault kv put homelab/harbor/jars \
+  username='robot$jars+ci' \
+  password='<secret from Harbor>'
 vault kv put homelab/huggingface/api-token \
   token='<read token from HuggingFace>'
 vault kv put homelab/cloudflare/api-token \
@@ -154,6 +188,11 @@ vault kv put homelab/slack/mimir \
 
 # 3. Seed Vault (sets up AppRole/policy and generates random passwords for everything else).
 scripts/seed-vault.sh
+
+# 3b. Seed the Harbor jar cache. Init containers in trino/hdfs/hive/spark pull
+#     from it at every pod start, so it must be populated before those apps sync.
+#     Reads harbor/jars from Vault using the VAULT_TOKEN already exported above.
+scripts/seed-jars.sh
 
 # 4. Provision infrastructure.
 cd terraform
@@ -182,6 +221,10 @@ with the same `VAULT_TOKEN` used for seeding. Current entries:
 - `harbor/llm-models` — Harbor robot account used by Ray and llama-cpp init
   containers, plus `kubectl homelab model llama` / `kubectl homelab model vllm`,
   to manage the model cache.
+- `harbor/jars` — Harbor robot account with push on the `jars` project, used by
+  `scripts/seed-jars.sh`. Read by the operator only: the project is public and
+  the workload init containers pull anonymously, so this never reaches the
+  cluster.
 - `huggingface/api-token` — HuggingFace read token used by Ray and llama-cpp
   model-pull init containers. Anonymous HuggingFace downloads are not allowed.
 - `cloudflare/api-token` — scoped Cloudflare API token used by cert-manager's
@@ -268,6 +311,15 @@ propagate to OpenWebUI on its own — change it in the UI, or wipe the
        force-sync=$(date +%s) --overwrite
    done
    ```
+
+The `jars` push robot rotates the same way minus step 3 — no workload holds it,
+so overwriting `homelab/harbor/jars` is the whole job:
+
+```bash
+vault kv put homelab/harbor/jars \
+  username='robot$jars+ci' \
+  password='<new secret from Harbor>'
+```
 
 #### Rotate the Cloudflare API token
 
@@ -445,5 +497,5 @@ the group commands (`df`, `list`, `model`) list their subcommands the same way.
 - `gitops/platform/` — Helm values and supporting CRs for platform components.
 - `gitops/workloads/helm/<name>/` — `config.json` (`chart_repo`, `chart_name`, `chart_version` only; validated by `gitops/workloads/.schema.json`), `values.yaml`, `extras/` (ExternalSecrets, init Jobs, HTTPRoutes).
 - `gitops/workloads/raw/<name>/` — `manifests/` of raw YAML.
-- `scripts/` — operator utilities (Vault seed/nuke, certificate seeding, redeploy).
+- `scripts/` — operator utilities (Vault seed/nuke, certificate seeding, Harbor jar seeding, redeploy).
 - `kubectl-plugins/` — kubectl plugins for cluster inspection and model cache management (see [kubectl plugins](#kubectl-plugins)).

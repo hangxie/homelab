@@ -94,19 +94,20 @@ additionalCatalogs:
     connection-user=root
     connection-password=${ENV:MYSQL_ROOT_PASSWORD}
 
-# JMX exporter agent — copies JAR to shared emptyDir before Trino starts.
+# JMX exporter agent — copies the JAR to a shared emptyDir before Trino
+# starts. Jar comes from Harbor; see scripts/seed-jars.sh.
 initContainers:
   coordinator:
     - name: jmx-exporter-init
-      image: alpine:3
-      command: ["/bin/sh", "-c", "wget -q -O /jmx/agent/jmx_prometheus_javaagent.jar https://github.com/prometheus/jmx_exporter/releases/download/1.6.0/jmx_prometheus_javaagent-1.6.0.jar"]
+      image: ghcr.io/oras-project/oras:v1.2.2
+      command: ["/bin/oras", "pull", "--output", "/jmx/agent", "media.xiehang.com/jars/jmx-prometheus-javaagent:1.6.0"]
       volumeMounts:
         - name: jmx-agent
           mountPath: /jmx/agent
   worker:
     - name: jmx-exporter-init
-      image: alpine:3
-      command: ["/bin/sh", "-c", "wget -q -O /jmx/agent/jmx_prometheus_javaagent.jar https://github.com/prometheus/jmx_exporter/releases/download/1.6.0/jmx_prometheus_javaagent-1.6.0.jar"]
+      image: ghcr.io/oras-project/oras:v1.2.2
+      command: ["/bin/oras", "pull", "--output", "/jmx/agent", "media.xiehang.com/jars/jmx-prometheus-javaagent:1.6.0"]
       volumeMounts:
         - name: jmx-agent
           mountPath: /jmx/agent
