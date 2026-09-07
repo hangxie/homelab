@@ -154,8 +154,13 @@
               enabled: true
               replicas: 2
             ui:
+              # Single replica: the backend keeps the /api/control-stream
+              # channelId in memory and the Service round-robins each POST, so
+              # /api/service-map-stream 400s whenever it lands on the other pod
+              # (#214). Gateway API sessionPersistence is the two-replica fix
+              # and needs Cilium 1.21 (#219). No HA requirement here.
               enabled: true
-              replicas: 2
+              replicas: 1
             metrics:
               enableOpenMetrics: true
               enabled:
