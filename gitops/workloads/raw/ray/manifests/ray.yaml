@@ -102,6 +102,13 @@ metadata:
 spec:
   serviceUnhealthySecondThreshold: 1800
   deploymentUnhealthySecondThreshold: 1800
+  # In-place update instead of KubeRay's default NewCluster strategy, which
+  # stands up a second RayCluster before cutting over. Both GPU nodes expose
+  # 2 time-sliced devices and all 4 are held (one ray worker + one llama-cpp
+  # model each), so the new cluster's workers stay Pending forever and the
+  # upgrade deadlocks. Costs a short outage on every serveConfigV2 change.
+  upgradeStrategy:
+    type: None
   serveConfigV2: |
     applications:
       - name: vllm
@@ -313,10 +320,11 @@ spec:
               - name: ray-worker
                 image: hangxie/ray-vllm:v0.1.0
                 resources:
-                  # GPU nodes have 16 GiB RAM; ~1.5 GiB is held by daemonsets,
-                  # leaving ~14.5 GiB for workloads. With llama-cpp anti-affinity
-                  # guaranteeing exactly one worker per node, 10 GiB is safe
-                  # (1.5 + 0.2 llama-cpp + 10 = 11.7 GiB < 16 GiB).
+                  # GPU nodes have 12 GiB RAM (11.6 GiB allocatable); ~1.5 GiB
+                  # is held by daemonsets. llama-cpp anti-affinity keeps exactly
+                  # one model pod per node, and it requests no memory, so the
+                  # 10 GiB limit is a burst ceiling that overcommits the node --
+                  # the 4 GiB request is what actually has to fit.
                   requests: { cpu: "2", memory: "4Gi", nvidia.com/gpu: "1" }
                   limits:   { cpu: "4", memory: "10Gi", nvidia.com/gpu: "1" }
                 env:
