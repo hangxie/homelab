@@ -2,9 +2,8 @@ fullnameOverride: scylladb
 
 developerMode: true
 
-# The homelab does not currently dedicate Scylla-labelled nodes or local disks.
-# Run on the standard Rook block storage class and let the default scheduler
-# place pods.
+# The homelab does not dedicate Scylla-labelled nodes or local disks, so this
+# runs on the standard Rook block storage class.
 datacenter: dc1
 racks:
   - name: rack1
@@ -12,13 +11,25 @@ racks:
     storage:
       storageClassName: rook-ceph-block
       capacity: 10Gi
+    # A single shard on Ceph RBD stalls the reactor long enough during bootstrap
+    # that the joining node misses the Raft read barrier and gets banned.
     resources:
       requests:
-        cpu: 1
+        cpu: 2
         memory: 4Gi
       limits:
-        cpu: 1
+        cpu: 2
         memory: 4Gi
+    # One member per node: without this the scheduler stacked two of the three
+    # on the same worker, so losing it would cost quorum.
+    placement:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: scylla
+                scylla/cluster: scylladb
+            topologyKey: kubernetes.io/hostname
 
 serviceMonitor:
   create: false
