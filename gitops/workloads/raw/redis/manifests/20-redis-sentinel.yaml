@@ -8,6 +8,15 @@ metadata:
   namespace: redis
 spec:
   clusterSize: 3
+  # One sentinel per host: two on the same node would put the failover quorum
+  # behind a single node failure.
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app: redis-sentinel-sentinel
+          topologyKey: kubernetes.io/hostname
   redisSentinelConfig:
     redisReplicationName: redis-replication
     masterGroupName: myMaster
