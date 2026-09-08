@@ -93,26 +93,24 @@
         state: present
         update_cache: yes
 
-    # Picks the meta-package that actually tracks the running kernel, by
-    # matching its Depends against the running version. Selecting on install
-    # state and dependency rather than the first alphabetical match matters:
-    # dpkg-query lists removed (rc) and never-installed (un) packages too, and
-    # linux-image-amd64 sorts ahead of linux-image-cloud-amd64 — so a plain
-    # `head -1` can resolve to the generic flavour on a cloud-kernel host and
-    # reinstate the original wrong-headers failure.
+    # From the running kernel's flavour, not from dpkg's Depends: the
+    # meta-package tracks the newest *installed* kernel, which on a
+    # from-scratch run is a point release ahead of the booted one.
     - name: Resolve kernel headers meta-package tracking the running kernel
       shell: |
         set -o pipefail
-        running=$(uname -r)
-        for meta in $(dpkg-query -W -f='${db:Status-Abbrev}|${Package}\n' 'linux-image-*' 2>/dev/null \
-                        | awk -F'|' '$1 ~ /^ii/ { print $2 }' \
-                        | grep -E '^linux-image-[a-z0-9-]+$'); do
-          if dpkg-query -W -f='${Depends}\n' "$meta" 2>/dev/null | grep -q "linux-image-${running}"; then
-            echo "${meta/linux-image-/linux-headers-}"
-            exit 0
-          fi
-        done
-        exit 1
+        flavour=$(uname -r | sed -E 's/^[0-9][^-]*(-[0-9]+)?-//')
+        case "$flavour" in
+          ''|*[!a-z0-9-]*) exit 1 ;;
+        esac
+        meta="linux-headers-${flavour}"
+        # Captured, not piped into `grep -q`, which SIGPIPEs apt-cache.
+        policy=$(apt-cache policy "$meta" 2>/dev/null)
+        case "$policy" in
+          *"Candidate: "[0-9]*) ;;
+          *) exit 1 ;;
+        esac
+        echo "$meta"
       args:
         executable: /bin/bash
       register: kernel_headers_meta
@@ -170,6 +168,45 @@
     - name: Reboot GPU workers after driver install
       reboot:
       when: nvidia_driver_packages is changed
+
+    # A kernel with no module kills the GPU whenever it is booted, and once
+    # its point release leaves the archive the headers to build one are gone
+    # for good — the image's original kernel after a from-scratch run. Kernels
+    # that have a module stay as fallbacks; the running one is never purged.
+    - name: Resolve non-running kernels with no NVIDIA module built
+      shell: |
+        set -o pipefail
+        dkms_status=$(/usr/sbin/dkms status 2>/dev/null)
+        running=$(uname -r)
+        for kver in $(dpkg-query -W -f='${db:Status-Abbrev}|${Package}\n' 'linux-image-*' 2>/dev/null \
+                        | awk -F'|' '$1 ~ /^ii/ { print $2 }' \
+                        | sed -n 's/^linux-image-\([0-9].*\)$/\1/p'); do
+          if [ "$kver" = "$running" ]; then
+            continue
+          fi
+          case "$dkms_status" in
+            *", ${kver},"*) continue ;;
+          esac
+          for pkg in "linux-image-${kver}" "linux-headers-${kver}"; do
+            status=$(dpkg-query -W -f='${db:Status-Abbrev}' "$pkg" 2>/dev/null || true)
+            case "$status" in
+              ii*) echo "$pkg" ;;
+            esac
+          done
+        done
+        exit 0
+      args:
+        executable: /bin/bash
+      register: stale_kernel_packages
+      changed_when: false
+      check_mode: false
+
+    - name: Purge kernels with no NVIDIA module built
+      apt:
+        name: "{{ stale_kernel_packages.stdout_lines }}"
+        state: absent
+        purge: yes
+      when: stale_kernel_packages.stdout_lines | length > 0
 
     # The checks below are deliberately ungated. Previously they ran only when
     # a package changed, so the one state that matters most — packages already
@@ -267,10 +304,22 @@
     - name: Apply pending containerd restart before returning the node to service
       meta: flush_handlers
 
+    # GitOps installs the plugin at wave 540 — after this playbook — so during
+    # a bootstrap the wait below would poll for capacity that cannot exist.
+    - name: Check whether the NVIDIA device plugin is deployed
+      command: >-
+        kubectl -n kube-system get daemonset nvidia-device-plugin
+        --ignore-not-found -o name
+      delegate_to: localhost
+      become: false
+      environment: "{{ kubectl_env }}"
+      register: nvidia_device_plugin_ds
+      changed_when: false
+      when: nvidia_driver_packages is changed
+
     # Uncordoning as soon as the node is Ready is what produces the failed-
     # admission pods: the kubelet accepts GPU pods a moment before the device
-    # plugin has advertised nvidia.com/gpu again. Waiting for allocatable
-    # capacity means the node only takes GPU work once it can actually run it.
+    # plugin has advertised nvidia.com/gpu again.
     - name: Wait for the node to advertise its GPUs again
       shell: kubectl get node {{ inventory_hostname }} -o jsonpath='{.status.allocatable.nvidia\.com/gpu}'
       delegate_to: localhost
@@ -281,8 +330,13 @@
       retries: 30
       delay: 10
       changed_when: false
-      when: nvidia_driver_packages is changed
+      when:
+        - nvidia_driver_packages is changed
+        - nvidia_device_plugin_ds.stdout | default('') != ''
 
+    # Ungated, unlike the drain it pairs with: a run that died between the two
+    # left the node cordoned, and a gated re-run walked past it. A no-op on a
+    # node this playbook never drained.
     - name: Return the node to service
       command: kubectl uncordon {{ inventory_hostname }}
       delegate_to: localhost
@@ -292,7 +346,6 @@
       # A no-op prints "already uncordoned", which still contains "uncordoned"
       # — so the absence of "already" is what actually distinguishes the two.
       changed_when: "'already uncordoned' not in gpu_uncordon.stdout"
-      when: nvidia_driver_packages is changed
 
   handlers:
     - name: Restart containerd
