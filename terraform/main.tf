@@ -51,9 +51,9 @@ resource "proxmox_virtual_environment_vm" "node2" {
   dynamic "disk" {
     for_each = each.value.disks
     content {
-      datastore_id = disk.key == 0 ? var.vm.sys_disk_storage : var.vm.data_disk_storage
+      datastore_id = one(keys(disk.value))
       interface    = "scsi${disk.key}"
-      size         = disk.value
+      size         = one(values(disk.value))
       file_id      = disk.key == 0 ? var.vm.cloud_image_id : null
       # The backing store is a single SSD behind an LVM-thin pool. Without
       # discard the guest can never return freed blocks, so the drive's FTL
@@ -61,6 +61,10 @@ resource "proxmox_virtual_environment_vm" "node2" {
       # under sustained fsync load. ssd reports the correct rotation rate.
       discard = "on"
       ssd     = true
+      # virtio-scsi-single gives every disk its own controller, and iothread
+      # moves its submission off the main QEMU event loop. The OSD and etcd
+      # disks are fsync-bound, so sharing one thread serialises their flushes.
+      iothread = true
     }
   }
 
@@ -74,7 +78,7 @@ resource "proxmox_virtual_environment_vm" "node2" {
   }
 
   efi_disk {
-    datastore_id = var.vm.sys_disk_storage
+    datastore_id = one(keys(each.value.disks[0]))
   }
 
   network_device {
@@ -84,7 +88,7 @@ resource "proxmox_virtual_environment_vm" "node2" {
   serial_device {}
 
   initialization {
-    datastore_id = var.vm.sys_disk_storage
+    datastore_id = one(keys(each.value.disks[0]))
     dns {
       servers = ["8.8.8.8", "1.1.1.1"]
     }

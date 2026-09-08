@@ -27,21 +27,19 @@ vm = {
   bridge            = "vmbr0"
   boot_order        = ["scsi0", "ide2"]
   cloud_image_id    = "local:iso/debian-13-genericcloud-amd64.img"
-  sys_disk_storage  = "nvme"
-  data_disk_storage = "nvme"
   gateway           = "192.168.0.1"
   machine           = "q35"
-  scsi_hardware     = "virtio-scsi-pci"
+  scsi_hardware     = "virtio-scsi-single"
 }
 
 nodes = {
-  "master-0" = { hypervisor = "node2", ip = "192.168.0.210", cores = 4, memory = 8192, disks = ["40", "10"] }
-  "master-1" = { hypervisor = "node2", ip = "192.168.0.211", cores = 4, memory = 8192, disks = ["40", "10"] }
-  "master-2" = { hypervisor = "node2", ip = "192.168.0.212", cores = 4, memory = 8192, disks = ["40", "10"] }
-  "worker-0" = { hypervisor = "node2", ip = "192.168.0.220", cores = 16, memory = 32768, disks = ["160", "400"] }
-  "worker-1" = { hypervisor = "node2", ip = "192.168.0.221", cores = 16, memory = 32768, disks = ["160", "400"] }
-  "worker-2" = { hypervisor = "node2", ip = "192.168.0.222", cores = 16, memory = 32768, disks = ["160", "400"] }
-  "worker-3" = { hypervisor = "node2", ip = "192.168.0.223", cores = 16, memory = 32768, disks = ["160", "400"] }
-  "worker-4" = { hypervisor = "node2", ip = "192.168.0.224", cores = 6, memory = 12288, disks = ["160"], gpu_pci_id = "gpu0" }
-  "worker-5" = { hypervisor = "node2", ip = "192.168.0.225", cores = 6, memory = 12288, disks = ["160"], gpu_pci_id = "gpu1" }
+  "master-0" = { hypervisor = "node2", ip = "192.168.0.210", cores = 4, memory = 8192, disks = [{ "local-lvm" = "40" }, { "local-lvm" = "10" }] }
+  "master-1" = { hypervisor = "node2", ip = "192.168.0.211", cores = 4, memory = 8192, disks = [{ "local-lvm" = "40" }, { "local-lvm" = "10" }] }
+  "master-2" = { hypervisor = "node2", ip = "192.168.0.212", cores = 4, memory = 8192, disks = [{ "local-lvm" = "40" }, { "local-lvm" = "10" }] }
+  "worker-0" = { hypervisor = "node2", ip = "192.168.0.220", cores = 16, memory = 32768, disks = [{ nvme = "160" }, { nvme = "320" }] }
+  "worker-1" = { hypervisor = "node2", ip = "192.168.0.221", cores = 16, memory = 32768, disks = [{ nvme = "160" }, { nvme = "320" }] }
+  "worker-2" = { hypervisor = "node2", ip = "192.168.0.222", cores = 16, memory = 32768, disks = [{ nvme = "160" }, { nvme = "320" }] }
+  "worker-3" = { hypervisor = "node2", ip = "192.168.0.223", cores = 16, memory = 32768, disks = [{ nvme = "160" }, { nvme = "320" }] }
+  "worker-4" = { hypervisor = "node2", ip = "192.168.0.224", cores = 6, memory = 12288, disks = [{ nvme = "160" }], gpu_pci_id = "gpu0" }
+  "worker-5" = { hypervisor = "node2", ip = "192.168.0.225", cores = 6, memory = 12288, disks = [{ nvme = "160" }], gpu_pci_id = "gpu1" }
 }
