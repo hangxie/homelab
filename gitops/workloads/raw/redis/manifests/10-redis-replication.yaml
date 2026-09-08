@@ -8,6 +8,15 @@ metadata:
   namespace: redis
 spec:
   clusterSize: 3
+  # One member per host, so a single node failure can't take the master and a
+  # replica together.
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app: redis-replication
+          topologyKey: kubernetes.io/hostname
   kubernetesConfig:
     image: quay.io/opstree/redis:v7.0.15
     imagePullPolicy: IfNotPresent
