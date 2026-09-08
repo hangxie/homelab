@@ -69,3 +69,38 @@
         dest: /root/.kube/config
         mode: '0600'
       when: not admin_conf_file.stat.exists
+
+# kubeadm ships CoreDNS with a *preferred* anti-affinity only, so both replicas
+# land on the primary master during init — the only node that exists then — and
+# nothing moves them once the workers join.
+- name: Spread CoreDNS across nodes
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Require CoreDNS replicas on separate hosts
+      kubernetes.core.k8s:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        state: patched
+        kind: Deployment
+        name: coredns
+        namespace: kube-system
+        definition:
+          spec:
+            template:
+              spec:
+                affinity:
+                  podAntiAffinity:
+                    requiredDuringSchedulingIgnoredDuringExecution:
+                      - labelSelector:
+                          matchExpressions:
+                            - key: k8s-app
+                              operator: In
+                              values:
+                                - kube-dns
+                        topologyKey: kubernetes.io/hostname
+
+    - name: Wait for CoreDNS to redeploy
+      command: kubectl -n kube-system rollout status deployment/coredns --timeout=180s
+      environment: "{{ kubectl_env }}"
+      changed_when: false
