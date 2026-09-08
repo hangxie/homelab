@@ -24,15 +24,13 @@ variable "ssh_public_key_file" {
 variable "vm" {
   description = "Virtual machine's settings"
   type = object({
-    bios              = string
-    bridge            = string
-    boot_order        = list(string)
-    gateway           = string
-    machine           = string
-    scsi_hardware     = string
-    cloud_image_id    = string
-    sys_disk_storage  = string
-    data_disk_storage = string
+    bios           = string
+    bridge         = string
+    boot_order     = list(string)
+    gateway        = string
+    machine        = string
+    scsi_hardware  = string
+    cloud_image_id = string
   })
 }
 
@@ -63,7 +61,17 @@ variable "nodes" {
     ip         = string
     cores      = number
     memory     = number
-    disks      = list(string)     # first entry is the OS disk; subsequent entries are Ceph/data disks
+    # One single-entry map per disk, in scsi order: { <proxmox datastore> = "<size in GiB>" }.
+    # The first entry is the OS disk and also carries the EFI and cloud-init
+    # volumes; subsequent entries are the etcd (masters) or Ceph (workers) disks.
+    disks      = list(map(string))
     gpu_pci_id = optional(string) # GPU's PCI id, null means no GPU
   }))
+
+  validation {
+    condition = alltrue([
+      for node in var.nodes : alltrue([for disk in node.disks : length(disk) == 1])
+    ])
+    error_message = "Each disks entry must be a single-entry map of datastore to size, e.g. { nvme = \"160\" }."
+  }
 }
