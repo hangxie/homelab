@@ -51,3 +51,13 @@ spec:
   metadataServer:
     activeCount: 1
     activeStandby: true
+    # Without this the scheduler put the active MDS and its standby-replay on
+    # the same host, so one node failure took both.
+    placement:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: rook-ceph-mds
+                rook_file_system: cephfs
+            topologyKey: kubernetes.io/hostname
