@@ -1,6 +1,6 @@
 ---
 # Bootstrap root in sync-disabled mode to avoid reconciliation fan-out that
-# overloads etcd on a cold cluster. Waves 10–32 are sequenced manually here;
+# overloads etcd on a cold cluster. Waves 100–220 are sequenced manually here;
 # cilium-post-bootstrap re-applies root-app.yaml to restore automated sync.
 
 - name: Apply root Application and sequence essential platform bootstrap
@@ -134,6 +134,32 @@
       retries: 20
       delay: 15
 
+    # Ahead of storage, not with the other routing at wave 600: apps from
+    # wave 220 on ship HTTPRoutes, and an HTTPRoute whose Gateway does not
+    # exist never reports Accepted, so Argo CD waits on it forever and the
+    # bootstrap stalls before it reaches the wave that would create it.
+    - name: Apply wave 140 — gateway-routes
+      kubernetes.core.k8s:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        state: present
+        apply: true
+        src: "{{ apps }}/gateway-routes.yaml"
+
+    - name: Wait for gateway-routes — Synced and Healthy
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        namespace: argocd
+        name: gateway-routes
+      register: _wait
+      until: >-
+        _wait.resources | length > 0
+        and (_wait.resources[0].status.sync.status | default('')) == 'Synced'
+        and (_wait.resources[0].status.health.status | default('')) == 'Healthy'
+      retries: 20
+      delay: 15
+
     - name: Apply wave 200 — rook-ceph
       kubernetes.core.k8s:
         kubeconfig: "{{ bootstrap_kubeconfig }}"
@@ -203,6 +229,6 @@
     - name: Essential platform waves applied
       debug:
         msg:
-          - "Waves 10–32 (cert-manager → external-secrets → cert-manager-config → rook-ceph-cluster) applied and synced."
+          - "Waves 100–220 (cert-manager → external-secrets → cert-manager-config → gateway-routes → rook-ceph-cluster) applied and synced."
           - "Root app remains sync-disabled; cilium-post-bootstrap re-enables it"
           - "once CephCluster is Ready and remaining platform gates pass."
