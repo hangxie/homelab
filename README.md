@@ -36,10 +36,11 @@ flowchart TD
     root --> argocd
     root --> secrets
 
-    subgraph secrets["100s — secrets/PKI"]
+    subgraph secrets["100s — secrets/PKI, gateway"]
         cert-manager["cert-manager (100)"] --> external-secrets["external-secrets (110)"]
         external-secrets --> stores["external-secrets-stores (120)"]
         stores --> cm-config["cert-manager-config (130)"]
+        cm-config --> gateway-routes["gateway-routes (140)"]
     end
 
     subgraph storage["200s — storage"]
@@ -67,8 +68,7 @@ flowchart TD
     end
 
     subgraph platform-svcs["600s — platform services"]
-        gateway-routes["gateway-routes (600)"] --> cnpg["postgres-cnpg (610)"]
-        cnpg --> pg-cluster["postgres-cluster (620)"]
+        cnpg["postgres-cnpg (610)"] --> pg-cluster["postgres-cluster (620)"]
     end
 
     subgraph workloads["700s — workloads"]
