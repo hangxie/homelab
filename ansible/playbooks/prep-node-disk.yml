@@ -1,0 +1,62 @@
+- name: Check if /var/lib/nodedata is already a mountpoint
+  ansible.builtin.command: mountpoint -q /var/lib/nodedata
+  register: nodedata_mounted
+  changed_when: false
+  failed_when: false
+
+- name: Check if node data disk already has a filesystem
+  ansible.builtin.command: blkid /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+  register: nodedata_disk_blkid
+  changed_when: false
+  failed_when: false
+  when: nodedata_mounted.rc != 0
+
+- name: Format node data disk with ext4
+  ansible.builtin.command: mkfs.ext4 -L nodedata /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+  when:
+    - nodedata_mounted.rc != 0
+    - nodedata_disk_blkid.rc != 0
+
+- name: Mount node data disk and persist in fstab
+  ansible.builtin.mount:
+    path: /var/lib/nodedata
+    src: LABEL=nodedata
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted
+
+# containerd and kubelet both insist on their canonical paths, so the disk
+# carries a directory per consumer and each is bind-mounted into place. The
+# 40G root then holds only the OS: image pulls and emptyDir cannot fill it.
+- name: Create per-consumer directories on the node data disk
+  ansible.builtin.file:
+    path: "/var/lib/nodedata/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0711'
+  loop:
+    - containerd
+    - kubelet
+
+- name: Create bind mount targets
+  ansible.builtin.file:
+    path: "/var/lib/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0711'
+  loop:
+    - containerd
+    - kubelet
+
+- name: Bind-mount containerd and kubelet onto the node data disk
+  ansible.builtin.mount:
+    path: "/var/lib/{{ item }}"
+    src: "/var/lib/nodedata/{{ item }}"
+    fstype: none
+    opts: bind
+    state: mounted
+  loop:
+    - containerd
+    - kubelet

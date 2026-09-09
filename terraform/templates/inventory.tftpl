@@ -5,7 +5,7 @@ ${name} ansible_host=${config.ip}
 
 [workers]
 %{ for name, config in workers ~}
-${name} ansible_host=${config.ip}%{ if length(lookup(worker_ceph_devices, name, [])) > 0 } rook_ceph_devices='${jsonencode(worker_ceph_devices[name])}'%{ endif }
+${name} ansible_host=${config.ip}
 %{ endfor ~}
 
 [non_gpu_workers]

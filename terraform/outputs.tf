@@ -19,7 +19,6 @@ resource "local_file" "ansible_inventory" {
     workers              = local.workers
     non_gpu_workers      = local.non_gpu_workers
     gpu_workers          = local.gpu_workers
-    worker_ceph_devices  = local.worker_ceph_devices
     storage_classes_json = jsonencode(var.storage_classes)
     kube_api_vip         = var.kube_api_vip
   })
