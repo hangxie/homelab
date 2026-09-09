@@ -5,14 +5,14 @@
   failed_when: false
 
 - name: Check if etcd disk already has a filesystem
-  ansible.builtin.command: blkid /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+  ansible.builtin.command: blkid /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2
   register: etcd_disk_blkid
   changed_when: false
   failed_when: false
   when: etcd_mounted.rc != 0
 
 - name: Format etcd disk with ext4
-  ansible.builtin.command: mkfs.ext4 -L etcd /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+  ansible.builtin.command: mkfs.ext4 -L etcd /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2
   when:
     - etcd_mounted.rc != 0
     - etcd_disk_blkid.rc != 0

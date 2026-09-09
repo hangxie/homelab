@@ -28,6 +28,11 @@
         mirror: https://media.xiehang.com/v2/k8s-io
 
   tasks:
+    # Must run before containerd is installed, so its state directory is the
+    # mounted disk from the start rather than something to migrate afterwards.
+    - name: Prepare the node data disk for containerd and kubelet
+      ansible.builtin.include_tasks: prep-node-disk.yml
+
     - name: Check if node is already joined to Kubernetes
       stat:
         path: /etc/kubernetes/kubelet.conf

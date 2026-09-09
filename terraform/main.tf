@@ -4,10 +4,6 @@ locals {
   workers         = { for k, v in var.nodes : k => v if !startswith(k, "master-") }
   gpu_workers     = { for k, v in local.workers : k => v if v.gpu_pci_id != null }
   non_gpu_workers = { for k, v in local.workers : k => v if v.gpu_pci_id == null }
-  worker_ceph_devices = {
-    for name, config in local.non_gpu_workers :
-    name => length(config.disks) > 1 ? ["/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1"] : []
-  }
 }
 
 resource "proxmox_virtual_environment_vm" "node2" {
