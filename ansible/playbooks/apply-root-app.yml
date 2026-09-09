@@ -223,7 +223,9 @@
       until: >-
         _wait.resources | length > 0
         and (_wait.resources[0].status.sync.status | default('')) == 'Synced'
-      retries: 20
+      # A cold Ceph runs mons, mgr, OSD prepare, OSDs, then RGW before the app
+      # can report Synced; that measured ~7 minutes, past the previous 5.
+      retries: 40
       delay: 15
 
     - name: Essential platform waves applied

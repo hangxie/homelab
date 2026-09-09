@@ -3,6 +3,12 @@ kind: HTTPRoute
 metadata:
   name: ceph
   namespace: rook-ceph
+  annotations:
+    # The backend Service is created by the mgr, which does not exist until the
+    # CephCluster in wave 0 is healthy. Applied together, this route's health
+    # check fails on every cold bootstrap and drops the whole sync into retry
+    # backoff, which is long enough to outlast the gate in apply-root-app.
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   parentRefs:
     - name: default-gateway
