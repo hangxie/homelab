@@ -12,6 +12,27 @@ def _opt_int(name):
     v = os.environ.get(name, "").strip()
     return int(v) if v and v.lower() != "auto" else None
 
+# vLLM only turns generated text back into structured tool_calls when a tool-call
+# parser is set; with tool schemas in the prompt but no parser, the model's call
+# comes back as raw JSON in `content`. The parser -- and for Llama the chat
+# template that makes the output parseable -- is per model family; first
+# substring match on the model id wins, unlisted models serve without tool
+# parsing. Qwen2.5-1.5B gets llama3_json, not hermes: it emits bare
+# {"name", "arguments"} JSON and never the <tool_call> tags hermes keys off.
+TOOL_CALL_SETTINGS = (
+    ("llama-3.2", dict(
+        tool_call_parser="llama3_json",
+        chat_template="/home/ray/tool_chat_template_llama3.2_json.jinja",
+    )),
+    ("qwen2.5", dict(tool_call_parser="llama3_json")),
+)
+
+def _tool_call_kwargs(model_id: str) -> dict:
+    for family, kwargs in TOOL_CALL_SETTINGS:
+        if family in model_id.lower():
+            return dict(kwargs, enable_auto_tool_choice=True)
+    return {}
+
 def _make_config(model_id: str) -> LLMConfig:
     engine_kwargs = dict(
         tensor_parallel_size=1,
@@ -22,7 +43,7 @@ def _make_config(model_id: str) -> LLMConfig:
         enable_prefix_caching=os.environ.get("ENABLE_PREFIX_CACHING", "true").lower() == "true",
         dtype=os.environ.get("DTYPE", "auto"),
         trust_remote_code=True,
-        enable_auto_tool_choice=True,
+        **_tool_call_kwargs(model_id),
     )
     mml = _opt_int("MAX_MODEL_LEN")
     if mml:
