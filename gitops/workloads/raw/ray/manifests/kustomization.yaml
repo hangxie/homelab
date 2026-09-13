@@ -51,10 +51,12 @@ configMapGenerator:
         k8s-sidecar-target-directory: /tmp/dashboards/Workloads
 
   # Mounted by the RayService head and worker pods at /home/ray/<name> via
-  # subPath. Kept as .py so they are syntax-highlighted and importable by a
-  # linter instead of living as an opaque block scalar inside ray.yaml.
+  # subPath. Kept as real .py/.jinja files so they stay syntax-highlighted and
+  # lintable instead of living as opaque block scalars inside ray.yaml. subPath
+  # mounts never refresh, so a change here needs the RayCluster recreated.
   - name: ray-vllm-serve-script
     namespace: ray
     files:
       - serve.py
       - sitecustomize.py
+      - tool_chat_template_llama3.2_json.jinja
