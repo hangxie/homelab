@@ -38,7 +38,10 @@ def _make_config(model_id: str) -> LLMConfig:
         tensor_parallel_size=1,
         gpu_memory_utilization=float(os.environ.get("GPU_MEMORY_UTILIZATION", "0.90")),
         max_num_seqs=int(os.environ.get("MAX_NUM_SEQS", "1")),
-        kv_cache_dtype=os.environ.get("KV_CACHE_DTYPE", "fp8"),
+        # fp8 KV cache is emulated on these Ampere cards, and stacked on AWQ weights it
+        # corrupts generation: Qwen2.5-Coder-1.5B-AWQ emitted duplicated tokens and
+        # unterminated JSON until this was auto. KV cache is ~0.1 GiB here either way.
+        kv_cache_dtype=os.environ.get("KV_CACHE_DTYPE", "auto"),
         enforce_eager=os.environ.get("ENFORCE_EAGER", "false").lower() == "true",
         enable_prefix_caching=os.environ.get("ENABLE_PREFIX_CACHING", "true").lower() == "true",
         dtype=os.environ.get("DTYPE", "auto"),
