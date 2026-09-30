@@ -123,6 +123,13 @@ dashboards:
       gnetId: 1860
       revision: 45
       datasource: Mimir
+    # Drives off probe_success, so it covers every blackbox target Alloy
+    # probes — Vault and Harbor on media, SSH, the AI router, the gateway,
+    # and the upstreams. Its job/instance variables line up with the labels the
+    # blackbox relabel produces (job="blackbox", instance=<probe name>).
+    blackbox-exporter:
+      gnetId: 13659
+      datasource: Mimir
   kubernetes:
     k8s-views-global:
       gnetId: 15760
@@ -149,9 +156,11 @@ dashboards:
       url: https://raw.githubusercontent.com/rook/rook/v1.20.0/deploy/examples/monitoring/grafana/Ceph%20Pools%20Dashboard.json
       datasource: Mimir
   observability:
-    grafana-alloy:
-      gnetId: 13659
-      datasource: Mimir
+    # No Alloy dashboard here: gnetId 13659 used to be provisioned under that
+    # name and is in fact "Blackbox Exporter (HTTP prober)" — the same mix-up
+    # as ray/14708 below. It now sits under infrastructure, where it has data.
+    # Alloy's own dashboards live in operations/alloy-mixin in the Alloy repo
+    # and are not published to grafana.com.
     tempo:
       gnetId: 23242
       revision: 1

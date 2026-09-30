@@ -1,0 +1,158 @@
+# ── Outside the cluster ─────────────────────────────────────────────────────
+# Two sources, both from the Alloy config: node_exporter running on the hosts
+# themselves (job "external/node", instance "pi" / "media") and the blackbox
+# prober inside Alloy (job "blackbox", instance = the probe's name).
+#
+# These hosts are not cluster nodes, so node.yaml's rules deliberately do not
+# match them — a Pi idling hot and a media library sitting near full are normal
+# there and would page every day under cluster thresholds.
+#
+# media.xiehang.com is the one to watch: it serves both Vault and Harbor, so it
+# going down stops every ExternalSecret refresh and every image pull.
+
+groups:
+  - name: external-hosts
+    interval: 1m
+    rules:
+      - alert: ExternalHostDown
+        expr: |
+          up{job="external/node"} == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "External host is not answering"
+          description: "{{ $labels.instance }} has not answered a node_exporter scrape for 10 minutes — the host is down, node_exporter has stopped, or the LAN path from the cluster is broken."
+
+      # exfat is the media server's 5TB library and is meant to run full; 15%
+      # of it is 750GB and tells you nothing. Every other filesystem, /boot
+      # included, is small enough that a percentage is the right signal.
+      - alert: ExternalHostFilesystemAlmostOutOfSpace
+        expr: |
+          (
+            node_filesystem_avail_bytes{job="external/node",fstype!~"tmpfs|ramfs|overlay|squashfs|exfat"}
+            / node_filesystem_size_bytes{job="external/node",fstype!~"tmpfs|ramfs|overlay|squashfs|exfat"} * 100 < 15
+          )
+          and
+          node_filesystem_readonly{job="external/node",fstype!~"tmpfs|ramfs|overlay|squashfs|exfat"} == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "External host filesystem has less than 15% space left"
+          description: "{{ $labels.mountpoint }} on {{ $labels.instance }} has {{ printf \"%.2f\" $value }}% available space."
+
+      - alert: ExternalHostFilesystemReadOnly
+        expr: |
+          node_filesystem_readonly{job="external/node",fstype!~"tmpfs|ramfs|overlay|squashfs"} == 1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "External host filesystem has been remounted read-only"
+          description: "{{ $labels.mountpoint }} on {{ $labels.instance }} is read-only, which on the Pi usually means the SD card is wearing out."
+
+      - alert: ExternalHostMemoryHighUtilisation
+        expr: |
+          (
+            1 - node_memory_MemAvailable_bytes{job="external/node"}
+            / node_memory_MemTotal_bytes{job="external/node"}
+          ) * 100 > 90
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "External host memory is nearly exhausted"
+          description: "{{ $labels.instance }} has used {{ printf \"%.2f\" $value }}% of its memory for 30 minutes."
+
+      # 95% for an hour, not node.yaml's 90% for 30m: the media server pegs
+      # every core whenever it transcodes and that is not a fault.
+      - alert: ExternalHostCPUSaturated
+        expr: |
+          100 - (
+            avg by (instance) (rate(node_cpu_seconds_total{job="external/node",mode="idle"}[5m])) * 100
+          ) > 95
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "External host CPU has been saturated for an hour"
+          description: "{{ $labels.instance }} has been {{ printf \"%.2f\" $value }}% busy for an hour."
+
+      # The Pi throttles itself around 85°C and the media server's Tjmax is
+      # higher, so one threshold covers both: past 85 either box is in trouble.
+      - alert: ExternalHostOverheating
+        expr: |
+          max by (instance) (node_hwmon_temp_celsius{job="external/node"}) > 85
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "External host is running hot"
+          description: "The hottest sensor on {{ $labels.instance }} reads {{ printf \"%.1f\" $value }}°C, which is where the Pi starts throttling."
+
+      # The Pi has no RTC, so a failed NTP sync leaves it drifting from boot.
+      - alert: ExternalHostClockNotSynchronising
+        expr: |
+          node_timex_sync_status{job="external/node"} == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "External host clock is not synchronising"
+          description: "{{ $labels.instance }} has not synced its clock via NTP for 10 minutes and is drifting freely."
+
+  - name: external-probes
+    interval: 1m
+    rules:
+      # scope="internal" is ours to fix. Vault and Harbor both live on the
+      # media server, so these fire alongside ExternalHostDown when the whole
+      # box is gone and on their own when only the service has failed.
+      - alert: InternalServiceProbeFailed
+        expr: |
+          probe_success{job="blackbox",scope="internal"} == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Internal service is failing its probe"
+          description: "{{ $labels.instance }} ({{ $labels.target }}) has not answered a healthy response for 10 minutes."
+
+      # Probing an upstream from here measures our uplink as much as theirs, so
+      # this only fires while both anchors are still answering. Without the
+      # guard a single ISP blip reports five upstream outages at once.
+      - alert: UpstreamProbeFailed
+        expr: |
+          probe_success{job="blackbox",scope="upstream"} == 0
+          and on () min (probe_success{job="blackbox",scope="anchor"}) == 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Upstream service is unreachable while the internet is up"
+          description: "{{ $labels.instance }} ({{ $labels.target }}) has been unreachable for 15 minutes while Cloudflare and Google both answer, so the fault is theirs, not ours."
+
+      # Both anchors gone at once is the uplink, not two coincidences.
+      - alert: InternetUnreachable
+        expr: |
+          max (probe_success{job="blackbox",scope="anchor"}) == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The cluster has no route to the internet"
+          description: "Neither Cloudflare nor Google has answered a probe for 10 minutes. Image pulls, ACME renewals and model downloads are all blocked."
+
+      # scope="internal" only. cert-manager renews our wildcard at 30 days, so
+      # 14 means the renewal itself has stopped working. Upstreams are excluded
+      # on purpose — Google rotates on a ~60 day cycle and legitimately sits
+      # inside this window, which is their business and not an alert.
+      - alert: ProbeCertificateExpiringSoon
+        expr: |
+          probe_ssl_earliest_cert_expiry{job="blackbox",scope="internal"} - time() < 14 * 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "TLS certificate expires in under 14 days"
+          description: "The certificate served by {{ $labels.target }} expires in {{ $value | humanizeDuration }}."
