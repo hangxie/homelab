@@ -519,7 +519,7 @@ groups:
       # every slot is busy and callers are queuing behind them, which
       # surfaces to LiteLLM as latency rather than as an error.
       - alert: LlamaCppRequestsDeferred
-        expr: max by (model) (llamacpp:requests_deferred) > 0
+        expr: max by (model) (llamacpp:requests_deferred{job="llama-cpp"}) > 0
         for: 15m
         labels:
           severity: warning

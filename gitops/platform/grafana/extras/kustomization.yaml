@@ -28,3 +28,10 @@ configMapGenerator:
     namespace: grafana
     files:
       - dashboards/k8s_views_pods.json
+  - name: grafana-dashboard-ai-inference
+    namespace: grafana
+    options:
+      annotations:
+        k8s-sidecar-target-directory: /tmp/dashboards/Infrastructure
+    files:
+      - dashboards/ai-inference.json

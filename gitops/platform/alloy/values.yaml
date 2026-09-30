@@ -1244,14 +1244,14 @@ alloy:
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
-      // ── External Linux hosts ──────────────────────────────────────────────────
+      // ── External hosts ────────────────────────────────────────────────────────
       // node_exporter runs on the hosts themselves (pi 192.168.0.200, media
-      // 192.168.0.201) and Alloy pulls it over the LAN. Cilium is in tunnel
-      // mode, so pod egress is masqueraded and the scrape arrives from the node
+      // 192.168.0.201), plus the macOS AI host, and Alloy pulls them over the LAN.
+      // Cilium tunnel mode masquerades pod egress, so scrapes arrive from the node
       // IP — 192.168.0.210-225 is what the hosts have to allow, not a pod CIDR.
       //
       // clustering is what keeps this to one scrape per host: without it all
-      // nine DaemonSet pods would pull both exporters and every series would
+      // nine DaemonSet pods would pull all three exporters and every series would
       // land nine times over.
       //
       // job is deliberately not "integrations/unix". The node.yaml rules match
@@ -1265,9 +1265,65 @@ alloy:
         targets = [
           {"__address__" = "pi.xiehang.com:9100", "instance" = "pi"},
           {"__address__" = "media.xiehang.com:9100", "instance" = "media"},
+          {"__address__" = "ai.xiehang.com:9100", "instance" = "ai"},
         ]
         job_name        = "external/node"
         scrape_interval = "60s"
+        forward_to      = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ── External llama.cpp router ─────────────────────────────────────────────
+      // Refresh the loaded model set rather than scraping idle models. The router
+      // otherwise auto-loads a model on GET /metrics; autoload=false also protects
+      // the race where a model unloads between discovery and scraping.
+      remote.http "ai_models" {
+        url            = "http://ai.xiehang.com:8080/v1/models"
+        poll_frequency = "60s"
+        poll_timeout   = "10s"
+      }
+
+      discovery.relabel "ai_llama" {
+        targets = [
+          {
+            "__address__" = "ai.xiehang.com:8080",
+            "instance" = "ai",
+            "model" = "qwen3-1.7b-q8",
+            "__param_model" = "qwen3-1.7b-q8",
+            "__param_autoload" = "false",
+            "__tmp_state" = string.join(json_path(remote.http.ai_models.content, "$.data[?(@.id == 'qwen3-1.7b-q8')].status.value"), ""),
+          },
+          {
+            "__address__" = "ai.xiehang.com:8080",
+            "instance" = "ai",
+            "model" = "qwen3.8-27b-q4",
+            "__param_model" = "qwen3.8-27b-q4",
+            "__param_autoload" = "false",
+            "__tmp_state" = string.join(json_path(remote.http.ai_models.content, "$.data[?(@.id == 'qwen3.8-27b-q4')].status.value"), ""),
+          },
+          {
+            "__address__" = "ai.xiehang.com:8080",
+            "instance" = "ai",
+            "model" = "deepseek-r1-1.5b-q8",
+            "__param_model" = "deepseek-r1-1.5b-q8",
+            "__param_autoload" = "false",
+            "__tmp_state" = string.join(json_path(remote.http.ai_models.content, "$.data[?(@.id == 'deepseek-r1-1.5b-q8')].status.value"), ""),
+          },
+        ]
+        rule {
+          source_labels = ["__tmp_state"]
+          regex         = "loaded"
+          action        = "keep"
+        }
+      }
+
+      prometheus.scrape "ai_llama" {
+        clustering {
+          enabled = true
+        }
+        targets         = discovery.relabel.ai_llama.output
+        job_name        = "external/llama-cpp"
+        scrape_interval = "60s"
+        metrics_path    = "/metrics"
         forward_to      = [prometheus.remote_write.mimir.receiver]
       }
 

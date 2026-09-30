@@ -1,7 +1,7 @@
 # ── Outside the cluster ─────────────────────────────────────────────────────
-# Two sources, both from the Alloy config: node_exporter running on the hosts
-# themselves (job "external/node", instance "pi" / "media") and the blackbox
-# prober inside Alloy (job "blackbox", instance = the probe's name).
+# Alloy collects node_exporter metrics from Pi/media/AI (job "external/node"),
+# loaded AI model metrics (job "external/llama-cpp"), and service probes from
+# its embedded blackbox exporter (job "blackbox", instance = the probe's name).
 #
 # These hosts are not cluster nodes, so node.yaml's rules deliberately do not
 # match them — a Pi idling hot and a media library sitting near full are normal
@@ -30,11 +30,11 @@ groups:
       - alert: ExternalHostFilesystemAlmostOutOfSpace
         expr: |
           (
-            node_filesystem_avail_bytes{job="external/node",fstype!~"tmpfs|ramfs|overlay|squashfs|exfat"}
-            / node_filesystem_size_bytes{job="external/node",fstype!~"tmpfs|ramfs|overlay|squashfs|exfat"} * 100 < 15
+            node_filesystem_avail_bytes{job="external/node",instance!="ai",fstype!~"tmpfs|ramfs|overlay|squashfs|exfat"}
+            / node_filesystem_size_bytes{job="external/node",instance!="ai",fstype!~"tmpfs|ramfs|overlay|squashfs|exfat"} * 100 < 15
           )
           and
-          node_filesystem_readonly{job="external/node",fstype!~"tmpfs|ramfs|overlay|squashfs|exfat"} == 0
+          node_filesystem_readonly{job="external/node",instance!="ai",fstype!~"tmpfs|ramfs|overlay|squashfs|exfat"} == 0
         for: 30m
         labels:
           severity: warning
@@ -44,7 +44,7 @@ groups:
 
       - alert: ExternalHostFilesystemReadOnly
         expr: |
-          node_filesystem_readonly{job="external/node",fstype!~"tmpfs|ramfs|overlay|squashfs"} == 1
+          node_filesystem_readonly{job="external/node",instance!="ai",fstype!~"tmpfs|ramfs|overlay|squashfs"} == 1
         for: 10m
         labels:
           severity: critical
@@ -101,6 +101,58 @@ groups:
         annotations:
           summary: "External host clock is not synchronising"
           description: "{{ $labels.instance }} has not synced its clock via NTP for 10 minutes and is drifting freely."
+
+  - name: ai-resources
+    interval: 1m
+    rules:
+      # APFS system snapshots are intentionally read-only. Check the writable
+      # Data volume only; exclude boot/recovery/helper volumes and autofs.
+      - alert: AIHostFilesystemAlmostOutOfSpace
+        expr: |
+          node_filesystem_avail_bytes{job="external/node",instance="ai",mountpoint="/System/Volumes/Data"}
+          / node_filesystem_size_bytes{job="external/node",instance="ai",mountpoint="/System/Volumes/Data"} * 100 < 15
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI data volume has less than 15% space left"
+          description: "{{ $labels.instance }} has {{ printf \"%.2f\" $value }}% available space on {{ $labels.mountpoint }}."
+
+      - alert: AIHostFilesystemReadOnly
+        expr: |
+          node_filesystem_readonly{job="external/node",instance="ai",mountpoint="/System/Volumes/Data"} == 1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AI data volume is read-only"
+          description: "The writable Data volume on {{ $labels.instance }} is reporting read-only."
+
+      # Darwin has no Linux MemAvailable series. Free and inactive pages are
+      # reclaimable; this is a utilisation estimate, not OS memory pressure.
+      - alert: AIHostMemoryHighUtilisation
+        expr: |
+          (
+            1 - (
+              node_memory_free_bytes{job="external/node",instance="ai"}
+              + node_memory_inactive_bytes{job="external/node",instance="ai"}
+            ) / node_memory_total_bytes{job="external/node",instance="ai"}
+          ) * 100 > 90
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI non-reclaimable memory utilisation is high"
+          description: "{{ $labels.instance }} has {{ printf \"%.2f\" $value }}% of memory outside free/inactive pages for 30 minutes."
+
+      - alert: AIInferenceRequestsDeferred
+        expr: max by (instance, model) (llamacpp:requests_deferred{job="external/llama-cpp"}) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI inference requests are queuing"
+          description: "{{ $labels.model }} on {{ $labels.instance }} has had {{ printf \"%.0f\" $value }} requests waiting for a slot for 15 minutes."
 
   - name: external-probes
     interval: 1m
