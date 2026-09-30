@@ -129,6 +129,16 @@ Operating notes:
 
 Spark jobs are a separate case. `spec.deps.packages` and `spark.sql.hive.metastore.jars: maven` resolve Maven coordinates with Ivy inside the driver JVM, which this cache cannot intercept; those still reach Maven Central.
 
+### External monitoring
+
+Alloy scrapes node_exporter on `pi.xiehang.com:9100` and `media.xiehang.com:9100` every 60 seconds under `job="external/node"`. These Linux hosts have separate resource alerts in `gitops/platform/mimir/extras/rules/external.yaml`; cluster node thresholds do not apply to them. Media provides Vault, Harbor, and SSH; it no longer serves inference.
+
+The embedded blackbox exporter checks Vault and Harbor on media, SSH banners on Pi/media/AI, llama.cpp router health at `http://ai.xiehang.com:8080/health`, and a nonempty model list at `/v1/models`. It also checks Grafana and Argo CD through the gateway, rebuild upstreams, and two internet anchors. Internal probe failures become critical after 10 minutes. The Infrastructure blackbox dashboard shows probe status and latency; the node-exporter dashboard shows Linux host resources. HTTP availability probes do not submit inference requests or prove generation works.
+
+AI runs macOS and llama.cpp in router mode. To expose inference metrics, add `metrics = true` to the shared `[*]` section of its `llama-cpp-svc/models.ini`, then run `./service.sh reload` in that service directory. Reload restarts the router and its models. Verify a loaded model with `curl --fail 'http://ai.xiehang.com:8080/metrics?model=qwen3-1.7b-q8'`. Each model requires its own `model` query parameter; the bare `/metrics` endpoint returns HTTP 400. Model metrics are not scraped until enabled on AI and their idle-model behavior is verified, so monitoring does not load otherwise idle models.
+
+For AI host resources, install and run a Darwin-compatible node_exporter on port 9100, reachable from the cluster nodes (`192.168.0.210-225`), then verify `http://ai.xiehang.com:9100/metrics`. AI is not yet a host scrape target. Its macOS collectors need matching alerts and dashboards; Linux memory, temperature, and clock rules cannot be assumed to work there.
+
 ### TLS
 
 `cert-manager-config` provisions Let's Encrypt `ClusterIssuer`s (`letsencrypt-prod` + `letsencrypt-staging`) using a Cloudflare DNS-01 solver, then issues `homelab-wildcard-tls` in `gateway-system` for `*.homelab.xiehang.com`. The Gateway terminates TLS on 443; upstream services speak plain HTTP. Every application `HTTPRoute` pins `sectionName: https`, so the port-80 listener serves nothing but the `http-to-https` route in `gateway-system`, which answers every host with a 301 to the same URL over HTTPS. The Cloudflare API token comes from Vault (`cloudflare/api-token`) via an `ExternalSecret`. Browsers trust LE out of the box — no operator-side CA import.

@@ -2,13 +2,17 @@
 # The broadest net: every exporter Alloy scrapes. A target that stops
 # answering is either the workload being down or its metrics path breaking,
 # and both are worth knowing about.
+#
+# external/node is the one exclusion: external.yaml pages on those two hosts
+# at critical after 10m, so leaving them in the broad net would only add a
+# second, weaker notification five minutes behind it.
 
 groups:
   - name: targets
     interval: 1m
     rules:
       - alert: TargetDown
-        expr: up == 0
+        expr: up{job!="external/node"} == 0
         for: 15m
         labels:
           severity: warning
