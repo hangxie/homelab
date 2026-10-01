@@ -3,7 +3,7 @@
 # arrive via inventory.ini [all:vars]; the entries below act as
 # fallbacks when running the playbooks against a hand-rolled inventory.
 
-kubernetes_version: "1.36"
+kubernetes_version: "1.37"
 pod_network_cidr: "10.10.0.0/16"
 service_network_cidr: "10.20.0.0/16"
 
