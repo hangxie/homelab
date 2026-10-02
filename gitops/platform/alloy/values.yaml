@@ -1272,13 +1272,19 @@ alloy:
         forward_to      = [prometheus.remote_write.mimir.receiver]
       }
 
-      // ── External llama.cpp router ─────────────────────────────────────────────
-      // Media runs llama.cpp in router mode. Refresh the loaded model set rather
-      // than scraping idle models. The router otherwise auto-loads a model on
-      // GET /metrics; autoload=false also protects the race where a model
-      // unloads between discovery and scraping. AI's mlx-lm has no /metrics.
+      // ── External llama.cpp routers ────────────────────────────────────────────
+      // Media and AI both run llama.cpp in router mode. Refresh the loaded model
+      // set rather than scraping idle models. The router otherwise auto-loads a
+      // model on GET /metrics; autoload=false also protects the race where a
+      // model unloads between discovery and scraping.
       remote.http "media_models" {
         url            = "http://media.xiehang.com:8080/v1/models"
+        poll_frequency = "60s"
+        poll_timeout   = "10s"
+      }
+
+      remote.http "ai_models" {
+        url            = "http://ai.xiehang.com:8080/v1/models"
         poll_frequency = "60s"
         poll_timeout   = "10s"
       }
@@ -1309,11 +1315,64 @@ alloy:
         }
       }
 
+      discovery.relabel "ai_llama" {
+        targets = [
+          {
+            "__address__" = "ai.xiehang.com:8080",
+            "instance" = "ai",
+            "model" = "qwen3.8-27b-q8",
+            "__param_model" = "qwen3.8-27b-q8",
+            "__param_autoload" = "false",
+            "__tmp_state" = string.join(json_path(remote.http.ai_models.content, "$.data[?(@.id == 'qwen3.8-27b-q8')].status.value"), ""),
+          },
+          {
+            "__address__" = "ai.xiehang.com:8080",
+            "instance" = "ai",
+            "model" = "qwen3-1.7b-q8",
+            "__param_model" = "qwen3-1.7b-q8",
+            "__param_autoload" = "false",
+            "__tmp_state" = string.join(json_path(remote.http.ai_models.content, "$.data[?(@.id == 'qwen3-1.7b-q8')].status.value"), ""),
+          },
+          {
+            "__address__" = "ai.xiehang.com:8080",
+            "instance" = "ai",
+            "model" = "deepseek-r1-1.5b-q8",
+            "__param_model" = "deepseek-r1-1.5b-q8",
+            "__param_autoload" = "false",
+            "__tmp_state" = string.join(json_path(remote.http.ai_models.content, "$.data[?(@.id == 'deepseek-r1-1.5b-q8')].status.value"), ""),
+          },
+          {
+            "__address__" = "ai.xiehang.com:8080",
+            "instance" = "ai",
+            "model" = "qwen3-30b-a3b-q4",
+            "__param_model" = "qwen3-30b-a3b-q4",
+            "__param_autoload" = "false",
+            "__tmp_state" = string.join(json_path(remote.http.ai_models.content, "$.data[?(@.id == 'qwen3-30b-a3b-q4')].status.value"), ""),
+          },
+        ]
+        rule {
+          source_labels = ["__tmp_state"]
+          regex         = "loaded"
+          action        = "keep"
+        }
+      }
+
       prometheus.scrape "media_llama" {
         clustering {
           enabled = true
         }
         targets         = discovery.relabel.media_llama.output
+        job_name        = "external/llama-cpp"
+        scrape_interval = "60s"
+        metrics_path    = "/metrics"
+        forward_to      = [prometheus.remote_write.mimir.receiver]
+      }
+
+      prometheus.scrape "ai_llama" {
+        clustering {
+          enabled = true
+        }
+        targets         = discovery.relabel.ai_llama.output
         job_name        = "external/llama-cpp"
         scrape_interval = "60s"
         metrics_path    = "/metrics"
@@ -1346,9 +1405,8 @@ alloy:
                 preferred_ip_protocol: ip4
                 ip_protocol_fallback: false
                 follow_redirects: false
-            # Validate OpenAI-compatible server responses (llama.cpp, mlx-lm) as
-            # well as their HTTP status.
-            inference_health:
+            # Validate llama.cpp responses as well as their HTTP status.
+            llama_health:
               prober: http
               timeout: 10s
               http:
@@ -1358,7 +1416,7 @@ alloy:
                 valid_status_codes: [200]
                 fail_if_body_not_matches_regexp:
                   - '"status"\s*:\s*"ok"'
-            inference_models:
+            llama_models:
               prober: http
               timeout: 10s
               http:
@@ -1430,31 +1488,31 @@ alloy:
           labels  = {scope = "internal"}
         }
 
-        // Media serves llama.cpp in router mode; AI serves mlx-lm. These reads
-        // check availability without submitting inference requests or loading
-        // an idle model.
+        // Media and AI both serve llama.cpp in router mode. These reads check
+        // availability without submitting inference requests or loading an idle
+        // model.
         target {
           name    = "media-llama-health"
           address = "http://media.xiehang.com:8080/health"
-          module  = "inference_health"
+          module  = "llama_health"
           labels  = {scope = "internal"}
         }
         target {
           name    = "media-llama-models"
           address = "http://media.xiehang.com:8080/v1/models"
-          module  = "inference_models"
+          module  = "llama_models"
           labels  = {scope = "internal"}
         }
         target {
-          name    = "ai-mlx-health"
+          name    = "ai-llama-health"
           address = "http://ai.xiehang.com:8080/health"
-          module  = "inference_health"
+          module  = "llama_health"
           labels  = {scope = "internal"}
         }
         target {
-          name    = "ai-mlx-models"
+          name    = "ai-llama-models"
           address = "http://ai.xiehang.com:8080/v1/models"
-          module  = "inference_models"
+          module  = "llama_models"
           labels  = {scope = "internal"}
         }
         target {

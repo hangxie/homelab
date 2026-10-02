@@ -1,7 +1,7 @@
 # ── Outside the cluster ─────────────────────────────────────────────────────
 # Alloy collects node_exporter metrics from Pi/media/AI (job "external/node"),
-# loaded llama.cpp model metrics from media (job "external/llama-cpp"), and
-# service probes from its embedded blackbox exporter (job "blackbox",
+# loaded llama.cpp model metrics from media and AI (job "external/llama-cpp"),
+# and service probes from its embedded blackbox exporter (job "blackbox",
 # instance = the probe's name).
 #
 # These hosts are not cluster nodes, so node.yaml's rules deliberately do not

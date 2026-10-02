@@ -92,7 +92,7 @@
     {
       "id": 2,
       "title": "Loaded models being scraped",
-      "description": "llama.cpp models on media. Only loaded models are targets; unloaded models disappear after discovery refresh. mlx-lm on AI exposes no metrics.",
+      "description": "llama.cpp models on media and AI. Only loaded models are targets; unloaded models disappear after discovery refresh.",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
