@@ -1,7 +1,8 @@
 # ── Outside the cluster ─────────────────────────────────────────────────────
 # Alloy collects node_exporter metrics from Pi/media/AI (job "external/node"),
-# loaded AI model metrics (job "external/llama-cpp"), and service probes from
-# its embedded blackbox exporter (job "blackbox", instance = the probe's name).
+# loaded llama.cpp model metrics from media (job "external/llama-cpp"), and
+# service probes from its embedded blackbox exporter (job "blackbox",
+# instance = the probe's name).
 #
 # These hosts are not cluster nodes, so node.yaml's rules deliberately do not
 # match them — a Pi idling hot and a media library sitting near full are normal
@@ -145,13 +146,13 @@ groups:
           summary: "AI non-reclaimable memory utilisation is high"
           description: "{{ $labels.instance }} has {{ printf \"%.2f\" $value }}% of memory outside free/inactive pages for 30 minutes."
 
-      - alert: AIInferenceRequestsDeferred
+      - alert: ExternalInferenceRequestsDeferred
         expr: max by (instance, model) (llamacpp:requests_deferred{job="external/llama-cpp"}) > 0
         for: 15m
         labels:
           severity: warning
         annotations:
-          summary: "AI inference requests are queuing"
+          summary: "Inference requests are queuing"
           description: "{{ $labels.model }} on {{ $labels.instance }} has had {{ printf \"%.0f\" $value }} requests waiting for a slot for 15 minutes."
 
   - name: external-probes
