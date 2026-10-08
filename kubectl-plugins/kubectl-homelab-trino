@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# All arguments go straight to `trino`. Credentials come from a TRINO_CONFIG
-# file written in the pod, since the CLI rejects repeated flags; any
-# --server/--user the caller passes wins.
+# All arguments go straight to `trino`; credentials sit in TRINO_CONFIG, not prepended
+# flags, since the CLI rejects repeats. Caller's --server/--user win.
 #
 # Examples:
 #   kubectl homelab trino --execute 'SHOW CATALOGS'
@@ -11,8 +10,7 @@
 # Environment:
 #   TRINO_NAMESPACE  Namespace holding Trino (default: trino)
 #   TRINO_IMAGE      trino CLI image (default: the cluster's own coordinator image)
-#   TRINO_URL        Server URL (default: https://trino.homelab.xiehang.com; must be
-#                    HTTPS, the CLI refuses password auth over HTTP)
+#   TRINO_URL        Server URL, HTTPS only (default: https://trino.homelab.xiehang.com)
 
 set -uo pipefail
 

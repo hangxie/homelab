@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# All arguments go straight to `ceph`; ceph.conf and keyring are built from
-# the rook-ceph-mon Secret and rook-ceph-mon-endpoints ConfigMap.
+# All arguments go straight to `ceph`, configured from rook-ceph-mon and rook-ceph-mon-endpoints.
 #
 # Examples:
 #   kubectl homelab ceph -s

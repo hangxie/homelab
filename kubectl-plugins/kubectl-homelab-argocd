@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# All arguments go straight to `argocd`, logged in with the admin password
-# from argocd-initial-admin-secret.
+# All arguments go straight to `argocd`, logged in via argocd-initial-admin-secret.
 #
 # Examples:
 #   kubectl homelab argocd app list
@@ -41,7 +40,6 @@ fi
 # Plaintext in-cluster service; TLS terminates at the gateway.
 ARGOCD_SERVER="argocd-server.${ARGOCD_NAMESPACE}.svc.cluster.local:80"
 
-# The caller's command reuses the session written by login.
 SCRIPT="argocd login ${ARGOCD_SERVER} --username admin --password \"\$(cat /etc/argocd-admin/password)\" --plaintext >/dev/null </dev/null
 exec argocd \"\$@\""
 
