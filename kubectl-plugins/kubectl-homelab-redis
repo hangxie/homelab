@@ -1,10 +1,7 @@
 #!/bin/bash
 
-# All arguments are passed straight to `redis-cli`, run against the cluster's
-# write master and authenticated with the password read live from the
-# redis-default Secret. redis-cli has no env var or config file for the
-# host, so the base -h is prepended; redis-cli applies the last -h it sees,
-# so a caller's -h still wins.
+# All arguments go straight to `redis-cli`, authenticated from redis-default.
+# -h is prepended (no env/config for it); redis-cli takes the last -h.
 #
 # Examples:
 #   kubectl homelab redis ping
@@ -41,10 +38,8 @@ if [[ -z "$REDIS_IMAGE" ]]; then
     [[ -z "$REDIS_IMAGE" ]] && REDIS_IMAGE="quay.io/opstree/redis:v7.0.15"
 fi
 
-# REDISCLI_AUTH keeps the password out of argv (avoids it showing in `ps`).
-# TERM=dumb: redis-cli's line editor probes the terminal with a cursor-
-# position query (ESC[6n) and blocks forever if nothing answers it, which
-# nothing does over kubectl's attach pty — dumb mode skips that probe.
+# REDISCLI_AUTH keeps the password out of argv. TERM=dumb skips the line
+# editor's cursor-position probe, which nothing answers over kubectl attach.
 SCRIPT="export REDISCLI_AUTH=\"\$(cat /etc/redis-admin/password)\"
 export TERM=dumb
 exec redis-cli -h ${REDIS_HOST} \"\$@\""

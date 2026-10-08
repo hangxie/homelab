@@ -1,9 +1,7 @@
 #!/bin/bash
 
-# All arguments are passed straight to mysql. The connection defaults (host,
-# root user and password) come from a ~/.my.cnf written in the pod, not
-# prepended flags, so any -h/-u/-p the caller passes simply overrides them.
-# Pick a database with -D or a positional name.
+# All arguments go straight to `mysql`. Root credentials come from a
+# ~/.my.cnf written in the pod, so any -h/-u/-p the caller passes wins.
 #
 # Examples:
 #   kubectl homelab mysql -e 'SHOW DATABASES'
