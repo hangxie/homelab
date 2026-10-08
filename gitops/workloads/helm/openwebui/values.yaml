@@ -33,9 +33,12 @@ openaiBaseApiUrls:
   - https://llama-cpp.homelab.xiehang.com/v1
 
 extraEnvVars:
-  # Neither backend authenticates, but OpenWebUI requires a key per URL.
+  # One key per openaiBaseApiUrls entry, same order; vLLM is unauthenticated.
   - name: OPENAI_API_KEYS
-    value: sk-dummy;sk-dummy
+    valueFrom:
+      secretKeyRef:
+        name: openwebui-openai-keys
+        key: api-keys
   # Bootstrap Job's signup is the first user (auto-admin in OpenWebUI). Any
   # subsequent signup lands in `pending` and needs admin approval.
   - name: DEFAULT_USER_ROLE

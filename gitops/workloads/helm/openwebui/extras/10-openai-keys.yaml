@@ -1,0 +1,24 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: openwebui-openai-keys
+  namespace: openwebui
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: openwebui-openai-keys
+    creationPolicy: Owner
+    template:
+      data:
+        # Order matches openaiBaseApiUrls: vLLM, then llama-cpp (LiteLLM).
+        api-keys: "sk-dummy;sk-{{ .key }}"
+  data:
+    - secretKey: key
+      remoteRef:
+        key: llama-cpp/litellm
+        property: master-key
