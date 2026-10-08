@@ -1,37 +1,33 @@
 #!/bin/bash
 
+# All arguments are passed straight to `trino`. The connection defaults
+# (server, admin user, password auth) come from a TRINO_CONFIG file written in
+# the pod, not prepended flags — the CLI rejects a repeated option, so
+# prepending would block overrides. Any --server/--user the caller passes
+# wins. TRINO_PASSWORD supplies the password from the trino-credentials Secret.
+#
+# Examples:
+#   kubectl homelab trino --execute 'SHOW CATALOGS'
+#   kubectl homelab trino --catalog hive --schema default
+#
+# Environment:
+#   TRINO_NAMESPACE  Namespace holding Trino (default: trino)
+#   TRINO_IMAGE      trino CLI image (default: the cluster's own coordinator image)
+#   TRINO_URL        Server URL (default: https://trino.homelab.xiehang.com — the CLI
+#                    refuses password auth over plain HTTP, and the in-cluster
+#                    service is unauthenticated TLS-less HTTP, so this must be
+#                    the gateway's HTTPS route)
+
 set -uo pipefail
 
-usage() {
-    cat <<'EOF'
-Usage: kubectl homelab trino [trino-args...]
-
-Run the `trino` CLI against the cluster from a one-shot pod, authenticated
-with the admin credentials read live from the trino-credentials Secret.
-
-Examples:
-  kubectl homelab trino --execute 'SHOW CATALOGS'
-  kubectl homelab trino --catalog hive --schema default
-
-Environment:
-  TRINO_NAMESPACE  Namespace holding Trino (default: trino)
-  TRINO_IMAGE      trino CLI image (default: the cluster's own coordinator image)
-  TRINO_URL        Server URL (default: https://trino.homelab.xiehang.com — the CLI
-                   refuses password auth over plain HTTP, and the in-cluster
-                   service is unauthenticated TLS-less HTTP, so this must be
-                   the gateway's HTTPS route)
-EOF
-}
-
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-    usage
-    exit 0
-fi
-
-if ! command -v jq >/dev/null 2>&1; then
-    echo "jq is required" >&2
-    exit 1
-fi
+# Follow the PATH symlink back to the repo so lib/ is found.
+SELF="${BASH_SOURCE[0]}"
+while [[ -L "$SELF" ]]; do
+    LINK="$(readlink "$SELF")"
+    if [[ "$LINK" == /* ]]; then SELF="$LINK"; else SELF="$(dirname "$SELF")/$LINK"; fi
+done
+# shellcheck source=lib/oneshot.sh
+. "$(cd "$(dirname "$SELF")" && pwd)/lib/oneshot.sh"
 
 TRINO_NAMESPACE="${TRINO_NAMESPACE:-trino}"
 TRINO_IMAGE="${TRINO_IMAGE:-}"
@@ -48,69 +44,17 @@ if [[ -z "$TRINO_IMAGE" ]]; then
     [[ -z "$TRINO_IMAGE" ]] && TRINO_IMAGE="trinodb/trino:480"
 fi
 
-# TRINO_PASSWORD lets the CLI's --password flag read the mounted credential
-# instead of prompting on a terminal that may not exist in this pod.
-SETUP_SCRIPT="set -euo pipefail
+SCRIPT="export TRINO_CONFIG=\$(mktemp)
 export TRINO_PASSWORD=\"\$(cat /etc/trino-admin/password)\"
-exec /usr/bin/trino --server ${TRINO_URL} --user \"\$(cat /etc/trino-admin/username)\" --password \"\$@\""
+cat > \"\$TRINO_CONFIG\" <<CFG
+server=${TRINO_URL}
+user=\$(cat /etc/trino-admin/username)
+password=true
+CFG
+exec /usr/bin/trino \"\$@\""
 
-POD_NAME="homelab-trino-cli-$$-${RANDOM}"
-INTERACTIVE=false
-[[ -t 0 && -t 1 ]] && INTERACTIVE=true
+CONTAINER='{ "volumeMounts": [{ "name": "admin-secret", "mountPath": "/etc/trino-admin", "readOnly": true }] }'
+VOLUMES='[{ "name": "admin-secret", "secret": { "secretName": "trino-credentials" } }]'
 
-build_overrides() {
-    local tty="$1"
-    shift
-    jq -nc \
-        --arg name "$POD_NAME" \
-        --arg image "$TRINO_IMAGE" \
-        --arg script "$SETUP_SCRIPT" \
-        --argjson tty "$tty" \
-        '{
-            apiVersion: "v1",
-            kind: "Pod",
-            metadata: { name: $name },
-            spec: {
-                restartPolicy: "Never",
-                containers: [{
-                    name: "trino",
-                    image: $image,
-                    stdin: $tty,
-                    tty: $tty,
-                    command: ["/bin/bash", "-c", $script, "homelab-trino"],
-                    args: $ARGS.positional,
-                    volumeMounts: [
-                        { name: "admin-secret", mountPath: "/etc/trino-admin", readOnly: true }
-                    ]
-                }],
-                volumes: [
-                    { name: "admin-secret", secret: { secretName: "trino-credentials" } }
-                ]
-            }
-        }' \
-        --args -- "$@"
-}
-
-if [[ "$INTERACTIVE" == true ]]; then
-    OVERRIDES=$(build_overrides true "$@")
-    kubectl run "$POD_NAME" -n "$TRINO_NAMESPACE" --rm -it --quiet --restart=Never \
-        --image="$TRINO_IMAGE" --overrides="$OVERRIDES"
-    exit $?
-fi
-
-OVERRIDES=$(build_overrides false "$@")
-kubectl run "$POD_NAME" -n "$TRINO_NAMESPACE" --restart=Never \
-    --image="$TRINO_IMAGE" --overrides="$OVERRIDES" >/dev/null
-
-PHASE=""
-for _ in $(seq 60); do
-    PHASE=$(kubectl get pod "$POD_NAME" -n "$TRINO_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)
-    [[ "$PHASE" == "Succeeded" || "$PHASE" == "Failed" ]] && break
-    sleep 1
-done
-
-kubectl logs "$POD_NAME" -n "$TRINO_NAMESPACE"
-EXIT_CODE=0
-[[ "$PHASE" != "Succeeded" ]] && EXIT_CODE=1
-kubectl delete pod "$POD_NAME" -n "$TRINO_NAMESPACE" --ignore-not-found >/dev/null 2>&1
-exit "$EXIT_CODE"
+oneshot_run "$TRINO_NAMESPACE" trino "$TRINO_IMAGE" "$SCRIPT" "$CONTAINER" "$VOLUMES" "$@"
+exit $?

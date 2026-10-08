@@ -1,51 +1,53 @@
 #!/bin/bash
 
-CLIENT_ID=${RANDOM}
+# All arguments are passed straight to psql. The connection defaults come
+# from libpq env vars (PGHOST, PGUSER, PGPASSWORD), not prepended flags, so
+# any -h/-U/-d the caller passes simply overrides them. With no -d or
+# positional database, psql connects to the database named after the user.
+#
+# Examples:
+#   kubectl homelab psql
+#   kubectl homelab psql -d some_db -c 'SELECT 1'
+#   kubectl homelab psql < dump.sql
+#
+# Environment:
+#   PSQL_NAMESPACE  Namespace holding the CNPG cluster (default: postgres-cluster)
+#   PSQL_IMAGE      psql image (default: the cluster's own postgres image)
+#   PSQL_HOST       Server host (default: postgres-cluster-rw.<namespace>.svc.cluster.local)
 
-DB_NAME=postgres
+set -uo pipefail
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -d|--database)
-      DB_NAME="$2"
-      shift 2 # Shift past the flag and its value
-      ;;
-    -h|--help)
-      echo "Usage: kubectl homelab psql [-d|--database <database>]"
-      echo "       Connect to the postgres-cluster rw service; default database is postgres."
-      exit 0
-      ;;
-    *)
-      echo "Unknown option: $1"
-      exit 1
-      ;;
-  esac
+# Follow the PATH symlink back to the repo so lib/ is found.
+SELF="${BASH_SOURCE[0]}"
+while [[ -L "$SELF" ]]; do
+    LINK="$(readlink "$SELF")"
+    if [[ "$LINK" == /* ]]; then SELF="$LINK"; else SELF="$(dirname "$SELF")/$LINK"; fi
 done
+# shellcheck source=lib/oneshot.sh
+. "$(cd "$(dirname "$SELF")" && pwd)/lib/oneshot.sh"
 
-kubectl -n postgres-cluster run lab-psql-client-${CLIENT_ID} --rm -it --quiet --image=postgres:18 --overrides='
-{
-  "apiVersion": "v1",
-  "spec": {
-    "containers": [{
-      "name": "lab-psql-client-'${CLIENT_ID}'",
-      "image": "postgres:18",
-      "stdin": true,
-      "tty": true,
-      "env": [{
-        "name": "PGPASSWORD",
-        "valueFrom": {
-          "secretKeyRef": {
-            "name": "postgres-cluster-superuser",
-            "key": "password"
-          }
-        }
-      }],
-      "command": ["psql"],
-      "args": [
-        "-h", "postgres-cluster-rw",
-        "-U", "postgres",
-        "-d", "'${DB_NAME}'"
-      ]
-    }]
-  }
-}'
+PSQL_NAMESPACE="${PSQL_NAMESPACE:-postgres-cluster}"
+PSQL_IMAGE="${PSQL_IMAGE:-}"
+PSQL_HOST="${PSQL_HOST:-postgres-cluster-rw.${PSQL_NAMESPACE}.svc.cluster.local}"
+
+if ! kubectl get secret postgres-cluster-superuser -n "$PSQL_NAMESPACE" >/dev/null 2>&1; then
+    echo "Secret postgres-cluster-superuser not found in namespace $PSQL_NAMESPACE" >&2
+    exit 1
+fi
+
+if [[ -z "$PSQL_IMAGE" ]]; then
+    PSQL_IMAGE=$(kubectl get cluster.postgresql.cnpg.io postgres-cluster -n "$PSQL_NAMESPACE" \
+        -o jsonpath='{.status.image}' 2>/dev/null)
+    [[ -z "$PSQL_IMAGE" ]] && PSQL_IMAGE="ghcr.io/cloudnative-pg/postgresql:18.3"
+fi
+
+CONTAINER=$(jq -nc --arg host "$PSQL_HOST" '{
+    env: [
+        { name: "PGHOST", value: $host },
+        { name: "PGUSER", valueFrom: { secretKeyRef: { name: "postgres-cluster-superuser", key: "username" } } },
+        { name: "PGPASSWORD", valueFrom: { secretKeyRef: { name: "postgres-cluster-superuser", key: "password" } } }
+    ]
+}')
+
+oneshot_run "$PSQL_NAMESPACE" psql "$PSQL_IMAGE" 'exec psql "$@"' "$CONTAINER" '[]' "$@"
+exit $?

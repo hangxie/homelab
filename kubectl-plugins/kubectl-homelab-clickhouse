@@ -1,35 +1,30 @@
 #!/bin/bash
 
+# All arguments are passed straight to `clickhouse-client`. The connection
+# defaults (host, user, password from the clickhouse-credentials Secret) come
+# from a ~/.clickhouse-client/config.xml written in the pod, not prepended
+# flags — clickhouse-client rejects a repeated option, so prepending would
+# block overrides. Any --host/--user/--password the caller passes wins.
+#
+# Examples:
+#   kubectl homelab clickhouse --query 'SHOW DATABASES'
+#   kubectl homelab clickhouse --database some_db
+#
+# Environment:
+#   CLICKHOUSE_NAMESPACE  Namespace holding ClickHouse (default: clickhouse)
+#   CLICKHOUSE_IMAGE      clickhouse-client image (default: the cluster's own server image)
+#   CLICKHOUSE_HOST       Server host (default: clickhouse.<namespace>.svc.cluster.local)
+
 set -uo pipefail
 
-usage() {
-    cat <<'EOF'
-Usage: kubectl homelab clickhouse [clickhouse-client-args...]
-
-Run the `clickhouse-client` CLI against the cluster from a one-shot pod,
-authenticated with the credentials read live from the clickhouse-credentials
-Secret.
-
-Examples:
-  kubectl homelab clickhouse --query 'SHOW DATABASES'
-  kubectl homelab clickhouse --database some_db
-
-Environment:
-  CLICKHOUSE_NAMESPACE  Namespace holding ClickHouse (default: clickhouse)
-  CLICKHOUSE_IMAGE      clickhouse-client image (default: the cluster's own server image)
-  CLICKHOUSE_HOST       Server host (default: clickhouse.<namespace>.svc.cluster.local)
-EOF
-}
-
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-    usage
-    exit 0
-fi
-
-if ! command -v jq >/dev/null 2>&1; then
-    echo "jq is required" >&2
-    exit 1
-fi
+# Follow the PATH symlink back to the repo so lib/ is found.
+SELF="${BASH_SOURCE[0]}"
+while [[ -L "$SELF" ]]; do
+    LINK="$(readlink "$SELF")"
+    if [[ "$LINK" == /* ]]; then SELF="$LINK"; else SELF="$(dirname "$SELF")/$LINK"; fi
+done
+# shellcheck source=lib/oneshot.sh
+. "$(cd "$(dirname "$SELF")" && pwd)/lib/oneshot.sh"
 
 CLICKHOUSE_NAMESPACE="${CLICKHOUSE_NAMESPACE:-clickhouse}"
 CLICKHOUSE_IMAGE="${CLICKHOUSE_IMAGE:-}"
@@ -46,66 +41,21 @@ if [[ -z "$CLICKHOUSE_IMAGE" ]]; then
     [[ -z "$CLICKHOUSE_IMAGE" ]] && CLICKHOUSE_IMAGE="clickhouse/clickhouse-server:25.7"
 fi
 
-SETUP_SCRIPT="set -euo pipefail
-exec clickhouse-client --host ${CLICKHOUSE_HOST} --user \"\$(cat /etc/clickhouse-admin/username)\" --password \"\$(cat /etc/clickhouse-admin/password)\" \"\$@\""
+# xml_escape keeps a credential with &, < or > from breaking the config.
+SCRIPT="xml_escape() { sed -e 's/&/\\&amp;/g' -e 's/</\\&lt;/g' -e 's/>/\\&gt;/g' \"\$1\"; }
+export HOME=\$(mktemp -d)
+mkdir -p \"\$HOME/.clickhouse-client\"
+cat > \"\$HOME/.clickhouse-client/config.xml\" <<XML
+<config>
+    <host>${CLICKHOUSE_HOST}</host>
+    <user>\$(xml_escape /etc/clickhouse-admin/username)</user>
+    <password>\$(xml_escape /etc/clickhouse-admin/password)</password>
+</config>
+XML
+exec clickhouse-client \"\$@\""
 
-POD_NAME="homelab-clickhouse-cli-$$-${RANDOM}"
-INTERACTIVE=false
-[[ -t 0 && -t 1 ]] && INTERACTIVE=true
+CONTAINER='{ "volumeMounts": [{ "name": "admin-secret", "mountPath": "/etc/clickhouse-admin", "readOnly": true }] }'
+VOLUMES='[{ "name": "admin-secret", "secret": { "secretName": "clickhouse-credentials" } }]'
 
-build_overrides() {
-    local tty="$1"
-    shift
-    jq -nc \
-        --arg name "$POD_NAME" \
-        --arg image "$CLICKHOUSE_IMAGE" \
-        --arg script "$SETUP_SCRIPT" \
-        --argjson tty "$tty" \
-        '{
-            apiVersion: "v1",
-            kind: "Pod",
-            metadata: { name: $name },
-            spec: {
-                restartPolicy: "Never",
-                containers: [{
-                    name: "clickhouse",
-                    image: $image,
-                    stdin: $tty,
-                    tty: $tty,
-                    command: ["/bin/bash", "-c", $script, "homelab-clickhouse"],
-                    args: $ARGS.positional,
-                    volumeMounts: [
-                        { name: "admin-secret", mountPath: "/etc/clickhouse-admin", readOnly: true }
-                    ]
-                }],
-                volumes: [
-                    { name: "admin-secret", secret: { secretName: "clickhouse-credentials" } }
-                ]
-            }
-        }' \
-        --args -- "$@"
-}
-
-if [[ "$INTERACTIVE" == true ]]; then
-    OVERRIDES=$(build_overrides true "$@")
-    kubectl run "$POD_NAME" -n "$CLICKHOUSE_NAMESPACE" --rm -it --quiet --restart=Never \
-        --image="$CLICKHOUSE_IMAGE" --overrides="$OVERRIDES"
-    exit $?
-fi
-
-OVERRIDES=$(build_overrides false "$@")
-kubectl run "$POD_NAME" -n "$CLICKHOUSE_NAMESPACE" --restart=Never \
-    --image="$CLICKHOUSE_IMAGE" --overrides="$OVERRIDES" >/dev/null
-
-PHASE=""
-for _ in $(seq 60); do
-    PHASE=$(kubectl get pod "$POD_NAME" -n "$CLICKHOUSE_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)
-    [[ "$PHASE" == "Succeeded" || "$PHASE" == "Failed" ]] && break
-    sleep 1
-done
-
-kubectl logs "$POD_NAME" -n "$CLICKHOUSE_NAMESPACE"
-EXIT_CODE=0
-[[ "$PHASE" != "Succeeded" ]] && EXIT_CODE=1
-kubectl delete pod "$POD_NAME" -n "$CLICKHOUSE_NAMESPACE" --ignore-not-found >/dev/null 2>&1
-exit "$EXIT_CODE"
+oneshot_run "$CLICKHOUSE_NAMESPACE" clickhouse "$CLICKHOUSE_IMAGE" "$SCRIPT" "$CONTAINER" "$VOLUMES" "$@"
+exit $?
