@@ -38,8 +38,7 @@ if [[ -z "$REDIS_IMAGE" ]]; then
     [[ -z "$REDIS_IMAGE" ]] && REDIS_IMAGE="quay.io/opstree/redis:v7.0.15"
 fi
 
-# REDISCLI_AUTH keeps the password out of argv. TERM=dumb skips the line
-# editor's cursor-position probe, which nothing answers over kubectl attach.
+# TERM=dumb skips redis-cli's cursor-position probe, which nothing answers over attach.
 SCRIPT="export REDISCLI_AUTH=\"\$(cat /etc/redis-admin/password)\"
 export TERM=dumb
 exec redis-cli -h ${REDIS_HOST} \"\$@\""

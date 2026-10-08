@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# All arguments go straight to `hdfs`, using the cluster's hdfs-config
-# ConfigMap. This HDFS has no auth.
+# All arguments go straight to `hdfs`, using the hdfs-config ConfigMap (no auth).
 #
 # Examples:
 #   kubectl homelab hdfs dfs -ls /

@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# All arguments go straight to `clickhouse-client`. Credentials come from a
-# config.xml written in the pod, since the CLI rejects repeated flags; any
-# --host/--user/--password the caller passes wins.
+# All arguments go straight to `clickhouse-client`; credentials sit in config.xml, not
+# prepended flags, since the CLI rejects repeats. Caller's --host/--user/--password win.
 #
 # Examples:
 #   kubectl homelab clickhouse --query 'SHOW DATABASES'

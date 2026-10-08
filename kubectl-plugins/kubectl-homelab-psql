@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# All arguments go straight to `psql`. Credentials come from PGHOST/PGUSER/
-# PGPASSWORD, so any -h/-U/-d the caller passes wins.
+# All arguments go straight to `psql`; credentials sit in PG* env vars, so caller's -h/-U/-d win.
 #
 # Examples:
 #   kubectl homelab psql

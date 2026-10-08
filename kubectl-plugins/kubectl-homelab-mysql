@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# All arguments go straight to `mysql`. Root credentials come from a
-# ~/.my.cnf written in the pod, so any -h/-u/-p the caller passes wins.
+# All arguments go straight to `mysql`; root credentials sit in ~/.my.cnf, so caller's -h/-u/-p win.
 #
 # Examples:
 #   kubectl homelab mysql -e 'SHOW DATABASES'
