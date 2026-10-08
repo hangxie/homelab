@@ -1,34 +1,30 @@
 #!/bin/bash
 
+# All arguments are passed straight to `redis-cli`, run against the cluster's
+# write master and authenticated with the password read live from the
+# redis-default Secret. redis-cli has no env var or config file for the
+# host, so the base -h is prepended; redis-cli applies the last -h it sees,
+# so a caller's -h still wins.
+#
+# Examples:
+#   kubectl homelab redis ping
+#   kubectl homelab redis --scan --pattern 'session:*'
+#
+# Environment:
+#   REDIS_NAMESPACE  Namespace holding Redis (default: redis)
+#   REDIS_IMAGE      redis-cli image (default: the cluster's own redis image)
+#   REDIS_HOST       Server host (default: redis-replication-master.<namespace>.svc.cluster.local)
+
 set -uo pipefail
 
-usage() {
-    cat <<'EOF'
-Usage: kubectl homelab redis [redis-cli-args...]
-
-Run the `redis-cli` against the cluster's write master from a one-shot pod,
-authenticated with the password read live from the redis-default Secret.
-
-Examples:
-  kubectl homelab redis ping
-  kubectl homelab redis --scan --pattern 'session:*'
-
-Environment:
-  REDIS_NAMESPACE  Namespace holding Redis (default: redis)
-  REDIS_IMAGE      redis-cli image (default: the cluster's own redis image)
-  REDIS_HOST       Server host (default: redis-replication-master.<namespace>.svc.cluster.local)
-EOF
-}
-
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-    usage
-    exit 0
-fi
-
-if ! command -v jq >/dev/null 2>&1; then
-    echo "jq is required" >&2
-    exit 1
-fi
+# Follow the PATH symlink back to the repo so lib/ is found.
+SELF="${BASH_SOURCE[0]}"
+while [[ -L "$SELF" ]]; do
+    LINK="$(readlink "$SELF")"
+    if [[ "$LINK" == /* ]]; then SELF="$LINK"; else SELF="$(dirname "$SELF")/$LINK"; fi
+done
+# shellcheck source=lib/oneshot.sh
+. "$(cd "$(dirname "$SELF")" && pwd)/lib/oneshot.sh"
 
 REDIS_NAMESPACE="${REDIS_NAMESPACE:-redis}"
 REDIS_IMAGE="${REDIS_IMAGE:-}"
@@ -49,68 +45,12 @@ fi
 # TERM=dumb: redis-cli's line editor probes the terminal with a cursor-
 # position query (ESC[6n) and blocks forever if nothing answers it, which
 # nothing does over kubectl's attach pty — dumb mode skips that probe.
-SETUP_SCRIPT="set -euo pipefail
-export REDISCLI_AUTH=\"\$(cat /etc/redis-admin/password)\"
+SCRIPT="export REDISCLI_AUTH=\"\$(cat /etc/redis-admin/password)\"
 export TERM=dumb
 exec redis-cli -h ${REDIS_HOST} \"\$@\""
 
-POD_NAME="homelab-redis-cli-$$-${RANDOM}"
-INTERACTIVE=false
-[[ -t 0 && -t 1 ]] && INTERACTIVE=true
+CONTAINER='{ "volumeMounts": [{ "name": "admin-secret", "mountPath": "/etc/redis-admin", "readOnly": true }] }'
+VOLUMES='[{ "name": "admin-secret", "secret": { "secretName": "redis-default" } }]'
 
-build_overrides() {
-    local tty="$1"
-    shift
-    jq -nc \
-        --arg name "$POD_NAME" \
-        --arg image "$REDIS_IMAGE" \
-        --arg script "$SETUP_SCRIPT" \
-        --argjson tty "$tty" \
-        '{
-            apiVersion: "v1",
-            kind: "Pod",
-            metadata: { name: $name },
-            spec: {
-                restartPolicy: "Never",
-                containers: [{
-                    name: "redis",
-                    image: $image,
-                    stdin: $tty,
-                    tty: $tty,
-                    command: ["/bin/bash", "-c", $script, "homelab-redis"],
-                    args: $ARGS.positional,
-                    volumeMounts: [
-                        { name: "admin-secret", mountPath: "/etc/redis-admin", readOnly: true }
-                    ]
-                }],
-                volumes: [
-                    { name: "admin-secret", secret: { secretName: "redis-default" } }
-                ]
-            }
-        }' \
-        --args -- "$@"
-}
-
-if [[ "$INTERACTIVE" == true ]]; then
-    OVERRIDES=$(build_overrides true "$@")
-    kubectl run "$POD_NAME" -n "$REDIS_NAMESPACE" --rm -it --quiet --restart=Never \
-        --image="$REDIS_IMAGE" --overrides="$OVERRIDES"
-    exit $?
-fi
-
-OVERRIDES=$(build_overrides false "$@")
-kubectl run "$POD_NAME" -n "$REDIS_NAMESPACE" --restart=Never \
-    --image="$REDIS_IMAGE" --overrides="$OVERRIDES" >/dev/null
-
-PHASE=""
-for _ in $(seq 60); do
-    PHASE=$(kubectl get pod "$POD_NAME" -n "$REDIS_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)
-    [[ "$PHASE" == "Succeeded" || "$PHASE" == "Failed" ]] && break
-    sleep 1
-done
-
-kubectl logs "$POD_NAME" -n "$REDIS_NAMESPACE"
-EXIT_CODE=0
-[[ "$PHASE" != "Succeeded" ]] && EXIT_CODE=1
-kubectl delete pod "$POD_NAME" -n "$REDIS_NAMESPACE" --ignore-not-found >/dev/null 2>&1
-exit "$EXIT_CODE"
+oneshot_run "$REDIS_NAMESPACE" redis "$REDIS_IMAGE" "$SCRIPT" "$CONTAINER" "$VOLUMES" "$@"
+exit $?

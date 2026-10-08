@@ -24,7 +24,7 @@ purpose_of() {
         "model llama")     echo "Manage GGUF models on the llama-cpp PVC and the Harbor cache" ;;
         "model vllm")      echo "Manage vLLM models on the PVC and Harbor" ;;
         mysql)             echo "Run the mysql CLI as root from a one-shot pod, credentials read live from mysql-root" ;;
-        psql)              echo "Connect to the postgres-cluster rw service, default DB is postgres" ;;
+        psql)              echo "Run psql against the postgres-cluster rw service from a one-shot pod, password read live from postgres-cluster-superuser" ;;
         redis)             echo "Run redis-cli against the write master from a one-shot pod, credentials read live from redis-default" ;;
         trino)             echo "Run the trino CLI from a one-shot pod, credentials read live from trino-credentials" ;;
         *)                 echo "" ;;
@@ -143,5 +143,6 @@ echo "Usage: kubectl homelab <command> [args...]"
 echo
 print_table "$(printf '%s\n' "$PLUGINS" | awk -F'\t' '{ print $1 "\t" $1 "\t" $2 }')"
 echo
-echo "Run 'kubectl homelab <command> -h' for one command's full help,"
-echo "e.g. 'kubectl homelab ceph -h' or 'kubectl homelab model vllm -h'."
+echo "Group commands list their subcommands with -h, e.g. 'kubectl homelab model -h'."
+echo "CLI wrappers (argocd, ceph, mysql, psql, ...) pass every argument, -h included,"
+echo "straight to the wrapped tool; their env overrides are in each script's header."

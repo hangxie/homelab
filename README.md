@@ -477,9 +477,7 @@ Verify discovery:
 kubectl plugin list
 ```
 
-`kubectl homelab -h` lists whatever is installed with a one-line summary of
-each. `kubectl homelab <command> -h` prints that plugin's own full usage, and
-the group commands (`df`, `list`, `model`) list their subcommands the same way.
+`kubectl homelab -h` lists whatever is installed with a one-line summary of each, and the group commands (`df`, `list`, `model`) list their subcommands the same way. The CLI wrappers (`argocd`, `ceph`, `clickhouse`, `hdfs`, `mysql`, `psql`, `redis`, `trino`) pass every argument, `-h` included, straight to the wrapped tool, so `-h` means whatever it means to that tool (`--host` for psql, mysql, redis-cli and clickhouse-client). Each wrapper's namespace/image/host env overrides are listed in its script header. They all run through `kubectl-plugins/lib/oneshot.sh`: piped stdin reaches the tool (`kubectl homelab psql < dump.sql`), output streams for as long as the tool runs, and the plugin exits with the tool's own exit code. Connection defaults come from env vars or a config file written in the pod rather than prepended flags, so a caller's `--user`/`--host` overrides them. The plugins find `lib/` by following their `PATH` symlink back to the repo, so the symlinks must point into a checkout.
 
 | Plugin | Invocation | Purpose |
 |---|---|---|
@@ -495,7 +493,7 @@ the group commands (`df`, `list`, `model`) list their subcommands the same way.
 | `kubectl-homelab-model-llama` | `kubectl homelab model llama list\|delete` | Manage GGUF models on the llama-cpp PVC |
 | `kubectl-homelab-model-vllm` | `kubectl homelab model vllm verify\|list\|delete` | Manage vLLM models on PVC and Harbor |
 | `kubectl-homelab-mysql` | `kubectl homelab mysql [mysql-args...]` | Run the `mysql` CLI as root from a one-shot pod, credentials read live from mysql-root |
-| `kubectl-homelab-psql` | `kubectl homelab psql [-d\|--database <database>]` | connect to postgres-cluster rw service, default DB is postgres |
+| `kubectl-homelab-psql` | `kubectl homelab psql [psql-args...]` | Run `psql` against the postgres-cluster rw service from a one-shot pod, superuser password read live from postgres-cluster-superuser |
 | `kubectl-homelab-redis` | `kubectl homelab redis [redis-cli-args...]` | Run `redis-cli` against the write master from a one-shot pod, credentials read live from redis-default |
 | `kubectl-homelab-trino` | `kubectl homelab trino [trino-args...]` | Run the `trino` CLI from a one-shot pod, credentials read live from trino-credentials |
 
