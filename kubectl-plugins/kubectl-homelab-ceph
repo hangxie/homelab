@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# All arguments are passed straight to `ceph`. ceph.conf and the keyring are
-# built live from the rook-ceph-mon Secret and rook-ceph-mon-endpoints
-# ConfigMap — no local ceph.conf or keyring needed.
+# All arguments go straight to `ceph`; ceph.conf and keyring are built from
+# the rook-ceph-mon Secret and rook-ceph-mon-endpoints ConfigMap.
 #
 # Examples:
 #   kubectl homelab ceph -s
@@ -38,8 +37,7 @@ if [[ -z "$ROOK_CEPH_IMAGE" ]]; then
     [[ -z "$ROOK_CEPH_IMAGE" ]] && ROOK_CEPH_IMAGE="quay.io/ceph/ceph:v19.2.4"
 fi
 
-# Rebuilds the same /etc/ceph/ceph.conf + keyring rook's own toolbox writes,
-# from the mon-endpoints ConfigMap and rook-ceph-mon Secret mounted below.
+# Same ceph.conf + keyring rook's toolbox writes.
 # shellcheck disable=SC2016 # expands in the container, not here
 SCRIPT='mkdir -p /etc/ceph
 client_name=$(cat /etc/rook-ceph-mon/ceph-username)

@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# All arguments are passed straight to `hdfs`, using the cluster's own
-# hdfs-config ConfigMap (core-site.xml/hdfs-site.xml). No auth is configured
-# on this HDFS deployment.
+# All arguments go straight to `hdfs`, using the cluster's hdfs-config
+# ConfigMap. This HDFS has no auth.
 #
 # Examples:
 #   kubectl homelab hdfs dfs -ls /

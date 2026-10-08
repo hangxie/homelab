@@ -1,9 +1,7 @@
 #!/bin/bash
 
-# All arguments are passed straight to psql. The connection defaults come
-# from libpq env vars (PGHOST, PGUSER, PGPASSWORD), not prepended flags, so
-# any -h/-U/-d the caller passes simply overrides them. With no -d or
-# positional database, psql connects to the database named after the user.
+# All arguments go straight to `psql`. Credentials come from PGHOST/PGUSER/
+# PGPASSWORD, so any -h/-U/-d the caller passes wins.
 #
 # Examples:
 #   kubectl homelab psql

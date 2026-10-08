@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# All arguments are passed straight to `argocd`. The pod logs in with the
-# admin password read live from the argocd-initial-admin-secret Secret, so no
-# local argocd config or token is needed.
+# All arguments go straight to `argocd`, logged in with the admin password
+# from argocd-initial-admin-secret.
 #
 # Examples:
 #   kubectl homelab argocd app list
@@ -39,12 +38,10 @@ if [[ -z "$ARGOCD_IMAGE" ]]; then
     [[ -z "$ARGOCD_IMAGE" ]] && ARGOCD_IMAGE="quay.io/argoproj/argocd:v3.4.3"
 fi
 
-# In-cluster service, plaintext per gitops/platform/argocd/values.yaml
-# (server.insecure: "true" — TLS is terminated at the gateway, not here).
+# Plaintext in-cluster service; TLS terminates at the gateway.
 ARGOCD_SERVER="argocd-server.${ARGOCD_NAMESPACE}.svc.cluster.local:80"
 
-# Logs in with the mounted admin password (never touches the local shell);
-# the CLI reuses the session written by login for the caller's command.
+# The caller's command reuses the session written by login.
 SCRIPT="argocd login ${ARGOCD_SERVER} --username admin --password \"\$(cat /etc/argocd-admin/password)\" --plaintext >/dev/null </dev/null
 exec argocd \"\$@\""
 
