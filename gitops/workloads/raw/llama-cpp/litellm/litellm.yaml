@@ -1,3 +1,26 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: litellm-master-key
+  namespace: llama-cpp
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: litellm-master-key
+    creationPolicy: Owner
+    template:
+      data:
+        # LiteLLM rejects master keys without the `sk-` prefix.
+        master-key: "sk-{{ .key }}"
+  data:
+    - secretKey: key
+      remoteRef:
+        key: llama-cpp/litellm
+        property: master-key
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -40,6 +63,12 @@ spec:
           args: [--config, /app/config.yaml, --port, "4000"]
           ports:
             - { containerPort: 4000 }
+          env:
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-master-key
+                  key: master-key
           volumeMounts:
             - { name: config, mountPath: /app/config.yaml, subPath: config.yaml }
       volumes:
