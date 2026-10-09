@@ -2,6 +2,8 @@
 # Return cluster nodes to bare Debian. Spec §6.2.
 # This does NOT touch Proxmox-level VM state; for full nuke run terraform destroy.
 
+- import_playbook: playbooks/preflight.yml
+
 - name: Uninstall Cilium and tear down Kubernetes
   hosts: masters,workers
   become: true

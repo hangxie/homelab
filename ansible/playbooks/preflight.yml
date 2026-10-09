@@ -1,0 +1,14 @@
+---
+# Imported first by bootstrap and reset, so a bad inventory fails before any host is touched.
+- name: Check required inventory variables
+  hosts: localhost
+  gather_facts: false
+  any_errors_fatal: true
+
+  tasks:
+    - name: Assert Terraform-supplied variables are set
+      assert:
+        that:
+          - kube_api_vip is defined
+          - kube_api_vip is ansible.utils.ipv4_address
+        fail_msg: "kube_api_vip must be an IPv4 address; regenerate ansible/inventory.ini with terraform apply or set it under [all:vars]."

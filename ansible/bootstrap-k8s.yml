@@ -2,6 +2,7 @@
 # Top-level bootstrap entrypoint.
 # Imports are appended phase-by-phase per the migration design.
 
+- import_playbook: playbooks/preflight.yml
 - import_playbook: playbooks/install-k8s-components.yml
 - import_playbook: playbooks/apiserver-vip.yml
 - import_playbook: playbooks/init-primary-master.yml
