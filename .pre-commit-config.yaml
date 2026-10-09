@@ -6,3 +6,11 @@ repos:
         name: Validate workload config.json
         files: ^gitops/workloads/helm/[^/]+/config\.json$
         args: [--schemafile, gitops/workloads/.schema.json]
+  - repo: local
+    hooks:
+      - id: check-pinned-versions
+        name: Check image and jar tags agree across files
+        entry: scripts/check-pinned-versions.py
+        language: system
+        pass_filenames: false
+        always_run: true

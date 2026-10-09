@@ -72,7 +72,7 @@ spec:
         runAsNonRoot: true
       initContainers:
         - name: volume-permissions
-          image: busybox:1.36
+          image: busybox:1.37
           command: ["sh", "-c", "mkdir -p /hadoop/dfs/name && chown -R 1000:1000 /hadoop/dfs/name"]
           securityContext:
             runAsUser: 0
@@ -163,7 +163,7 @@ spec:
         runAsNonRoot: true
       initContainers:
         - name: volume-permissions
-          image: busybox:1.36
+          image: busybox:1.37
           command: ["sh", "-c", "mkdir -p /hadoop/dfs/data && chown -R 1000:1000 /hadoop/dfs/data"]
           securityContext:
             runAsUser: 0
