@@ -12,7 +12,7 @@
 #   Cloudflare plugin installed:    pip install certbot-dns-cloudflare
 #   Cloudflare token (one of):
 #     CF_API_TOKEN env var
-#     VAULT_ADDR + VAULT_TOKEN  (reads cloudflare/api-token from Vault)
+#     VAULT_ADDR + VAULT_TOKEN  (reads homelab/cloudflare/api-token from Vault)
 #
 # To refresh certs/ after cert-manager renews in-cluster:
 #   kubectl get secret -n gateway-system homelab-wildcard-tls \
@@ -52,7 +52,7 @@ resolve_cf_token() {
     fi
     if command -v vault >/dev/null 2>&1 \
        && [[ -n "${VAULT_ADDR:-}" && -n "${VAULT_TOKEN:-}" ]]; then
-        vault kv get -field=api-token cloudflare/api-token
+        vault kv get -field=api-token homelab/cloudflare/api-token
         return
     fi
     log "ERROR: set CF_API_TOKEN, or set VAULT_ADDR + VAULT_TOKEN to read from Vault." >&2
