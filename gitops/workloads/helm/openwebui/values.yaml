@@ -33,7 +33,7 @@ openaiBaseApiUrls:
   - https://llama-cpp.homelab.xiehang.com/v1
 
 extraEnvVars:
-  # One key per openaiBaseApiUrls entry, same order; vLLM is unauthenticated.
+  # One key per openaiBaseApiUrls entry, same order.
   - name: OPENAI_API_KEYS
     valueFrom:
       secretKeyRef:

@@ -271,7 +271,7 @@ The operator wait matters for `postgres-cnpg/superuser`: CNPG copies that Secret
 
 Seven paths are held back from a bare run because nothing in the cluster re-applies them, or because re-applying them destroys data: `mysql/root`, `cassandra/admin`, `dbeaver/admin`, `airflow/admin`, `openwebui/admin`, `airflow/fernet-key` and `superset/secret`. `scripts/rotate-cred.sh --help` prints the reason for each. Naming one on the command line rotates it anyway and prints the manual step that is now outstanding.
 
-The llama-cpp `/v1` endpoint (LiteLLM) requires `Authorization: Bearer sk-<llama-cpp/litellm master-key>`; `kubectl homelab list dashboards` prints the full key. Rotating it restarts LiteLLM, but Open WebUI keeps connection keys in its database once an admin has saved the connection settings, so update the key there too. The public vLLM `/v1` endpoint is still unauthenticated.
+The llama-cpp `/v1` endpoint (LiteLLM) requires `Authorization: Bearer sk-<llama-cpp/litellm master-key>`; `kubectl homelab list dashboards` prints the full key. Rotating it restarts LiteLLM, but Open WebUI keeps connection keys in its database once an admin has saved the connection settings, so update the key there too. The vLLM `/v1` endpoint works the same way through its own LiteLLM in the `ray` namespace, keyed by `ray/litellm`.
 
 DBeaver/CloudBeaver is intentionally not Vault-seeded. It is an internal
 admin-only tool, and the first browser login creates the CloudBeaver admin in

@@ -4,7 +4,8 @@
 # pulls the listed model into the CephFS PVC.
 #
 # Operator workflow:
-#   - Add a model:    edit MODELS env var (comma-separated), commit, push.
+#   - Add a model:    edit MODELS env var (comma-separated) and the matching
+#                     model_list in litellm.yaml, commit, push.
 #   - Remove a model: same; then optionally `kubectl homelab model vllm delete <id>`.
 #   - Change a serve script or the tool chat template: commit, then
 #     `kubectl -n ray delete raycluster <name>` -- subPath mounts never refresh
@@ -347,20 +348,3 @@ spec:
               - { name: llm-models,   persistentVolumeClaim: { claimName: llm-models } }
               - { name: shared-bin,   emptyDir: {} }
               - { name: host-ca,      hostPath: { path: /etc/ssl/certs, type: Directory } }
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: ray-vllm
-  namespace: ray
-spec:
-  parentRefs:
-    - name: default-gateway
-      namespace: gateway-system
-      sectionName: https
-  hostnames:
-    - "vllm.homelab.xiehang.com"
-  rules:
-    - backendRefs:
-        - name: ray-vllm-serve-svc
-          port: 8000

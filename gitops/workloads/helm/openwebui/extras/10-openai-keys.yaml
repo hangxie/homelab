@@ -15,10 +15,14 @@ spec:
     creationPolicy: Owner
     template:
       data:
-        # Order matches openaiBaseApiUrls: vLLM, then llama-cpp (LiteLLM).
-        api-keys: "sk-dummy;sk-{{ .key }}"
+        # Order matches openaiBaseApiUrls: vLLM, then llama-cpp (both LiteLLM).
+        api-keys: "sk-{{ .vllm }};sk-{{ .llamacpp }}"
   data:
-    - secretKey: key
+    - secretKey: vllm
+      remoteRef:
+        key: ray/litellm
+        property: master-key
+    - secretKey: llamacpp
       remoteRef:
         key: llama-cpp/litellm
         property: master-key
