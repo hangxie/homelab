@@ -3,15 +3,13 @@
   hosts: localhost
   gather_facts: false
   vars:
-    kubeconfig: "/tmp/k8s-setup-latest/admin.conf"
-    kube_api_vip_default: "192.168.0.218"
-    control_plane_host: "{{ kube_api_vip | default(kube_api_vip_default) }}"
+    control_plane_host: "{{ kube_api_vip }}"
 
   tasks:
     - name: Wait for Kubernetes API server to be ready
       command: kubectl get --raw=/readyz
       environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
       register: apiserver_ready
       changed_when: false
       retries: 30
@@ -22,7 +20,7 @@
 
     - name: Check if Gateway API CRDs are installed
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: apiextensions.k8s.io/v1
         kind: CustomResourceDefinition
         name: gateways.gateway.networking.k8s.io
@@ -30,7 +28,7 @@
 
     - name: Install Gateway API CRDs (standard channel)
       kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: present
         apply: true
         src: "https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ gateway_api_version }}/standard-install.yaml"
@@ -38,7 +36,7 @@
 
     - name: Wait for Gateway API CRDs to be established
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: apiextensions.k8s.io/v1
         kind: CustomResourceDefinition
         name: "{{ item }}"
@@ -59,7 +57,7 @@
     # This patch re-enables v1alpha2 serving idempotently.
     - name: Read TLSRoute CRD versions
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: apiextensions.k8s.io/v1
         kind: CustomResourceDefinition
         name: tlsroutes.gateway.networking.k8s.io
@@ -77,7 +75,7 @@
 
     - name: Ensure TLSRoute v1alpha2 is served for Cilium operator compatibility
       kubernetes.core.k8s_json_patch:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: apiextensions.k8s.io/v1
         kind: CustomResourceDefinition
         name: tlsroutes.gateway.networking.k8s.io
@@ -91,14 +89,14 @@
 
     - name: Ensure Cilium helm repo is present
       kubernetes.core.helm_repository:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         repo_name: cilium
         repo_url: https://helm.cilium.io/
 
     - name: Check whether Cilium release is already installed
       command: helm list -n kube-system -q
       environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
       register: cilium_release_check
       changed_when: false
       failed_when: false
@@ -110,7 +108,7 @@
     # cert-manager) - those are layered on later by cilium-post-bootstrap.yml.
     - name: Install Cilium bootstrap CNI (only on first run)
       kubernetes.core.helm:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         chart_ref: cilium/cilium
         release_name: cilium
         release_namespace: kube-system
@@ -130,7 +128,7 @@
 
     - name: Wait for Cilium agent pods to be ready
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: v1
         kind: Pod
         namespace: kube-system
@@ -148,7 +146,7 @@
 
     - name: Wait for Cilium operator to be ready
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: v1
         kind: Pod
         namespace: kube-system
@@ -162,7 +160,7 @@
 
     - name: Verify Cilium GatewayClass is accepted
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: gateway.networking.k8s.io/v1
         kind: GatewayClass
         name: cilium
@@ -178,7 +176,7 @@
 
     - name: Capture Cilium agent pod status
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: v1
         kind: Pod
         namespace: kube-system
@@ -188,7 +186,7 @@
 
     - name: Capture Cilium operator pod status
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: v1
         kind: Pod
         namespace: kube-system

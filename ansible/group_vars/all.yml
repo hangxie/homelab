@@ -1,13 +1,10 @@
 ---
-# Variables consumed by every play. Terraform-supplied values (kube_api_vip)
-# arrive via inventory.ini [all:vars]; the entries below act as
-# fallbacks when running the playbooks against a hand-rolled inventory.
+# Variables consumed by every play. Don't repeat Terraform's inventory.ini
+# [all:vars] (kube_api_vip, storage_classes) here: this file outranks them.
 
 kubernetes_version: "1.37"
 pod_network_cidr: "10.10.0.0/16"
 service_network_cidr: "10.20.0.0/16"
-
-kube_api_vip: "192.168.0.218"
 
 # VRRP shared secret + virtual router id consumed by apiserver-vip.yml.
 # Operator picks the auth pass once at bootstrap; suggested: `openssl rand -hex 4`.

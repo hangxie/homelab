@@ -123,7 +123,7 @@
 
     - name: Check if local join command exists
       stat:
-        path: /tmp/k8s-setup-latest/join-command-control-plane.sh
+        path: "{{ local_setup_dir }}/join-command-control-plane.sh"
       register: join_file
       delegate_to: localhost
       become: false
@@ -131,7 +131,7 @@
 
     - name: Read control plane join command from file
       slurp:
-        src: /tmp/k8s-setup-latest/join-command-control-plane.sh
+        src: "{{ local_setup_dir }}/join-command-control-plane.sh"
       register: join_command_file
       delegate_to: localhost
       become: false
