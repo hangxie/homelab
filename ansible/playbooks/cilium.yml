@@ -3,9 +3,6 @@
   hosts: localhost
   gather_facts: false
   vars:
-    cilium_version: "1.19.4"
-    gateway_api_version: "v1.5.1"
-    pod_network_cidr: "10.10.0.0/16"
     kubeconfig: "/tmp/k8s-setup-latest/admin.conf"
     kube_api_vip_default: "192.168.0.218"
     control_plane_host: "{{ kube_api_vip | default(kube_api_vip_default) }}"
