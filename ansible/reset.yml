@@ -101,9 +101,9 @@
     - name: Drop kube-API VIP from interface (masters only, best effort)
       shell: |
         set -e
-        iface=$(ip -o route get {{ kube_api_vip | default('192.168.0.218') }} 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="dev") print $(i+1)}' | head -1)
-        if [ -n "$iface" ] && ip -o addr show dev "$iface" | grep -q "{{ kube_api_vip | default('192.168.0.218') }}"; then
-          ip addr del {{ kube_api_vip | default('192.168.0.218') }}/24 dev "$iface"
+        iface=$(ip -o route get {{ kube_api_vip }} 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="dev") print $(i+1)}' | head -1)
+        if [ -n "$iface" ] && ip -o addr show dev "$iface" | grep -q "{{ kube_api_vip }}"; then
+          ip addr del {{ kube_api_vip }}/24 dev "$iface"
         fi
       failed_when: false
       changed_when: true

@@ -3,8 +3,7 @@
   hosts: masters[0]
   become: true
   vars:
-    kube_api_vip_default: "192.168.0.218"
-    kube_api_endpoint_host: "{{ kube_api_vip | default(kube_api_vip_default) }}"
+    kube_api_endpoint_host: "{{ kube_api_vip }}"
     kube_api_control_plane_endpoint: "{{ kube_api_endpoint_host }}:6443"
     kube_api_cert_sans: "{{ ([kube_api_endpoint_host] + (groups['masters'] | map('extract', hostvars, 'ansible_host') | list) + groups['masters']) | unique }}"
 
@@ -142,7 +141,7 @@
     - name: Create symlink to latest setup dir
       file:
         src: "{{ temp_dir.stdout }}"
-        dest: /tmp/k8s-setup-latest
+        dest: "{{ local_setup_dir }}"
         state: link
         force: yes
       delegate_to: localhost
@@ -181,4 +180,4 @@
 
     - name: Show temp directory location
       debug:
-        msg: "Join files saved to {{ temp_dir.stdout }} (symlinked at /tmp/k8s-setup-latest)"
+        msg: "Join files saved to {{ temp_dir.stdout }} (symlinked at {{ local_setup_dir }})"

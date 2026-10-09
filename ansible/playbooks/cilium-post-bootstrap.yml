@@ -9,14 +9,12 @@
   hosts: localhost
   gather_facts: false
   vars:
-    kubeconfig: "/tmp/k8s-setup-latest/admin.conf"
-    kube_api_vip_default: "192.168.0.218"
-    kube_api_endpoint_host: "{{ kube_api_vip | default(kube_api_vip_default) }}"
+    kube_api_endpoint_host: "{{ kube_api_vip }}"
     kube_api_endpoint: "https://{{ kube_api_endpoint_host }}:6443"
 
   tasks:
     - name: Verify Kubernetes API through LoadBalancer VIP
-      command: kubectl --kubeconfig {{ kubeconfig }} --server={{ kube_api_endpoint }} get --raw=/readyz
+      command: kubectl --kubeconfig {{ bootstrap_kubeconfig }} --server={{ kube_api_endpoint }} get --raw=/readyz
       register: kube_api_vip_ready
       changed_when: false
       retries: 30
@@ -31,7 +29,7 @@
       # apps simultaneously) just to get the namespace. Grafana itself deploys into
       # this pre-existing namespace after root sync is re-enabled post-upgrade.
       kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: present
         definition:
           apiVersion: v1
@@ -47,14 +45,14 @@
       # after a startup race even though the Secret was created correctly, so nudge
       # those to unblock resources gated on them.
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: external-secrets.io/v1
         kind: ExternalSecret
       register: external_secret_list
 
     - name: Nudge stale ExternalSecrets
       kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: patched
         api_version: external-secrets.io/v1
         kind: ExternalSecret
@@ -79,7 +77,7 @@
 
     - name: Wait for rook-ceph block StorageClass
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: storage.k8s.io/v1
         kind: StorageClass
         name: rook-ceph-block
@@ -90,7 +88,7 @@
 
     - name: Wait for CephCluster to be ready
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: ceph.rook.io/v1
         kind: CephCluster
         namespace: rook-ceph
@@ -104,7 +102,7 @@
 
     - name: Capture Cilium config before post-bootstrap upgrade
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: v1
         kind: ConfigMap
         namespace: kube-system
@@ -113,7 +111,7 @@
 
     - name: Helm upgrade Cilium with post-bootstrap features
       kubernetes.core.helm:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         chart_ref: cilium/cilium
         release_name: cilium
         release_namespace: kube-system
@@ -188,7 +186,7 @@
 
     - name: Capture Cilium config after post-bootstrap upgrade
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: v1
         kind: ConfigMap
         namespace: kube-system
@@ -197,7 +195,7 @@
 
     - name: Restart Cilium agents to pick up cilium-config changes
       kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: patched
         api_version: apps/v1
         kind: "{{ item.kind }}"
@@ -223,7 +221,7 @@
     - name: Wait for Cilium agent rollout
       command: kubectl -n kube-system rollout status daemonset/cilium --timeout=120s
       environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
       retries: 10
       delay: 30
       register: cilium_agent_rollout
@@ -233,7 +231,7 @@
     - name: Wait for Cilium operator rollout
       command: kubectl -n kube-system rollout status deployment/cilium-operator --timeout=300s
       environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
       retries: 3
       delay: 30
       register: cilium_operator_rollout
@@ -243,7 +241,7 @@
     - name: Wait for SPIRE server to be ready
       command: kubectl -n cilium-spire rollout status statefulset/spire-server --timeout=300s
       environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
       retries: 3
       delay: 30
       register: spire_server_ready
@@ -253,7 +251,7 @@
     - name: Wait for SPIRE agents to be ready
       command: kubectl -n cilium-spire rollout status daemonset/spire-agent --timeout=300s
       environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
       retries: 3
       delay: 30
       register: spire_agent_ready
@@ -263,7 +261,7 @@
     - name: Wait for Hubble Relay to be ready
       command: kubectl -n kube-system rollout status deployment/hubble-relay --timeout=300s
       environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
       retries: 3
       delay: 30
       register: hubble_relay_ready
@@ -273,7 +271,7 @@
     - name: Wait for Hubble UI to be ready
       command: kubectl -n kube-system rollout status deployment/hubble-ui --timeout=300s
       environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+        KUBECONFIG: "{{ bootstrap_kubeconfig }}"
       retries: 3
       delay: 30
       register: hubble_ui_ready
@@ -284,7 +282,7 @@
       # Cilium, SPIRE, and Hubble are all healthy at this point. Re-enabling now
       # lets Argo CD fan-out waves 300+ without racing the helm upgrade.
       kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: present
         apply: true
         src: "{{ repo_root }}/gitops/cluster/root-app.yaml"
@@ -293,7 +291,7 @@
 
     - name: Apply Hubble UI HTTPRoute
       kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: present
         definition:
           apiVersion: gateway.networking.k8s.io/v1
@@ -315,7 +313,7 @@
 
     - name: Verify dashboard ConfigMaps are present
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
+        kubeconfig: "{{ bootstrap_kubeconfig }}"
         api_version: v1
         kind: ConfigMap
         namespace: grafana
