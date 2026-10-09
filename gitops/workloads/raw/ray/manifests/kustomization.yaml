@@ -7,6 +7,7 @@ kind: Kustomization
 
 resources:
   - ray.yaml
+  - litellm.yaml
   - route-ray-dashboard.yaml
 
 # The sidecar names files after the ConfigMap's data keys, not the ConfigMap,

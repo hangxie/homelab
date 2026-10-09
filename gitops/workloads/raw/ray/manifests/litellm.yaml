@@ -1,0 +1,106 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: litellm-master-key
+  namespace: ray
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: litellm-master-key
+    creationPolicy: Owner
+    template:
+      data:
+        # LiteLLM rejects master keys without the `sk-` prefix.
+        master-key: "sk-{{ .key }}"
+  data:
+    - secretKey: key
+      remoteRef:
+        key: ray/litellm
+        property: master-key
+---
+# model_list mirrors MODELS in ray.yaml's serveConfigV2; keep the two in step.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: ray
+data:
+  config.yaml: |
+    model_list:
+      - model_name: Qwen/Qwen2.5-Coder-1.5B-Instruct-AWQ
+        litellm_params:
+          model: openai/Qwen/Qwen2.5-Coder-1.5B-Instruct-AWQ
+          api_base: http://ray-vllm-serve-svc.ray.svc:8000/v1
+          api_key: dummy
+      - model_name: meta-llama/Llama-3.2-1B-Instruct
+        litellm_params:
+          model: openai/meta-llama/Llama-3.2-1B-Instruct
+          api_base: http://ray-vllm-serve-svc.ray.svc:8000/v1
+          api_key: dummy
+    litellm_settings:
+      drop_params: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm
+  namespace: ray
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: litellm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: litellm
+    spec:
+      containers:
+        - name: litellm
+          image: ghcr.io/berriai/litellm:main-stable
+          args: [--config, /app/config.yaml, --port, "4000"]
+          ports:
+            - { containerPort: 4000 }
+          env:
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-master-key
+                  key: master-key
+          volumeMounts:
+            - { name: config, mountPath: /app/config.yaml, subPath: config.yaml }
+      volumes:
+        - name: config
+          configMap:
+            name: litellm-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm
+  namespace: ray
+spec:
+  selector:
+    app.kubernetes.io/name: litellm
+  ports:
+    - { port: 4000, targetPort: 4000 }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: litellm
+  namespace: ray
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+      sectionName: https
+  hostnames:
+    - "vllm.homelab.xiehang.com"
+  rules:
+    - backendRefs:
+        - name: litellm
+          port: 4000
