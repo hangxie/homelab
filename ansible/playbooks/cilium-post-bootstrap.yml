@@ -9,7 +9,6 @@
   hosts: localhost
   gather_facts: false
   vars:
-    cilium_version: "1.19.4"
     kubeconfig: "/tmp/k8s-setup-latest/admin.conf"
     kube_api_vip_default: "192.168.0.218"
     kube_api_endpoint_host: "{{ kube_api_vip | default(kube_api_vip_default) }}"

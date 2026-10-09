@@ -3,8 +3,6 @@
   hosts: masters[0]
   become: true
   vars:
-    pod_network_cidr: "10.10.0.0/16"
-    service_network_cidr: "10.20.0.0/16"
     kube_api_vip_default: "192.168.0.218"
     kube_api_endpoint_host: "{{ kube_api_vip | default(kube_api_vip_default) }}"
     kube_api_control_plane_endpoint: "{{ kube_api_endpoint_host }}:6443"
