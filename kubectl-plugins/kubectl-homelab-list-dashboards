@@ -131,6 +131,10 @@ while IFS=$'\t' read -r ns name hostname; do
         ray/ray-dashboard|spark/spark-history-server)
             print_row "$url" "-" "(no auth)"
             ;;
+        mattermost/mattermost)
+            # The router maps WAN 10443 to public-gateway:443.
+            print_secret_row "${url}:10443" mattermost mattermost-admin password sysadmin
+            ;;
         openwebui/open-webui)
             print_secret_row "$url" openwebui openwebui-admin password admin@homelab.xiehang.com
             ;;

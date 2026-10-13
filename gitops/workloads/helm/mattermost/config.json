@@ -1,0 +1,5 @@
+{
+  "chart_repo": "https://helm.mattermost.com",
+  "chart_name": "mattermost-team-edition",
+  "chart_version": "6.6.108"
+}

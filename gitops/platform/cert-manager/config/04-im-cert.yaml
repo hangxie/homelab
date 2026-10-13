@@ -1,0 +1,20 @@
+# Public Mattermost hostname, served by public-gateway (not the wildcard).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: im-xiehang
+  namespace: gateway-system
+spec:
+  secretName: im-xiehang-tls
+  duration: 2160h       # 90d (LE max)
+  renewBefore: 720h     # 30d
+  commonName: "im.xiehang.com"
+  dnsNames:
+    - "im.xiehang.com"
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+    group: cert-manager.io
