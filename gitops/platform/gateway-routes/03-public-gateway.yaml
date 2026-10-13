@@ -1,0 +1,26 @@
+# Internet-facing gateway: the router forwards WAN 10443 to 443 here, nothing
+# else.
+# HTTPS only, and only the mattermost namespace may attach routes, so a private
+# HTTPRoute cannot be exposed by pointing it at this gateway.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: public-gateway
+  namespace: gateway-system
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: im.xiehang.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: im-xiehang-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: mattermost

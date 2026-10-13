@@ -1,0 +1,64 @@
+# Service, labels and NetworkPolicy selector key off this name.
+nameOverride: mattermost
+
+# Config lives in Postgres (MM_CONFIG below) and files in the mattermost-data
+# OBC; uploaded plugins are re-extracted from the file store on start. No PVCs.
+persistence:
+  data:
+    enabled: false
+  plugins:
+    enabled: false
+
+mysql:
+  enabled: false
+
+# The chart renders this DSN into a plain Secret, so it carries no password;
+# lib/pq picks it up from PGPASSWORD (extraEnvVars).
+externalDB:
+  enabled: true
+  externalDriverType: postgres
+  externalConnectionString: "mattermost@postgres-cluster-rw.postgres-cluster.svc:5432/mattermost?sslmode=require&connect_timeout=10"
+
+config:
+  MM_PLUGINSETTINGS_CLIENTDIRECTORY: "./client/plugins"
+  # The external port: the router forwards WAN 10443 to public-gateway:443.
+  MM_SERVICESETTINGS_SITEURL: "https://im.xiehang.com:10443"
+  MM_SQLSETTINGS_DRIVERNAME: postgres
+  MM_SQLSETTINGS_DATASOURCE: "postgres://mattermost@postgres-cluster-rw.postgres-cluster.svc:5432/mattermost?sslmode=require&connect_timeout=10"
+  # Invite-only; the admin is created by the mattermost-admin-bootstrap Job.
+  MM_TEAMSETTINGS_ENABLEOPENSERVER: "false"
+  # Unix socket inside the container only; lets `kubectl exec ... mmctl --local`
+  # recover the admin without an API login (README.md).
+  MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
+  MM_FILESETTINGS_DRIVERNAME: amazons3
+  MM_FILESETTINGS_AMAZONS3BUCKET: mattermost-data
+  MM_FILESETTINGS_AMAZONS3ENDPOINT: "rook-ceph-rgw-object-store.rook-ceph.svc:80"
+  MM_FILESETTINGS_AMAZONS3REGION: us-east-1
+  MM_FILESETTINGS_AMAZONS3SSL: "false"
+  # Team Edition can only use the free test push proxy (no delivery SLA).
+  MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS: "true"
+  MM_EMAILSETTINGS_PUSHNOTIFICATIONSERVER: "https://push-test.mattermost.com"
+
+extraEnvVars:
+  - name: PGPASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: mattermost-db-credentials
+        key: password
+  - name: MM_FILESETTINGS_AMAZONS3ACCESSKEYID
+    valueFrom:
+      secretKeyRef:
+        name: mattermost-data
+        key: AWS_ACCESS_KEY_ID
+  - name: MM_FILESETTINGS_AMAZONS3SECRETACCESSKEY
+    valueFrom:
+      secretKeyRef:
+        name: mattermost-data
+        key: AWS_SECRET_ACCESS_KEY
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    memory: 2Gi
