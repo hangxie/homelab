@@ -305,7 +305,7 @@
                 namespace: gateway-system
                 sectionName: https
             hostnames:
-              - "hubble.homelab.xiehang.com"
+              - "hubble.{{ domain_suffix }}"
             rules:
               - backendRefs:
                   - name: hubble-ui

@@ -10,7 +10,7 @@
 # Environment:
 #   TRINO_NAMESPACE  Namespace holding Trino (default: trino)
 #   TRINO_IMAGE      trino CLI image (default: the cluster's own coordinator image)
-#   TRINO_URL        Server URL, HTTPS only (default: https://trino.homelab.xiehang.com)
+#   TRINO_URL        Server URL, HTTPS only (default: from the trino HTTPRoute)
 
 set -uo pipefail
 
@@ -25,11 +25,20 @@ done
 
 TRINO_NAMESPACE="${TRINO_NAMESPACE:-trino}"
 TRINO_IMAGE="${TRINO_IMAGE:-}"
-TRINO_URL="${TRINO_URL:-https://trino.homelab.xiehang.com}"
+TRINO_URL="${TRINO_URL:-}"
 
 if ! kubectl get secret trino-credentials -n "$TRINO_NAMESPACE" >/dev/null 2>&1; then
     echo "Secret trino-credentials not found in namespace $TRINO_NAMESPACE" >&2
     exit 1
+fi
+
+if [[ -z "$TRINO_URL" ]]; then
+    host=$(kubectl get httproute trino -n "$TRINO_NAMESPACE" -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null)
+    if [[ -z "$host" ]]; then
+        echo "HTTPRoute trino has no hostname in namespace $TRINO_NAMESPACE; set TRINO_URL" >&2
+        exit 1
+    fi
+    TRINO_URL="https://${host}"
 fi
 
 if [[ -z "$TRINO_IMAGE" ]]; then

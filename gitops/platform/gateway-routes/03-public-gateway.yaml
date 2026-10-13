@@ -2,11 +2,17 @@
 # else.
 # HTTPS only, and only the mattermost namespace may attach routes, so a private
 # HTTPRoute cannot be exposed by pointing it at this gateway.
+# The listener hostname is the only copy of it: cert-manager's gateway-shim
+# issues the cert from it and the mattermost HTTPRoute inherits it.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: public-gateway
   namespace: gateway-system
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    cert-manager.io/private-key-algorithm: ECDSA
+    cert-manager.io/private-key-size: "256"
 spec:
   gatewayClassName: cilium
   listeners:

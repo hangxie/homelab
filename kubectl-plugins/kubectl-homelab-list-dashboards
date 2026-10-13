@@ -72,14 +72,24 @@ print_secret_user_pass_row() {
 print_row "URL" "USER" "CREDENTIAL"
 print_row "$(repeat_char "-" "$URL_WIDTH")" "$(repeat_char "-" "$USER_WIDTH")" "$(repeat_char "-" 20)"
 
-if ! ROUTE_ROWS=$(set -o pipefail; kubectl get httproute -A -o json | jq -r '
+# A route without hostnames inherits them from its parent listeners.
+if ! GATEWAYS=$(kubectl get gateway -A -o json) \
+    || ! ROUTE_ROWS=$(set -o pipefail; kubectl get httproute -A -o json | jq -r --argjson gw "$GATEWAYS" '
     .items[]
     | . as $route
-    | ($route.spec.hostnames // [])[]
+    | (if ($route.spec.hostnames // []) != [] then $route.spec.hostnames[]
+       else $route.spec.parentRefs[] as $p
+         | $gw.items[]
+         | select(.metadata.name == $p.name
+             and .metadata.namespace == ($p.namespace // $route.metadata.namespace))
+         | .spec.listeners[]
+         | select($p.sectionName == null or .name == $p.sectionName)
+         | .hostname // empty
+       end)
     | [$route.metadata.namespace, $route.metadata.name, .]
     | @tsv
 '); then
-    echo "Error: failed to list HTTPRoutes (kubectl/jq)." >&2
+    echo "Error: failed to list HTTPRoutes/Gateways (kubectl/jq)." >&2
     exit 1
 fi
 
@@ -132,8 +142,11 @@ while IFS=$'\t' read -r ns name hostname; do
             print_row "$url" "-" "(no auth)"
             ;;
         mattermost/mattermost)
-            # The router maps WAN 10443 to public-gateway:443.
-            print_secret_row "${url}:10443" mattermost mattermost-admin password sysadmin
+            # SiteURL carries the WAN port the router maps to public-gateway:443.
+            site_url=$(get_secret mattermost wl-mattermost-config MM_SERVICESETTINGS_SITEURL)
+            # No fallback to $url: it lacks the WAN port and would not load.
+            print_secret_row "${site_url:-(SiteURL missing: mattermost/wl-mattermost-config)}" \
+                mattermost mattermost-admin password sysadmin
             ;;
         openwebui/open-webui)
             print_secret_row "$url" openwebui openwebui-admin password admin@homelab.xiehang.com

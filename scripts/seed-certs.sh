@@ -26,7 +26,10 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CERT_DIR="$REPO_ROOT/certs"
 FULLCHAIN="$CERT_DIR/fullchain.pem"
 PRIVKEY="$CERT_DIR/privkey.pem"
-DOMAIN="homelab.xiehang.com"
+# Must match the cert-manager Certificate, or cert-manager reissues over the seed.
+CERT_MANIFEST="$REPO_ROOT/gitops/platform/cert-manager/config/03-homelab-wildcard-cert.yaml"
+DOMAIN=$(awk -F'"' '/commonName:/ { sub(/^\*\./, "", $2); print $2 }' "$CERT_MANIFEST")
+[[ -n "$DOMAIN" ]] || { echo "[seed-certs] ERROR: no commonName in $CERT_MANIFEST" >&2; exit 1; }
 NAMESPACE="gateway-system"
 CERT_NAME="homelab-wildcard"
 SECRET_NAME="homelab-wildcard-tls"
