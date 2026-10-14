@@ -53,3 +53,26 @@ deschedulerPolicy:
             - RemovePodsViolatingNodeTaints
             - RemovePodsViolatingNodeAffinity
             - RemovePodsViolatingInterPodAntiAffinity
+    # GPU admission can fail during reboot recovery. Clean up terminal model
+    # pods separately from balancing, whose profile protects all PVC users.
+    - name: failed-llama-cpp
+      pluginConfig:
+        - name: DefaultEvictor
+          args:
+            podProtections:
+              defaultDisabled:
+                - "PodsWithLocalStorage"
+        - name: RemoveFailedPods
+          args:
+            namespaces:
+              include:
+                - llama-cpp
+            labelSelector:
+              matchLabels:
+                llama-cpp.model: "true"
+            reasons:
+              - UnexpectedAdmissionError
+      plugins:
+        deschedule:
+          enabled:
+            - RemoveFailedPods
