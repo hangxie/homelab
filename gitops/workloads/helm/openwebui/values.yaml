@@ -5,10 +5,10 @@ replicaCount: 2
 # and the HTTPRoute / bootstrap Job continue to address `open-webui`.
 fullnameOverride: open-webui
 
-# v14 defaults these subcharts to enabled. Inference uses external llama-cpp
-# and ray-vllm-serve. No Ollama server exists in the stack, so the in-app
-# Ollama integration is disabled via ENABLE_OLLAMA_API below — llama-cpp
-# speaks the OpenAI-compatible API at /v1, not Ollama's.
+# v14 defaults these subcharts to enabled. Inference uses ray-vllm-serve.
+# No Ollama server exists in the stack, so the in-app Ollama integration is
+# disabled via ENABLE_OLLAMA_API below — vLLM speaks the OpenAI-compatible API
+# at /v1, not Ollama's.
 ollama:
   enabled: false
 pipelines:
@@ -30,7 +30,6 @@ persistence:
 
 openaiBaseApiUrls:
   - https://vllm.homelab.xiehang.com/v1
-  - https://llama-cpp.homelab.xiehang.com/v1
 
 extraEnvVars:
   # One key per openaiBaseApiUrls entry, same order.

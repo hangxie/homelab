@@ -21,7 +21,6 @@ purpose_of() {
         "df pvc")          echo "Disk usage for all PVCs in a storage class" ;;
         hdfs)              echo "Run the hdfs CLI from a one-shot pod, using the cluster's own core-site/hdfs-site config" ;;
         "list dashboards") echo "All HTTPRoute URLs with credentials" ;;
-        "model llama")     echo "Manage GGUF models on the llama-cpp PVC and the Harbor cache" ;;
         "model vllm")      echo "Manage vLLM models on the PVC and Harbor" ;;
         mysql)             echo "Run the mysql CLI as root from a one-shot pod, credentials read live from mysql-root" ;;
         psql)              echo "Run psql against the postgres-cluster rw service from a one-shot pod, password read live from postgres-cluster-superuser" ;;

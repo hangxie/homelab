@@ -1,6 +1,6 @@
 # ── Argo CD ─────────────────────────────────────────────────────────────────
 # Several apps sit Progressing for long stretches by design (hdfs, trino,
-# nvidia-device-plugin, llama-cpp), so Progressing is deliberately not an
+# nvidia-device-plugin), so Progressing is deliberately not an
 # alerting state. rook-ceph-cluster flaps Degraded, hence the 30m `for`.
 
 groups:

@@ -8,17 +8,6 @@ gdrcopyEnabled: false
 gdsEnabled: false
 mofedEnabled: false
 
-config:
-  default: default
-  map:
-    default: |-
-      version: v1
-      sharing:
-        timeSlicing:
-          resources:
-            - name: nvidia.com/gpu
-              replicas: 2
-
 nodeSelector:
   feature.node.kubernetes.io/pci-0300_10de.present: "true"
 

@@ -1203,47 +1203,6 @@ alloy:
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
-      // ── llama.cpp ─────────────────────────────────────────────────────────────
-
-      // The per-model Services have no labels of their own, so discover the
-      // pods directly. llama-server only answers /metrics when started with
-      // --metrics (see gitops/helm-charts/llama-cpp-model).
-      discovery.kubernetes "llama_cpp" {
-        role = "pod"
-        namespaces {
-          names = ["llama-cpp"]
-        }
-        selectors {
-          role  = "pod"
-          label = "llama-cpp.model=true"
-        }
-      }
-
-      // role = "pod" emits one target per declared containerPort plus a
-      // portless one for every container without ports — including the init
-      // containers — so keep only the named serving port.
-      discovery.relabel "llama_cpp" {
-        targets = discovery.kubernetes.llama_cpp.targets
-        rule {
-          source_labels = ["__meta_kubernetes_pod_container_port_name"]
-          regex         = "http"
-          action        = "keep"
-        }
-        rule {
-          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
-          target_label  = "model"
-        }
-      }
-
-      prometheus.scrape "llama_cpp" {
-        clustering {
-          enabled = true
-        }
-        targets    = discovery.relabel.llama_cpp.output
-        job_name   = "llama-cpp"
-        forward_to = [prometheus.remote_write.mimir.receiver]
-      }
-
       // ── External hosts ────────────────────────────────────────────────────────
       // node_exporter runs on the hosts themselves (pi 192.168.0.200, media
       // 192.168.0.201), plus the macOS AI host, and Alloy pulls them over the LAN.

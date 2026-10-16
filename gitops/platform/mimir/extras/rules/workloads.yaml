@@ -512,21 +512,6 @@ groups:
           summary: "Spark operator work queue is backing up"
           description: "The {{ $labels.controller }} queue has held {{ printf \"%.0f\" $value }} items for 30 minutes; the operator is not keeping up."
 
-  - name: llama-cpp
-    interval: 1m
-    rules:
-      # llama-server runs a fixed number of slots. Deferred requests mean
-      # every slot is busy and callers are queuing behind them, which
-      # surfaces to LiteLLM as latency rather than as an error.
-      - alert: LlamaCppRequestsDeferred
-        expr: max by (model) (llamacpp:requests_deferred{job="llama-cpp"}) > 0
-        for: 15m
-        labels:
-          severity: warning
-        annotations:
-          summary: "llama.cpp requests are queuing"
-          description: "{{ $labels.model }} has had {{ printf \"%.0f\" $value }} requests waiting for a free slot for 15 minutes."
-
   # Now keyed on the namenode's own FSNamesystem beans rather than the
   # StorageTypeStats fallback these rules used while the JMX exporter was
   # baking sample values into metric names.

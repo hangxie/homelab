@@ -132,9 +132,6 @@ while IFS=$'\t' read -r ns name hostname; do
         kube-system/hubble)
             print_row "$url" "-" "(no auth)"
             ;;
-        llama-cpp/litellm)
-            print_secret_row "${url}/v1" llama-cpp litellm-master-key master-key "(bearer)"
-            ;;
         grafana/grafana)
             print_secret_user_pass_row "$url" grafana grafana-admin username password admin
             ;;
