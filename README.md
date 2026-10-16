@@ -269,7 +269,7 @@ It discovers the affected `ExternalSecret`s from the cluster by matching `remote
 
 The operator wait matters for `postgres-cnpg/superuser`: CNPG copies that Secret into the database only when it reconciles, and a cluster reporting healthy will sit on a stale value indefinitely. Every `*-postgres-bootstrap` Job authenticates as that superuser, so without the wait they all fail with `password authentication failed for user "postgres"` while Vault and the Secret both look correct. The script nudges the `Cluster` and waits for `status.secretsResourceVersion.superuserSecretVersion` to match the live Secret before re-running any Job.
 
-Eight paths are held back from a bare run because nothing in the cluster re-applies them, or because re-applying them destroys data: `mysql/root`, `cassandra/admin`, `dbeaver/admin`, `airflow/admin`, `openwebui/admin`, `mattermost/admin`, `airflow/fernet-key` and `superset/secret`. `scripts/rotate-cred.sh --help` prints the reason for each. Naming one on the command line rotates it anyway and prints the manual step that is now outstanding.
+Seven paths are held back from a bare run because nothing in the cluster re-applies them, or because re-applying them destroys data: `mysql/root`, `cassandra/admin`, `dbeaver/admin`, `airflow/admin`, `openwebui/admin`, `airflow/fernet-key` and `superset/secret`. `scripts/rotate-cred.sh --help` prints the reason for each. Naming one on the command line rotates it anyway and prints the manual step that is now outstanding.
 
 The llama-cpp `/v1` endpoint (LiteLLM) requires `Authorization: Bearer sk-<llama-cpp/litellm master-key>`; `kubectl homelab list dashboards` prints the full key. Rotating it restarts LiteLLM, but Open WebUI keeps connection keys in its database once an admin has saved the connection settings, so update the key there too. The vLLM `/v1` endpoint works the same way through its own LiteLLM in the `ray` namespace, keyed by `ray/litellm`.
 
@@ -299,15 +299,6 @@ signup is auto-promoted to admin by OpenWebUI; subsequent signups land in
 persisted signup setting. Like Airflow, rotating the Vault password does not
 propagate to OpenWebUI on its own — change it in the UI, or wipe the
 `open-webui` PVC and let the Job re-seed on the next sync.
-
-Mattermost's `sysadmin` is seeded the same way by the PostSync `mattermost-admin-bootstrap` Job, and it fails closed: if the account exists with a password that differs from Vault `mattermost/admin`, the Job fails and so does every `wl-mattermost` sync. Push the Vault value into Mattermost over its in-container local-mode socket, then re-sync. Answer `NO` to "changing your own password" and paste the Vault value at the prompt; it needs a TTY, and passing `--password` instead would put the password on the process command line:
-
-```bash
-vault kv get -field=password homelab/mattermost/admin
-kubectl -n mattermost exec -it deploy/wl-mattermost -- mmctl --local user change-password sysadmin
-```
-
-To keep a password changed in the UI instead, `vault kv put homelab/mattermost/admin password=<new>` and let the `mattermost-admin` ExternalSecret refresh before re-syncing.
 
 #### Rotate Harbor credentials
 
