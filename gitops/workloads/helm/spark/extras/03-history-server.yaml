@@ -4,7 +4,7 @@ metadata:
   name: spark-history-server
   namespace: spark
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: spark-history-server
@@ -13,6 +13,13 @@ spec:
       labels:
         app: spark-history-server
     spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: spark-history-server
+              topologyKey: kubernetes.io/hostname
       initContainers:
         - name: copy-spark-jars
           image: apache/spark:3.5.5
@@ -56,6 +63,17 @@ spec:
             name: spark-defaults
         - name: spark-jars
           emptyDir: {}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: spark-history-server
+  namespace: spark
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: spark-history-server
 ---
 apiVersion: v1
 kind: Service

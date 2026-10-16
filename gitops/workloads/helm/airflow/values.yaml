@@ -126,7 +126,13 @@ logs:
     annotations:
       argocd.argoproj.io/sync-options: Prune=false
 
+# Two of each so a node drain or crash doesn't stop the UI, scheduling or
+# deferred tasks; Airflow coordinates schedulers and triggerers through
+# Postgres row locks. dag-processor stays at one (duplicate parsing races).
 apiServer:
+  replicas: 2
+  podDisruptionBudget:
+    enabled: true
   startupProbe:
     periodSeconds: 10
     timeoutSeconds: 20
@@ -144,6 +150,9 @@ apiServer:
 # container before it ever became healthy, causing an endless crash loop.
 # Match apiServer's failureThreshold for the same ~300s grace.
 scheduler:
+  replicas: 2
+  podDisruptionBudget:
+    enabled: true
   logGroomerSidecar:
     retentionDays: 7
   startupProbe:
@@ -152,6 +161,9 @@ scheduler:
     failureThreshold: 30
 
 triggerer:
+  replicas: 2
+  podDisruptionBudget:
+    enabled: true
   logGroomerSidecar:
     retentionDays: 7
 

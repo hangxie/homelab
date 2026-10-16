@@ -146,6 +146,17 @@ query_frontend:
               app.kubernetes.io/component: query-frontend
           topologyKey: kubernetes.io/hostname
 
+# Every remote-write and query goes through this nginx.
+gateway:
+  replicas: 2
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: gateway
+          topologyKey: kubernetes.io/hostname
+
 # Alerting lives here rather than in Grafana's embedded Alertmanager: the ruler
 # evaluates the rules and the alertmanager owns routing to Slack. Grafana is a
 # read-only UI over both (see the Alertmanager datasource in the grafana chart).

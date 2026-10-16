@@ -69,6 +69,10 @@ resultsCache:
 
 gateway:
   enabled: true
+  # Every push and query goes through nginx. Anti-affinity is the chart
+  # default; the PDB renders only with maxUnavailable set.
+  replicas: 2
+  maxUnavailable: 1
 
 monitoring:
   dashboards:
