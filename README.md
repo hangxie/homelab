@@ -72,17 +72,8 @@ flowchart TD
     end
 
     subgraph workloads["700s — workloads"]
-        llama-shared["llama-cpp-shared (700)"]
         wl-helm["workloads-helm (710; ApplicationSet)"]
         wl-raw["workloads-raw (710; ApplicationSet)"]
-        llama-models["llama-cpp-models (710; ApplicationSet)"]
-        litellm["llama-cpp-litellm (720)"]
-        llama-shared --> wl-helm
-        llama-shared --> wl-raw
-        llama-shared --> llama-models
-        wl-helm --> litellm
-        wl-raw --> litellm
-        llama-models --> litellm
     end
 
     secrets --> storage --> cluster-svcs --> observability --> operators --> platform-svcs --> workloads
@@ -228,14 +219,14 @@ externally minted credentials marked `generate: false` in
 `scripts/vault-secrets.template.yaml`. Those must be written to Vault directly
 with the same `VAULT_TOKEN` used for seeding. Current entries:
 
-- `harbor/llm-models` — Harbor robot account used by Ray and llama-cpp init
-  containers, plus `kubectl homelab model llama` / `kubectl homelab model vllm`,
+- `harbor/llm-models` — Harbor robot account used by Ray init
+  containers, plus `kubectl homelab model vllm`,
   to manage the model cache.
 - `harbor/jars` — Harbor robot account with push on the `jars` project, used by
   `scripts/seed-jars.sh`. Read by the operator only: the project is public and
   the workload init containers pull anonymously, so this never reaches the
   cluster.
-- `huggingface/api-token` — HuggingFace read token used by Ray and llama-cpp
+- `huggingface/api-token` — HuggingFace read token used by Ray
   model-pull init containers. Anonymous HuggingFace downloads are not allowed.
 - `cloudflare/api-token` — scoped Cloudflare API token used by cert-manager's
   DNS-01 solver to issue Let's Encrypt wildcard certs.
@@ -271,7 +262,7 @@ The operator wait matters for `postgres-cnpg/superuser`: CNPG copies that Secret
 
 Seven paths are held back from a bare run because nothing in the cluster re-applies them, or because re-applying them destroys data: `mysql/root`, `cassandra/admin`, `dbeaver/admin`, `airflow/admin`, `openwebui/admin`, `airflow/fernet-key` and `superset/secret`. `scripts/rotate-cred.sh --help` prints the reason for each. Naming one on the command line rotates it anyway and prints the manual step that is now outstanding.
 
-The llama-cpp `/v1` endpoint (LiteLLM) requires `Authorization: Bearer sk-<llama-cpp/litellm master-key>`; `kubectl homelab list dashboards` prints the full key. Rotating it restarts LiteLLM, but Open WebUI keeps connection keys in its database once an admin has saved the connection settings, so update the key there too. The vLLM `/v1` endpoint works the same way through its own LiteLLM in the `ray` namespace, keyed by `ray/litellm`.
+The vLLM `/v1` endpoint (LiteLLM in the `ray` namespace) requires `Authorization: Bearer sk-<ray/litellm master-key>`; `kubectl homelab list dashboards` prints the full key. Rotating it restarts LiteLLM, but Open WebUI keeps connection keys in its database once an admin has saved the connection settings, so update the key there too.
 
 DBeaver/CloudBeaver is intentionally not Vault-seeded. It is an internal
 admin-only tool, and the first browser login creates the CloudBeaver admin in
@@ -311,14 +302,12 @@ propagate to OpenWebUI on its own — change it in the UI, or wipe the
      password='<new secret from Harbor>'
    ```
 
-3. Force the `harbor-credentials` Secret in both namespaces to refresh from
+3. Force the `harbor-credentials` Secret in the `ray` namespace to refresh from
    Vault immediately (otherwise wait for the 1h ExternalSecret refresh):
 
    ```bash
-   for ns in llama-cpp ray; do
-     kubectl -n "$ns" annotate externalsecret harbor-credentials \
-       force-sync=$(date +%s) --overwrite
-   done
+   kubectl -n ray annotate externalsecret harbor-credentials \
+     force-sync=$(date +%s) --overwrite
    ```
 
 The `jars` push robot rotates the same way minus step 3 — no workload holds it,
@@ -362,13 +351,11 @@ vault kv put homelab/harbor/jars \
      token='<new HuggingFace read token>'
    ```
 
-3. Force the `hf-token` Secret in both model namespaces to refresh:
+3. Force the `hf-token` Secret in the `ray` namespace to refresh:
 
    ```bash
-   for ns in llama-cpp ray; do
-     kubectl -n "$ns" annotate externalsecret hf-token \
-       force-sync=$(date +%s) --overwrite
-   done
+   kubectl -n ray annotate externalsecret hf-token \
+     force-sync=$(date +%s) --overwrite
    ```
 
 #### Rotate the Slack webhook
@@ -489,7 +476,6 @@ kubectl plugin list
 | `kubectl-homelab-df-pvc` | `kubectl homelab df pvc <storage-class>` | Disk usage for all PVCs in a storage class |
 | `kubectl-homelab-hdfs` | `kubectl homelab hdfs [hdfs-args...]` | Run the `hdfs` CLI from a one-shot pod, using the cluster's own core-site/hdfs-site config |
 | `kubectl-homelab-list-dashboards` | `kubectl homelab list dashboards` | All HTTPRoute URLs with credentials |
-| `kubectl-homelab-model-llama` | `kubectl homelab model llama list\|delete` | Manage GGUF models on the llama-cpp PVC |
 | `kubectl-homelab-model-vllm` | `kubectl homelab model vllm verify\|list\|delete` | Manage vLLM models on PVC and Harbor |
 | `kubectl-homelab-mysql` | `kubectl homelab mysql [mysql-args...]` | Run the `mysql` CLI as root from a one-shot pod, credentials read live from mysql-root |
 | `kubectl-homelab-psql` | `kubectl homelab psql [psql-args...]` | Run `psql` against the postgres-cluster rw service from a one-shot pod, superuser password read live from postgres-cluster-superuser |
