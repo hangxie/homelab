@@ -74,8 +74,6 @@ hold_reason() {
       echo "the chart's create-user Job does not reset an existing user; change it in the Airflow UI" ;;
     openwebui/admin)
       echo "OpenWebUI persists the admin in its own database; change it in the UI or wipe the open-webui PVC" ;;
-    mattermost/admin)
-      echo "Mattermost persists the admin in its database; change it in the UI or with mmctl" ;;
     airflow/fernet-key)
       echo "existing encrypted Connections and Variables become undecryptable; re-encrypt them first" ;;
     superset/secret)

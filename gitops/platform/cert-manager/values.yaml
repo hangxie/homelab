@@ -15,13 +15,6 @@ prometheus:
   servicemonitor:
     enabled: false
 
-# gateway-shim: Gateways annotated with cert-manager.io/cluster-issuer get a
-# Certificate per HTTPS listener, built from the listener hostname.
-config:
-  apiVersion: controller.config.cert-manager.io/v1alpha1
-  kind: ControllerConfiguration
-  enableGatewayAPI: true
-
 extraArgs:
   # Bind the helper httpserver on every interface so the gateway can
   # liveness-probe webhooks from any node.

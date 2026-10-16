@@ -22,7 +22,6 @@ spec:
                 - name: clickhouse
                 - name: headlamp
                 - name: jupyter
-                - name: mattermost
                 - name: openwebui
                 - name: scylladb
                 - name: spark
