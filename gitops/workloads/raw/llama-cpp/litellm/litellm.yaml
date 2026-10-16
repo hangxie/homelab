@@ -48,7 +48,7 @@ metadata:
   name: litellm
   namespace: llama-cpp
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: litellm
@@ -57,6 +57,13 @@ spec:
       labels:
         app.kubernetes.io/name: litellm
     spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: litellm
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: litellm
           image: ghcr.io/berriai/litellm:main-stable
@@ -75,6 +82,17 @@ spec:
         - name: config
           configMap:
             name: litellm-config
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: litellm
+  namespace: llama-cpp
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: litellm
 ---
 apiVersion: v1
 kind: Service

@@ -22,19 +22,31 @@ data:
     lowercaseOutputLabelNames: true
     attrNameSnakeCase: true
 ---
+# A StatefulSet (no PVCs) only for OrderedReady: every start runs schematool
+# -initOrUpgradeSchema (see the metastore env), and two pods racing it on an
+# empty database can leave a half-built schema neither can recover from. The
+# second pod starts, and rolls, only after the first is Ready.
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: hive-metastore
   namespace: hive
 spec:
-  replicas: 1
+  replicas: 2
+  serviceName: hive-metastore-metrics
+  podManagementPolicy: OrderedReady
   selector:
     matchLabels: { app.kubernetes.io/name: hive-metastore }
   template:
     metadata:
       labels: { app.kubernetes.io/name: hive-metastore }
     spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels: { app.kubernetes.io/name: hive-metastore }
+              topologyKey: kubernetes.io/hostname
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
@@ -43,7 +55,7 @@ spec:
       initContainers:
         # The 558 MiB SDK bundle needed a PVC at Maven Central speeds; off
         # Harbor the set lands in an emptyDir in ~5s, which is also what lets
-        # this Deployment roll instead of Recreate.
+        # the pods roll instead of Recreate.
         #
         # hadoop-aws is in the image under share/hadoop/tools/lib, but the
         # metastore classpath is $HIVE_HOME/lib plus METASTORE_AUX_JARS_PATH
@@ -155,6 +167,16 @@ spec:
           emptyDir: {}
         - name: jmx-config
           configMap: { name: hive-metastore-jmx }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hive-metastore
+  namespace: hive
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: hive-metastore }
 ---
 # Named to match the thrift URI Trino's hive catalog already points at
 # (thrift://hive-metastore.hive.svc:9083). The Stackable listener published
