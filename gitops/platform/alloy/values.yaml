@@ -1237,7 +1237,7 @@ alloy:
       // model on GET /metrics; autoload=false also protects the race where a
       // model unloads between discovery and scraping.
       remote.http "media_models" {
-        url            = "http://media.xiehang.com:8080/v1/models"
+        url            = "https://media.xiehang.com:8443/v1/models"
         poll_frequency = "60s"
         poll_timeout   = "10s"
       }
@@ -1251,7 +1251,7 @@ alloy:
       discovery.relabel "media_llama" {
         targets = [
           {
-            "__address__" = "media.xiehang.com:8080",
+            "__address__" = "media.xiehang.com:8443",
             "instance" = "media",
             "model" = "deepseek-r1-1.5b-q8",
             "__param_model" = "deepseek-r1-1.5b-q8",
@@ -1259,7 +1259,7 @@ alloy:
             "__tmp_state" = string.join(json_path(remote.http.media_models.content, "$.data[?(@.id == 'deepseek-r1-1.5b-q8')].status.value"), ""),
           },
           {
-            "__address__" = "media.xiehang.com:8080",
+            "__address__" = "media.xiehang.com:8443",
             "instance" = "media",
             "model" = "qwen3-1.7b-q8",
             "__param_model" = "qwen3-1.7b-q8",
@@ -1323,6 +1323,7 @@ alloy:
         targets         = discovery.relabel.media_llama.output
         job_name        = "external/llama-cpp"
         scrape_interval = "60s"
+        scheme          = "https"
         metrics_path    = "/metrics"
         forward_to      = [prometheus.remote_write.mimir.receiver]
       }
@@ -1452,13 +1453,13 @@ alloy:
         // model.
         target {
           name    = "media-llama-health"
-          address = "http://media.xiehang.com:8080/health"
+          address = "https://media.xiehang.com:8443/health"
           module  = "llama_health"
           labels  = {scope = "internal"}
         }
         target {
           name    = "media-llama-models"
-          address = "http://media.xiehang.com:8080/v1/models"
+          address = "https://media.xiehang.com:8443/v1/models"
           module  = "llama_models"
           labels  = {scope = "internal"}
         }
