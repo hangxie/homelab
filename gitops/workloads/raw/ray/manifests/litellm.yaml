@@ -30,14 +30,14 @@ metadata:
 data:
   config.yaml: |
     model_list:
-      - model_name: Qwen/Qwen2.5-Coder-1.5B-Instruct-AWQ
+      - model_name: Eslzzyl/Qwen3-4B-Instruct-2507-AWQ
         litellm_params:
-          model: openai/Qwen/Qwen2.5-Coder-1.5B-Instruct-AWQ
+          model: openai/Eslzzyl/Qwen3-4B-Instruct-2507-AWQ
           api_base: http://ray-vllm-serve-svc.ray.svc:8000/v1
           api_key: dummy
-      - model_name: meta-llama/Llama-3.2-1B-Instruct
+      - model_name: casperhansen/llama-3.2-3b-instruct-awq
         litellm_params:
-          model: openai/meta-llama/Llama-3.2-1B-Instruct
+          model: openai/casperhansen/llama-3.2-3b-instruct-awq
           api_base: http://ray-vllm-serve-svc.ray.svc:8000/v1
           api_key: dummy
     litellm_settings:
