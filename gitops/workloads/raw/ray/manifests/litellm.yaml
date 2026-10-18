@@ -30,9 +30,9 @@ metadata:
 data:
   config.yaml: |
     model_list:
-      - model_name: Eslzzyl/Qwen3-4B-Instruct-2507-AWQ
+      - model_name: cyankiwi/Qwen3.5-4B-AWQ-4bit
         litellm_params:
-          model: openai/Eslzzyl/Qwen3-4B-Instruct-2507-AWQ
+          model: openai/cyankiwi/Qwen3.5-4B-AWQ-4bit
           api_base: http://ray-vllm-serve-svc.ray.svc:8000/v1
           api_key: dummy
       - model_name: casperhansen/llama-3.2-3b-instruct-awq
@@ -42,6 +42,12 @@ data:
           api_key: dummy
     litellm_settings:
       drop_params: true
+    # LiteLLM never forwards a client disconnect on non-streaming requests, so
+    # its own timeout is what closes the upstream connection and lets Ray Serve
+    # cancel the generation. Retries would resubmit work the client gave up on.
+    router_settings:
+      num_retries: 0
+      timeout: 300
 ---
 apiVersion: apps/v1
 kind: Deployment
