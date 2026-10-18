@@ -47,3 +47,18 @@ if _os.environ.get('_RAY_LLM_PATCH') == '1':
         _LLMConfig._set_model_architecture = _safe_set_model_architecture
     except Exception:
         pass
+
+    # Ray LLM turns the merged engine/frontend kwargs into an argparse Namespace
+    # recursively, so dict-valued args (default_chat_template_kwargs,
+    # override_generation_config) arrive as Namespaces and every chat request
+    # 500s on a dict merge. vLLM's own CLI keeps them as dicts; only the top
+    # level needs to be a Namespace.
+    try:
+        import argparse as _argparse
+        from ray.llm._internal.serve.engines.vllm import vllm_engine as _vllm_engine
+
+        _vllm_engine._dict_to_namespace = lambda obj: (
+            _argparse.Namespace(**obj) if isinstance(obj, dict) else obj
+        )
+    except Exception:
+        pass

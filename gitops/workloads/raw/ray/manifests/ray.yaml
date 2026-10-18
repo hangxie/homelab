@@ -121,9 +121,10 @@ spec:
           env_vars:
             PYTHONPATH: /home/ray
             _RAY_LLM_PATCH: "1"
-            MODELS: "Eslzzyl/Qwen3-4B-Instruct-2507-AWQ,casperhansen/llama-3.2-3b-instruct-awq"
+            MODELS: "cyankiwi/Qwen3.5-4B-AWQ-4bit,casperhansen/llama-3.2-3b-instruct-awq"
             MAX_MODEL_LEN: "16384"
             GPU_MEMORY_UTILIZATION: "0.93"
+            MAX_NUM_SEQS: "4"
             HF_HUB_OFFLINE: "1"
             PYTORCH_ALLOC_CONF: "expandable_segments:True"
   rayClusterConfig:
