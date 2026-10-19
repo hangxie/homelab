@@ -390,7 +390,7 @@ kubectl get applicationsets -n argocd
 kubectl get cephcluster -n rook-ceph
 kubectl get certificate -A
 kubectl get clustersecretstore vault-homelab
-kubectl get nodes -L feature.node.kubernetes.io/pci-10de.present
+kubectl get nodes -L feature.node.kubernetes.io/pci-0300_10de.present
 kubectl -n kube-system exec ds/cilium -- cilium-dbg status --brief
 kubectl get cluster -n postgres-cluster postgres-cluster -o jsonpath='{.status.phase}'
 ```

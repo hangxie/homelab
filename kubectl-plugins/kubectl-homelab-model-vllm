@@ -69,7 +69,7 @@ metadata:
 spec:
   restartPolicy: Never
   nodeSelector:
-    feature.node.kubernetes.io/pci-10de.present: "true"
+    feature.node.kubernetes.io/pci-0300_10de.present: "true"
   tolerations:
     - key: gpu
       value: "true"
@@ -189,7 +189,7 @@ metadata:
 spec:
   restartPolicy: Never
   nodeSelector:
-    feature.node.kubernetes.io/pci-10de.present: "true"
+    feature.node.kubernetes.io/pci-0300_10de.present: "true"
   tolerations:
     - key: gpu
       value: "true"
@@ -608,7 +608,7 @@ spec:
     spec:
       restartPolicy: Never
       nodeSelector:
-        feature.node.kubernetes.io/pci-10de.present: "true"
+        feature.node.kubernetes.io/pci-0300_10de.present: "true"
       tolerations:
         - key: gpu
           value: "true"

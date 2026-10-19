@@ -14,20 +14,13 @@ def _opt_int(name):
 
 # vLLM only turns generated text back into structured tool_calls when a tool-call
 # parser is set; with tool schemas in the prompt but no parser, the model's call
-# comes back as raw JSON in `content`. The parser -- and for Llama the chat
-# template that makes the output parseable -- is per model family; first
+# comes back as raw JSON in `content`. The parser is per model family; first
 # substring match on the model id wins, unlisted models serve without tool
 # parsing. Qwen3.5 writes XML <function=...> calls inside <tool_call> and
-# thinks by default; Qwen3 emits <tool_call> JSON and gets hermes; Qwen2.5-1.5B gets
-# llama3_json: it emits bare {"name", "arguments"} JSON and never those tags.
+# thinks by default; Ministral 3 writes [TOOL_CALLS]name[ARGS]{...}.
 TOOL_CALL_SETTINGS = (
-    ("llama-3.2", dict(
-        tool_call_parser="llama3_json",
-        chat_template="/home/ray/tool_chat_template_llama3.2_json.jinja",
-    )),
     ("qwen3.5", dict(tool_call_parser="qwen3_coder", reasoning_parser="qwen3")),
-    ("qwen3", dict(tool_call_parser="hermes")),
-    ("qwen2.5", dict(tool_call_parser="llama3_json")),
+    ("ministral-3", dict(tool_call_parser="mistral")),
 )
 
 def _tool_call_kwargs(model_id: str) -> dict:
@@ -36,16 +29,25 @@ def _tool_call_kwargs(model_id: str) -> dict:
             return dict(kwargs, enable_auto_tool_choice=True)
     return {}
 
-# Per-model engine overrides, first substring match wins. Qwen3.5-4B at 32K
-# needs 1.11 GiB of KV cache on a 6 GiB 3050; CUDA graphs left 0.92 GiB, so it
-# trades decode speed for memory with eager mode and skips the vision tower.
-# Clients that omit max_tokens let thinking loop for 20K+ tokens, hence the
-# default cap and thinking off unless the request opts in.
+# Per-model engine overrides, first substring match wins. Qwen3.5-4B stays at
+# 16K: 32K needs 1.11 GiB of KV cache, which only fits in eager mode, and eager
+# decodes far slower. It skips the vision tower. Clients that omit max_tokens
+# let thinking loop for 20K+ tokens, hence the default cap and thinking off
+# unless the request opts in.
 ENGINE_OVERRIDES = (
     ("qwen3.5-4b", dict(
-        max_model_len=32768, language_model_only=True, enforce_eager=True, gpu_memory_utilization=0.95,
+        max_model_len=16384, language_model_only=True, gpu_memory_utilization=0.95,
         override_generation_config=dict(max_new_tokens=4096, temperature=0.7, top_p=0.8, top_k=20),
         default_chat_template_kwargs=dict(enable_thinking=False),
+    )),
+    # Ministral 3 3B at 16K needs 1.66 GiB of KV cache (104 KiB/token). Its HF
+    # text_config has no architectures, so vLLM can't pick the text model. It
+    # needs the Mistral tokenizer (the HF one leaks byte-level markers into
+    # tool-call JSON), which vLLM only auto-picks with consolidated.safetensors.
+    ("ministral-3-3b", dict(
+        language_model_only=True, gpu_memory_utilization=0.95, tokenizer_mode="mistral",
+        hf_overrides=dict(text_config=dict(architectures=["MistralForCausalLM"])),
+        override_generation_config=dict(max_new_tokens=4096),
     )),
 )
 
