@@ -14,13 +14,17 @@ def _opt_int(name):
 
 # vLLM only turns generated text back into structured tool_calls when a tool-call
 # parser is set; with tool schemas in the prompt but no parser, the model's call
-# comes back as raw JSON in `content`. The parser is per model family; first
+# comes back as raw JSON in `content`. The parser -- and for Llama the chat
+# template that makes the output parseable -- is per model family; first
 # substring match on the model id wins, unlisted models serve without tool
 # parsing. Qwen3.5 writes XML <function=...> calls inside <tool_call> and
-# thinks by default; Ministral 3 writes [TOOL_CALLS]name[ARGS]{...}.
+# thinks by default.
 TOOL_CALL_SETTINGS = (
+    ("llama-3.2", dict(
+        tool_call_parser="llama3_json",
+        chat_template="/home/ray/tool_chat_template_llama3.2_json.jinja",
+    )),
     ("qwen3.5", dict(tool_call_parser="qwen3_coder", reasoning_parser="qwen3")),
-    ("ministral-3", dict(tool_call_parser="mistral")),
 )
 
 def _tool_call_kwargs(model_id: str) -> dict:
@@ -40,15 +44,8 @@ ENGINE_OVERRIDES = (
         override_generation_config=dict(max_new_tokens=4096, temperature=0.7, top_p=0.8, top_k=20),
         default_chat_template_kwargs=dict(enable_thinking=False),
     )),
-    # Ministral 3 3B at 16K needs 1.66 GiB of KV cache (104 KiB/token). Its HF
-    # text_config has no architectures, so vLLM can't pick the text model. It
-    # needs the Mistral tokenizer (the HF one leaks byte-level markers into
-    # tool-call JSON), which vLLM only auto-picks with consolidated.safetensors.
-    ("ministral-3-3b", dict(
-        language_model_only=True, gpu_memory_utilization=0.95, tokenizer_mode="mistral",
-        hf_overrides=dict(text_config=dict(architectures=["MistralForCausalLM"])),
-        override_generation_config=dict(max_new_tokens=4096),
-    )),
+    # Llama 3.2 3B at 16K fits at the default utilization; the cap matches Qwen.
+    ("llama-3.2-3b", dict(override_generation_config=dict(max_new_tokens=4096))),
 )
 
 def _engine_overrides(model_id: str) -> dict:
