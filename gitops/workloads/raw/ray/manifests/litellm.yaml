@@ -35,11 +35,14 @@ data:
           model: openai/cyankiwi/Qwen3.5-4B-AWQ-4bit
           api_base: http://ray-vllm-serve-svc.ray.svc:8000/v1
           api_key: dummy
-      - model_name: casperhansen/llama-3.2-3b-instruct-awq
+      - model_name: cyankiwi/Ministral-3-3B-Instruct-2512-AWQ-4bit
         litellm_params:
-          model: openai/casperhansen/llama-3.2-3b-instruct-awq
+          model: openai/cyankiwi/Ministral-3-3B-Instruct-2512-AWQ-4bit
           api_base: http://ray-vllm-serve-svc.ray.svc:8000/v1
           api_key: dummy
+          # vLLM's Mistral tokenizer 400s on any chat_template_kwargs, which
+          # clients send to turn off Qwen thinking; Ministral doesn't think.
+          additional_drop_params: ["chat_template_kwargs"]
     litellm_settings:
       drop_params: true
     # LiteLLM never forwards a client disconnect on non-streaming requests, so
