@@ -9,7 +9,7 @@
 #   For -ro that holds even with one replica down and all 100 on the other.
 # - Client side, per instance: one instance must hold every client if the
 #   other is down. ~20 processes x 15 (SQLAlchemy 5 + 10 overflow) today,
-#   plus the three apps still connecting direct, plus growth.
+#   plus growth.
 apiVersion: postgresql.cnpg.io/v1
 kind: Pooler
 metadata:
