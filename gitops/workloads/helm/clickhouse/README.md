@@ -26,6 +26,10 @@ refreshes the Kubernetes Secret, but it does not change an already initialized
 ClickHouse user by itself; use `ALTER USER` inside ClickHouse or reset the
 workload PVCs and redeploy.
 
+## Built-in Dashboard
+
+The built-in `/dashboard` queries `system.metric_log` and `system.asynchronous_metric_log`. Keep both enabled: removing them makes the charts return HTTP 500 (`CANNOT_EXTRACT_TABLE_STRUCTURE`) even when authentication succeeds. Both logs flush once per minute and retain one day of history; metric samples stay at one-second intervals so the dashboard rate charts remain accurate. `text_log` stays disabled because Kubernetes captures console logs.
+
 ## Memory Guardrails
 
 `max_server_memory_usage_to_ram_ratio` is `0.8`, so ClickHouse tracks at most 6.4Gi of the 8Gi container limit and leaves headroom for allocations the memory tracker does not account for. Without that headroom the kernel OOM-kills the container before the server ever refuses a query.

@@ -49,7 +49,8 @@ spec:
         key: password
     # The operator defaults to trace logging with 50 x 1 GiB files, which
     # makes an idle server continuously merge its own diagnostic tables.
-    # Kubernetes already captures console logs and Alloy scrapes /metrics.
+    # Kubernetes already captures console logs; the built-in dashboard still
+    # needs metric_log and asynchronous_metric_log for its historical charts.
     logger:
       level: information
       logToFile: false
@@ -58,10 +59,15 @@ spec:
     extraConfig:
       text_log:
         "@remove": remove
+      # Batch writes to avoid constant tiny parts, and retain one day of
+      # history for /dashboard. Keep one-second samples for its rate charts.
       metric_log:
-        "@remove": remove
+        collect_interval_milliseconds: 1000
+        flush_interval_milliseconds: 60000
+        ttl: event_time + INTERVAL 1 DAY
       asynchronous_metric_log:
-        "@remove": remove
+        flush_interval_milliseconds: 60000
+        ttl: event_time + INTERVAL 1 DAY
       # 0.9 of 8Gi leaves too little for what the memory tracker can't see,
       # so the kernel OOM-kills before ClickHouse ever refuses a query.
       max_server_memory_usage_to_ram_ratio: 0.8
