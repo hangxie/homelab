@@ -5,6 +5,8 @@ envFrom:
       name: trino-mysql
   - secretRef:
       name: trino-postgres
+  - secretRef:
+      name: trino-clickhouse
 
 coordinator:
   jvm:
@@ -80,9 +82,10 @@ auth:
   passwordAuthSecret: trino-credentials
 
 # Catalogs reference Hive metastore (hive-metastore.hive.svc:9083), MySQL,
-# ScyllaDB (Cassandra connector, no auth) and Postgres. A Postgres catalog is
-# bound to one database, so each app database gets its own, read-only via the
-# ro pooler (replicas) and the trino role (pg_read_all_data).
+# ScyllaDB (Cassandra connector, no auth), ClickHouse and Postgres. A Postgres
+# catalog is bound to one database, so each app database gets its own,
+# read-only via the ro pooler (replicas) and the trino role (pg_read_all_data).
+# ClickHouse uses a read-only trino user (SELECT/SHOW grants only).
 additionalCatalogs:
   hive: |
     connector.name=hive
@@ -102,6 +105,13 @@ additionalCatalogs:
     connector.name=cassandra
     cassandra.contact-points=scylladb-client.scylladb.svc.cluster.local
     cassandra.load-policy.dc-aware.local-dc=dc1
+  clickhouse: |
+    connector.name=clickhouse
+    connection-url=jdbc:clickhouse://clickhouse.clickhouse.svc:8123/
+    connection-user=${ENV:CLICKHOUSE_USER}
+    connection-password=${ENV:CLICKHOUSE_PASSWORD}
+    # Otherwise ClickHouse String columns come back as varbinary.
+    clickhouse.map-string-as-varchar=true
   postgres_airflow: |
     connector.name=postgresql
     connection-url=jdbc:postgresql://postgres-cluster-pooler-ro.postgres-cluster.svc:5432/airflow

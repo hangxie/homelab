@@ -1,9 +1,6 @@
 # ClickHouse
 
-Small ClickHouse cluster deployed as the Trino replacement workload. The
-workload installs the official ClickHouse operator Helm chart and applies
-operator-managed `KeeperCluster` and `ClickHouseCluster` resources from
-`extras/`.
+Small ClickHouse cluster that runs alongside Trino. The workload installs the official ClickHouse operator Helm chart and applies operator-managed `KeeperCluster` and `ClickHouseCluster` resources from `extras/`.
 
 - Namespace: `clickhouse`
 - Argo CD app: `wl-clickhouse`
@@ -38,20 +35,10 @@ The `default` profile in `settings.extraUsersConfig` caps a single query at 4Gi 
 
 Spill uses the 40Gi data PVC, so the temporary files compete with table data. Raise the volume before raising the per-query cap.
 
-## Trino Replacement And Rollback
+## Trino
 
-`wl-clickhouse` replaces `wl-trino` in
-`gitops/cluster/applications/workloads-helm.yaml`. The Trino workload files stay
-in `gitops/workloads/helm/trino/` for reference and rollback.
+Trino's `clickhouse` catalog reads every ClickHouse database (each appears as a schema) as the read-only `trino` user: `SELECT` and `SHOW` grants only. Its password lives in Vault at `homelab/clickhouse/trino`; the `trino-clickhouse-bootstrap` Sync-hook Job in the `trino` namespace creates the user with the `default` credentials and re-applies its password and grants on every sync. SQL users sit in ClickHouse's Keeper-replicated access storage, so the one user covers both replicas.
 
-To roll back, comment out `- name: clickhouse` and uncomment `- name: trino` in
-the ApplicationSet list, then let Argo CD sync. Argo CD prunes the operator,
-cluster CRs, compatibility Service, and route. Check for retained
-operator-created PVCs after pruning and delete them explicitly before
-recreating the workload if a clean storage reset is required.
+## Disabling
 
-ClickHouse is not a drop-in SQL gateway for Trino catalogs. Migrate downstream
-clients to use the HTTP endpoint or native TCP endpoint directly, update SQL
-dialects where needed, and move any Hive/MySQL catalog queries to explicit
-ClickHouse tables, dictionaries, or integrations before disabling Trino in an
-environment that still depends on those catalogs.
+Comment out `- name: clickhouse` in `gitops/cluster/applications/workloads-helm.yaml` and let Argo CD sync; it prunes the operator, cluster CRs, Service and route. Operator-created PVCs are retained; delete them by hand for a clean storage reset. Comment out Trino's `clickhouse` catalog at the same time, or its queries fail.
