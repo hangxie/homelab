@@ -8,6 +8,4 @@ Three-node ScyllaDB cluster managed by the ScyllaDB Operator.
 - CQL endpoint: `scylladb-client.scylladb.svc.cluster.local:9042`
 - Storage: `rook-ceph-block`, 10Gi per node
 
-This intentionally does not reuse the old Cassandra namespace, service name, or
-Vault secret path. ScyllaDB does not expose a built-in web UI/admin panel here,
-so there is no `HTTPRoute` or `kubectl homelab list dashboards` entry.
+This intentionally does not reuse the old Cassandra namespace, service name, or Vault secret path. ScyllaDB does not expose a built-in web UI/admin panel here, so there is no `HTTPRoute` or `kubectl homelab list dashboards` entry. For CQL admin use `kubectl homelab cqlsh`; for browsing and SQL, use Trino's `scylladb` catalog (also reachable from CloudBeaver's Trino connection).

@@ -463,7 +463,7 @@ Verify discovery:
 kubectl plugin list
 ```
 
-`kubectl homelab -h` lists whatever is installed with a one-line summary of each, and the group commands (`df`, `list`, `model`) list their subcommands the same way. The CLI wrappers (`argocd`, `ceph`, `clickhouse`, `hdfs`, `mysql`, `psql`, `redis`, `trino`) pass every argument, `-h` included, straight to the wrapped tool, so `-h` means whatever it means to that tool (`--host` for psql, mysql, redis-cli and clickhouse-client). Each wrapper's namespace/image/host env overrides are listed in its script header. They all run through `kubectl-plugins/lib/oneshot.sh`: piped stdin reaches the tool (`kubectl homelab psql < dump.sql`), output streams for as long as the tool runs, and the plugin exits with the tool's own exit code. Connection defaults come from env vars or a config file written in the pod rather than prepended flags, so a caller's `--user`/`--host` overrides them. The plugins find `lib/` by following their `PATH` symlink back to the repo, so the symlinks must point into a checkout.
+`kubectl homelab -h` lists whatever is installed with a one-line summary of each, and the group commands (`df`, `list`, `model`) list their subcommands the same way. The CLI wrappers (`argocd`, `ceph`, `clickhouse`, `cqlsh`, `hdfs`, `mysql`, `psql`, `redis`, `trino`) pass every argument, `-h` included, straight to the wrapped tool, so `-h` means whatever it means to that tool (`--host` for psql, mysql, redis-cli and clickhouse-client). Each wrapper's namespace/image/host env overrides are listed in its script header. They all run through `kubectl-plugins/lib/oneshot.sh`: piped stdin reaches the tool (`kubectl homelab psql < dump.sql`), output streams for as long as the tool runs, and the plugin exits with the tool's own exit code. Connection defaults come from env vars or a config file written in the pod rather than prepended flags, so a caller's `--user`/`--host` overrides them. The plugins find `lib/` by following their `PATH` symlink back to the repo, so the symlinks must point into a checkout.
 
 | Plugin | Invocation | Purpose |
 |---|---|---|
@@ -472,6 +472,7 @@ kubectl plugin list
 | `kubectl-homelab-ceph` | `kubectl homelab ceph [ceph-args...]` | Run the `ceph` CLI from a one-shot pod, credentials read live from Rook's own Secret/ConfigMap |
 | `kubectl-homelab-ceph_s3` | `kubectl homelab ceph-s3 ls [<bucket>[/<prefix>]]` | List Ceph RGW buckets and their contents from a one-shot pod, namespace and credential Secret picked from the bucket name |
 | `kubectl-homelab-clickhouse` | `kubectl homelab clickhouse [clickhouse-client-args...]` | Run `clickhouse-client` from a one-shot pod, credentials read live from clickhouse-credentials |
+| `kubectl-homelab-cqlsh` | `kubectl homelab cqlsh [cqlsh-args...]` | Run `cqlsh` against the ScyllaDB client service from a one-shot pod (Scylla runs without auth) |
 | `kubectl-homelab-df-bucket` | `kubectl homelab df bucket [storage-class]` | RGW bucket usage for ObjectBucketClaims in a bucket storage class |
 | `kubectl-homelab-df-pvc` | `kubectl homelab df pvc <storage-class>` | Disk usage for all PVCs in a storage class |
 | `kubectl-homelab-hdfs` | `kubectl homelab hdfs [hdfs-args...]` | Run the `hdfs` CLI from a one-shot pod, using the cluster's own core-site/hdfs-site config |

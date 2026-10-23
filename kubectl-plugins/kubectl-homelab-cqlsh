@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# All arguments go straight to `cqlsh`; the host sits in CQLSH_HOST, so a caller's host arg wins.
+# Scylla runs without authentication here, so no credentials are mounted.
+#
+# Examples:
+#   kubectl homelab cqlsh
+#   kubectl homelab cqlsh -e 'DESCRIBE KEYSPACES'
+#   kubectl homelab cqlsh < schema.cql
+#
+# Environment:
+#   CQLSH_NAMESPACE  Namespace holding ScyllaDB (default: scylladb)
+#   CQLSH_IMAGE      cqlsh image (default: the cluster's own scylla image)
+#   CQLSH_HOST       Server host (default: scylladb-client.<namespace>.svc.cluster.local)
+
+set -uo pipefail
+
+# Follow the PATH symlink back to the repo so lib/ is found.
+SELF="${BASH_SOURCE[0]}"
+while [[ -L "$SELF" ]]; do
+    LINK="$(readlink "$SELF")"
+    if [[ "$LINK" == /* ]]; then SELF="$LINK"; else SELF="$(dirname "$SELF")/$LINK"; fi
+done
+# shellcheck source=lib/oneshot.sh
+. "$(cd "$(dirname "$SELF")" && pwd)/lib/oneshot.sh"
+
+CQLSH_NAMESPACE="${CQLSH_NAMESPACE:-scylladb}"
+CQLSH_IMAGE="${CQLSH_IMAGE:-}"
+CQLSH_HOST="${CQLSH_HOST:-scylladb-client.${CQLSH_NAMESPACE}.svc.cluster.local}"
+
+if [[ -z "$CQLSH_IMAGE" ]]; then
+    CQLSH_IMAGE=$(kubectl get pods -n "$CQLSH_NAMESPACE" -l app.kubernetes.io/name=scylla \
+        -o jsonpath='{.items[0].spec.containers[?(@.name=="scylla")].image}' 2>/dev/null)
+    [[ -z "$CQLSH_IMAGE" ]] && CQLSH_IMAGE="scylladb/scylla:2026.1.3"
+fi
+
+# cqlsh writes history under $HOME, which the image does not make writable.
+SCRIPT='export HOME=$(mktemp -d)
+exec cqlsh "$@"'
+
+CONTAINER=$(jq -nc --arg host "$CQLSH_HOST" '{ env: [{ name: "CQLSH_HOST", value: $host }] }')
+
+oneshot_run "$CQLSH_NAMESPACE" cqlsh "$CQLSH_IMAGE" "$SCRIPT" "$CONTAINER" '[]' "$@"
+exit $?
