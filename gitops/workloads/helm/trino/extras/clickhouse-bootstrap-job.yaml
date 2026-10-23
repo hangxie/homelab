@@ -1,0 +1,39 @@
+# Read-only user for the clickhouse catalog: SELECT on every database, no
+# write grants. ClickHouse keeps SQL users in Keeper-replicated storage, so
+# one CREATE covers both replicas. Only the SHA-256 reaches the server.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: trino-clickhouse-bootstrap
+  namespace: trino
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: clickhouse-client
+          image: docker.io/clickhouse/clickhouse-server:25.7
+          env:
+            - name: CLICKHOUSE_USER
+              valueFrom: { secretKeyRef: { name: clickhouse-admin, key: username } }
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom: { secretKeyRef: { name: clickhouse-admin, key: password } }
+            - name: TRINO_USER
+              valueFrom: { secretKeyRef: { name: trino-clickhouse, key: CLICKHOUSE_USER } }
+            - name: TRINO_PASSWORD
+              valueFrom: { secretKeyRef: { name: trino-clickhouse, key: CLICKHOUSE_PASSWORD } }
+          command: [bash, -ec]
+          args:
+            - |
+              HASH=$(printf %s "$TRINO_PASSWORD" | sha256sum | cut -d' ' -f1)
+              clickhouse-client --host clickhouse.clickhouse.svc --multiquery <<SQL
+              CREATE USER IF NOT EXISTS \`${TRINO_USER}\` IDENTIFIED WITH sha256_hash BY '${HASH}';
+              ALTER USER \`${TRINO_USER}\` IDENTIFIED WITH sha256_hash BY '${HASH}';
+              REVOKE ALL ON *.* FROM \`${TRINO_USER}\`;
+              GRANT SELECT, SHOW ON *.* TO \`${TRINO_USER}\`;
+              SQL
