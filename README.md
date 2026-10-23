@@ -90,7 +90,7 @@ workloads come from explicit `elements` lists in `workloads-helm.yaml` and
 
 - **HashiCorp Vault** (external) — only persistent source of truth besides Git. Auth via AppRole with `secret_id_ttl=0` and `secret_id_num_uses=0`.
 - **Rook-Ceph** — block (`rook-ceph-block`, default), CephFS (`rook-cephfs`, RWX), and an object store consumed through `ExternalSecret`-driven copies of Rook-produced RGW Secrets.
-- **CloudNativePG** — three-instance Postgres cluster behind transaction-mode PgBouncer poolers `postgres-cluster-pooler-{rw,ro}.postgres-cluster.svc`. Every application connection goes through a pooler; only admin work (bootstrap Jobs, backup, restore, deployment) connects directly to `postgres-cluster-rw.postgres-cluster`. Airflow, Superset, Hive, Jupyter, Grafana, and Open WebUI create their users/databases with Sync-hook Jobs before the app starts; superuser credentials flow from Vault into a `postgres-cluster-superuser` Secret.
+- **CloudNativePG** — three-instance Postgres cluster behind transaction-mode PgBouncer poolers `postgres-cluster-pooler-{rw,ro}.postgres-cluster.svc`. Every application connection goes through a pooler; only admin work (bootstrap Jobs, backup, restore, deployment) connects directly to `postgres-cluster-rw.postgres-cluster`. Airflow, Superset, Hive, Jupyter, Grafana, and Open WebUI create their users/databases with Sync-hook Jobs before the app starts, and Trino creates a read-only `trino` role (`pg_read_all_data`) the same way for its `postgres_*` catalogs; superuser credentials flow from Vault into a `postgres-cluster-superuser` Secret.
 
 ### Runtime jar cache
 

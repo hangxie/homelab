@@ -55,7 +55,7 @@ data:
         "homelab-trino": {
           "provider": "generic",
           "driver": "trino_jdbc",
-          "name": "Trino (hive, mysql, scylladb)",
+          "name": "Trino (hive, mysql, postgres, scylladb)",
           "folder": "Homelab",
           "save-password": false,
           "configuration": {
