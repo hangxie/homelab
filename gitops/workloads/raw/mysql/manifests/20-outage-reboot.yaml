@@ -111,9 +111,10 @@ spec:
           restartPolicy: Never
           containers:
             - name: reboot
-              # Same image as the operator's member sidecar, so mysqlsh matches
-              # the 9.7.0 server.
-              image: container-registry.oracle.com/mysql/community-operator:9.7.0-2.2.8
+              # Same image as the members' sidecar, so mysqlsh matches the
+              # 26.7.0 server. Not the operator's own tag: an operator upgrade
+              # leaves existing member pods on the sidecar they were built with.
+              image: container-registry.oracle.com/mysql/community-operator:26.7.0-2.3.0
               command: [bash, /opt/reboot/reboot.sh]
               volumeMounts:
                 - name: script
