@@ -41,11 +41,9 @@ persistence:
 
 grafana.ini:
   database:
-    type: postgres
-    host: postgres-cluster-rw.postgres-cluster.svc:5432
-    name: grafana
-    user: $__env{GF_DATABASE_USER}
-    password: $__env{GF_DATABASE_PASSWORD}
+    # Behind the transaction-mode pooler, lib/pq must send Parse/Bind/Execute
+    # in one sync, or the unnamed statement lands on another server conn.
+    url: postgres://$__env{GF_DATABASE_USER}:$__env{GF_DATABASE_PASSWORD}@postgres-cluster-pooler-rw.postgres-cluster.svc:5432/grafana?binary_parameters=yes
     ssl_mode: disable
   # Cap annotation history (incl. alert state-change annotations) at 7 days.
   # Grafana keeps annotations forever by default; its periodic cleanup job

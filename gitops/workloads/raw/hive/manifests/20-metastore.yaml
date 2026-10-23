@@ -96,7 +96,7 @@ spec:
                 <property><name>metastore.catalog.servlet.port</name><value>9001</value></property>
                 <property><name>metastore.catalog.servlet.auth</name><value>none</value></property>
                 <property><name>javax.jdo.option.ConnectionDriverName</name><value>org.postgresql.Driver</value></property>
-                <property><name>javax.jdo.option.ConnectionURL</name><value>jdbc:postgresql://postgres-cluster-rw.postgres-cluster.svc:5432/hive</value></property>
+                <property><name>javax.jdo.option.ConnectionURL</name><value>jdbc:postgresql://postgres-cluster-pooler-rw.postgres-cluster.svc:5432/hive</value></property>
                 <property><name>javax.jdo.option.ConnectionUserName</name><value>${DB_USERNAME}</value></property>
                 <property><name>javax.jdo.option.ConnectionPassword</name><value>${DB_PASSWORD}</value></property>
                 <property><name>datanucleus.connectionPool.maxPoolSize</name><value>10</value></property>
