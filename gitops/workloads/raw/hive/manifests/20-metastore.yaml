@@ -99,6 +99,7 @@ spec:
                 <property><name>javax.jdo.option.ConnectionURL</name><value>jdbc:postgresql://postgres-cluster-rw.postgres-cluster.svc:5432/hive</value></property>
                 <property><name>javax.jdo.option.ConnectionUserName</name><value>${DB_USERNAME}</value></property>
                 <property><name>javax.jdo.option.ConnectionPassword</name><value>${DB_PASSWORD}</value></property>
+                <property><name>datanucleus.connectionPool.maxPoolSize</name><value>10</value></property>
                 <property><name>fs.s3a.endpoint</name><value>http://rook-ceph-rgw-object-store.rook-ceph.svc/</value></property>
                 <property><name>fs.s3a.endpoint.region</name><value>us-east-1</value></property>
                 <property><name>fs.s3a.path.style.access</name><value>true</value></property>
