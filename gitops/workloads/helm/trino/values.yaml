@@ -77,7 +77,8 @@ additionalConfigProperties:
 auth:
   passwordAuthSecret: trino-credentials
 
-# Catalogs reference Hive metastore (hive-metastore.hive.svc:9083) and MySQL.
+# Catalogs reference Hive metastore (hive-metastore.hive.svc:9083), MySQL and
+# ScyllaDB (Cassandra connector, no auth).
 additionalCatalogs:
   hive: |
     connector.name=hive
@@ -93,6 +94,10 @@ additionalCatalogs:
     connection-url=jdbc:mysql://mysql-cluster.mysql.svc:3306
     connection-user=root
     connection-password=${ENV:MYSQL_ROOT_PASSWORD}
+  scylladb: |
+    connector.name=cassandra
+    cassandra.contact-points=scylladb-client.scylladb.svc.cluster.local
+    cassandra.load-policy.dc-aware.local-dc=dc1
 
 # JMX exporter agent — copies the JAR to a shared emptyDir before Trino
 # starts. Jar comes from Harbor; see scripts/seed-jars.sh.

@@ -17,6 +17,7 @@ purpose_of() {
         ceph)              echo "Run the ceph CLI from a one-shot pod, credentials read live from Rook's Secret/ConfigMap" ;;
         ceph-s3)           echo "List Ceph RGW buckets and their contents, credential picked from the bucket name" ;;
         clickhouse)        echo "Run clickhouse-client from a one-shot pod, credentials read live from clickhouse-credentials" ;;
+        cqlsh)             echo "Run cqlsh against the ScyllaDB client service from a one-shot pod" ;;
         "df bucket")       echo "RGW bucket usage for ObjectBucketClaims in a bucket storage class" ;;
         "df pvc")          echo "Disk usage for all PVCs in a storage class" ;;
         hdfs)              echo "Run the hdfs CLI from a one-shot pod, using the cluster's own core-site/hdfs-site config" ;;

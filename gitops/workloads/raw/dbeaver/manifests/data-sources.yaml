@@ -1,0 +1,74 @@
+# Shared CloudBeaver connections, mounted next to the workspace's own
+# data-sources.json: DBeaver loads every data-sources*.json in that directory,
+# so these appear for every user while UI-made connections stay in the PVC.
+# No credentials here; CloudBeaver prompts on connect. Read-only mount, so
+# change these in Git (and restart the pod), not in the UI.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudbeaver-data-sources
+  namespace: dbeaver
+data:
+  data-sources-homelab.json: |
+    {
+      "folders": {
+        "Homelab": {}
+      },
+      "connections": {
+        "homelab-postgres": {
+          "provider": "postgresql",
+          "driver": "postgres-jdbc",
+          "name": "Postgres (postgres-cluster)",
+          "folder": "Homelab",
+          "save-password": false,
+          "configuration": {
+            "host": "postgres-cluster-rw.postgres-cluster.svc",
+            "port": "5432",
+            "database": "postgres",
+            "url": "jdbc:postgresql://postgres-cluster-rw.postgres-cluster.svc:5432/postgres",
+            "configurationType": "MANUAL",
+            "type": "dev",
+            "auth-model": "native",
+            "provider-properties": {
+              "@dbeaver-show-non-default-db@": "true"
+            }
+          }
+        },
+        "homelab-mysql": {
+          "provider": "mysql",
+          "driver": "mysql8",
+          "name": "MySQL (mysql-cluster)",
+          "folder": "Homelab",
+          "save-password": false,
+          "configuration": {
+            "host": "mysql-cluster.mysql.svc",
+            "port": "3306",
+            "url": "jdbc:mysql://mysql-cluster.mysql.svc:3306/",
+            "configurationType": "MANUAL",
+            "type": "dev",
+            "auth-model": "native",
+            "properties": {
+              "allowPublicKeyRetrieval": "true"
+            }
+          }
+        },
+        "homelab-trino": {
+          "provider": "generic",
+          "driver": "trino_jdbc",
+          "name": "Trino (hive, mysql, scylladb)",
+          "folder": "Homelab",
+          "save-password": false,
+          "configuration": {
+            "host": "trino.homelab.xiehang.com",
+            "port": "443",
+            "url": "jdbc:trino://trino.homelab.xiehang.com:443",
+            "configurationType": "MANUAL",
+            "type": "dev",
+            "auth-model": "native",
+            "properties": {
+              "SSL": "true"
+            }
+          }
+        }
+      }
+    }
