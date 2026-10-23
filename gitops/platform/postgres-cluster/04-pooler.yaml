@@ -1,12 +1,13 @@
 # PgBouncer in front of the cluster: -rw goes to the primary, -ro to the
 # replicas. Clients opt in by pointing at postgres-cluster-pooler-{rw,ro}
-# instead of postgres-cluster-{rw,ro}; Hive stays direct (JDBC session state,
-# and its pools are already capped).
+# instead of postgres-cluster-{rw,ro}. Stays direct: Hive (JDBC session state,
+# and its pools are already capped) and Grafana (lib/pq sends Parse and
+# Bind/Execute in separate syncs, so unnamed statements break here).
 #
 # Each pooler budgets against its own servers, sized the same way:
-# - Server side, per instance: 10 x 5 poolable databases x 2 instances = 100,
-#   under half of max_connections so admin and Hive (direct) keep headroom.
-#   For -ro that holds even with one replica down and all 100 on the other.
+# - Server side, per instance: 10 x 4 poolable databases x 2 instances = 80,
+#   under half of max_connections so admin, Hive and Grafana keep headroom.
+#   For -ro that holds even with one replica down and all 80 on the other.
 # - Client side, per instance: one instance must hold every client if the
 #   other is down. ~20 processes x 15 (SQLAlchemy 5 + 10 overflow) today,
 #   plus growth.

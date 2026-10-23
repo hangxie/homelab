@@ -42,7 +42,7 @@ persistence:
 grafana.ini:
   database:
     type: postgres
-    host: postgres-cluster-pooler-rw.postgres-cluster.svc:5432
+    host: postgres-cluster-rw.postgres-cluster.svc:5432
     name: grafana
     user: $__env{GF_DATABASE_USER}
     password: $__env{GF_DATABASE_PASSWORD}
