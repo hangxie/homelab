@@ -81,6 +81,18 @@ groups:
           summary: "PostgreSQL is close to max_connections"
           description: "{{ $labels.namespace }}/{{ $labels.pod }} is using {{ printf \"%.1f\" $value }}% of its connection slots; new connections are refused at 100%."
 
+      # Clients queue once a database's max_db_connections are all busy, and
+      # fail after query_wait_timeout (see postgres-cluster/04-pooler.yaml).
+      - alert: PgBouncerClientsWaiting
+        expr: |
+          max by (namespace, pod, database) (cnpg_pgbouncer_pools_cl_waiting{database!="pgbouncer"}) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PgBouncer clients are waiting for a server connection"
+          description: "{{ printf \"%.0f\" $value }} clients for {{ $labels.database }} are queued on {{ $labels.namespace }}/{{ $labels.pod }}; its server pool is saturated."
+
       # autovacuum_freeze_max_age defaults to 200M, at which point Postgres
       # forces an aggressive vacuum; past 2^31 it refuses writes entirely.
       - alert: PostgresTransactionIDWraparoundRisk
