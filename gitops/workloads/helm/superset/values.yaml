@@ -26,7 +26,7 @@ supersetNode:
   replicas:
     replicaCount: 2
   connections:
-    db_host: postgres-cluster-rw.postgres-cluster.svc
+    db_host: postgres-cluster-pooler-rw.postgres-cluster.svc
     db_port: "5432"
     db_user: superset
     db_name: superset
