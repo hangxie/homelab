@@ -1,0 +1,79 @@
+# PgBouncer in front of the cluster: -rw goes to the primary, -ro to the
+# replicas. Clients opt in by pointing at postgres-cluster-pooler-{rw,ro}
+# instead of postgres-cluster-{rw,ro}; Hive stays direct (JDBC session state,
+# and its pools are already capped).
+#
+# Each pooler budgets against its own servers, sized the same way:
+# - Server side, per instance: 10 x 5 poolable databases x 2 instances = 100,
+#   under half of max_connections so admin and Hive (direct) keep headroom.
+#   For -ro that holds even with one replica down and all 100 on the other.
+# - Client side, per instance: one instance must hold every client if the
+#   other is down. ~20 processes x 15 (SQLAlchemy 5 + 10 overflow) today,
+#   plus the three apps still connecting direct, plus growth.
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: postgres-cluster-pooler-rw
+  namespace: postgres-cluster
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  cluster:
+    name: postgres-cluster
+  instances: 2
+  type: rw
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      default_pool_size: "10"
+      max_db_connections: "10"
+      max_client_conn: "500"
+      # Fail queued clients fast instead of after the 120s default; waiting
+      # only covers getting a server connection, not query run time.
+      query_wait_timeout: "20"
+      # Protocol-level (Parse/Bind) named statements only. SQL PREPARE and
+      # other session state still break under transaction pooling.
+      max_prepared_statements: "500"
+  template:
+    spec:
+      containers: []
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels: { cnpg.io/poolerName: postgres-cluster-pooler-rw }
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: postgres-cluster-pooler-ro
+  namespace: postgres-cluster
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  cluster:
+    name: postgres-cluster
+  instances: 2
+  type: ro
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      default_pool_size: "10"
+      max_db_connections: "10"
+      max_client_conn: "500"
+      # Fail queued clients fast instead of after the 120s default; waiting
+      # only covers getting a server connection, not query run time.
+      query_wait_timeout: "20"
+      # Protocol-level (Parse/Bind) named statements only. SQL PREPARE and
+      # other session state still break under transaction pooling.
+      max_prepared_statements: "500"
+  template:
+    spec:
+      containers: []
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels: { cnpg.io/poolerName: postgres-cluster-pooler-ro }
+              topologyKey: kubernetes.io/hostname

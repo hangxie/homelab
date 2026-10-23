@@ -97,7 +97,7 @@ data:
     user: airflow
     pass: ""        # supplied via metadataSecretName
     protocol: postgresql
-    host: postgres-cluster-rw.postgres-cluster.svc
+    host: postgres-cluster-pooler-rw.postgres-cluster.svc
     port: 5432
     db: airflow
     sslmode: disable
