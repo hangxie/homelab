@@ -1,7 +1,7 @@
 hub:
   db:
     type: postgres
-    url: postgresql+psycopg2://jupyterhub@postgres-cluster-rw.postgres-cluster.svc:5432/jupyterhub
+    url: postgresql+psycopg2://jupyterhub@postgres-cluster-pooler-rw.postgres-cluster.svc:5432/jupyterhub
     upgrade: true
   existingSecret: jupyterhub-db
   config:
