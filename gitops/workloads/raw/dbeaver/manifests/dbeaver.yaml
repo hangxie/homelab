@@ -7,6 +7,9 @@ metadata:
     app.kubernetes.io/name: cloudbeaver
 spec:
   replicas: 1
+  # RWO workspace PVC: a rolling update's new pod can't attach it while the
+  # old pod still holds it on another node.
+  strategy: { type: Recreate }
   selector:
     matchLabels:
       app.kubernetes.io/name: cloudbeaver
