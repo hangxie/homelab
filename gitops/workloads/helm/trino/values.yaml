@@ -85,7 +85,7 @@ auth:
 # ScyllaDB (Cassandra connector, no auth), ClickHouse and Postgres. A Postgres
 # catalog is bound to one database, so each app database gets its own,
 # read-only via the ro pooler (replicas) and the trino role (pg_read_all_data).
-# ClickHouse uses a read-only trino user (SELECT/SHOW grants only).
+# ClickHouse and MySQL use read-only trino users (SELECT/SHOW grants only).
 additionalCatalogs:
   hive: |
     connector.name=hive
@@ -99,8 +99,8 @@ additionalCatalogs:
   mysql: |
     connector.name=mysql
     connection-url=jdbc:mysql://mysql-cluster.mysql.svc:3306
-    connection-user=root
-    connection-password=${ENV:MYSQL_ROOT_PASSWORD}
+    connection-user=${ENV:MYSQL_USER}
+    connection-password=${ENV:MYSQL_PASSWORD}
   scylladb: |
     connector.name=cassandra
     cassandra.contact-points=scylladb-client.scylladb.svc.cluster.local

@@ -1,0 +1,35 @@
+# Read-only user for the mysql catalog: SELECT and SHOW VIEW on every
+# database, current and future, with no write grants.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: trino-mysql-bootstrap
+  namespace: trino
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mysql-bootstrap
+          image: mysql:8
+          env:
+            - name: MYSQL_PWD
+              valueFrom: { secretKeyRef: { name: mysql-root, key: password } }
+            - name: TRINO_USER
+              valueFrom: { secretKeyRef: { name: trino-mysql, key: MYSQL_USER } }
+            - name: TRINO_PASSWORD
+              valueFrom: { secretKeyRef: { name: trino-mysql, key: MYSQL_PASSWORD } }
+          command: [bash, -ec]
+          args:
+            - |
+              mysql -h mysql-cluster.mysql.svc -u root <<SQL
+              CREATE USER IF NOT EXISTS '${TRINO_USER}'@'%' IDENTIFIED BY '${TRINO_PASSWORD}';
+              ALTER USER '${TRINO_USER}'@'%' IDENTIFIED BY '${TRINO_PASSWORD}';
+              REVOKE ALL PRIVILEGES, GRANT OPTION FROM '${TRINO_USER}'@'%';
+              GRANT SELECT, SHOW VIEW ON *.* TO '${TRINO_USER}'@'%';
+              SQL
