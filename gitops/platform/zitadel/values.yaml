@@ -10,7 +10,7 @@ zitadel:
     TLS:
       Enabled: false
     # Direct, not through the pooler: Zitadel is not validated under PgBouncer
-    # transaction mode. Connections are capped instead.
+    # transaction mode. Connections are capped instead (per replica).
     Database:
       postgres:
         Host: postgres-cluster-rw.postgres-cluster.svc
@@ -56,6 +56,23 @@ zitadel:
         HasNumber: false
         HasSymbol: false
 
+# Every app's SSO login goes through Zitadel, so keep one replica up through a
+# node drain. State lives in Postgres; replicas share nothing else. The chart
+# also copies this affinity onto its init/setup Jobs, which just keeps them off
+# the two Zitadel nodes.
+replicaCount: 2
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: zitadel
+            app.kubernetes.io/component: start
+        topologyKey: kubernetes.io/hostname
+pdb:
+  enabled: true
+  maxUnavailable: 1
+
 resources:
   requests:
     cpu: 200m
@@ -72,6 +89,17 @@ login:
   sessionCookieSecretName: zitadel-login-cookie
   # Issued by cert-manager in the zitadel-config app (06-login-client-key.yaml).
   loginServiceKeySecretName: zitadel-login-client
+  replicaCount: 2
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: zitadel-login
+          topologyKey: kubernetes.io/hostname
+  pdb:
+    enabled: true
+    maxUnavailable: 1
   resources:
     requests:
       cpu: 50m
