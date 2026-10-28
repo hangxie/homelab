@@ -78,6 +78,10 @@ hold_reason() {
       echo "existing encrypted Connections and Variables become undecryptable; re-encrypt them first" ;;
     superset/secret)
       echo "encrypted values in the Superset metadata DB need 'superset re-encrypt-secrets' with PREVIOUS_SECRET_KEY" ;;
+    zitadel/masterkey)
+      echo "Zitadel's data is encrypted with it; a new key makes the existing database unreadable (fresh database only)" ;;
+    zitadel/admin)
+      echo "Zitadel applies it only when its database is created; change the admin password in the Zitadel console" ;;
     *)
       return 1 ;;
   esac

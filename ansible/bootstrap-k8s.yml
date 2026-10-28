@@ -16,3 +16,4 @@
 - import_playbook: playbooks/seed-certs.yml
 - import_playbook: playbooks/apply-root-app.yml
 - import_playbook: playbooks/cilium-post-bootstrap.yml
+- import_playbook: playbooks/seed-zitadel.yml

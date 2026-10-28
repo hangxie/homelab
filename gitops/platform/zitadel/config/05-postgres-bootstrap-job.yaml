@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: zitadel-postgres-bootstrap
+  namespace: zitadel
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: psql
+          image: postgres:18
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-superuser
+                  key: password
+            - name: ZITADEL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: zitadel-db-credentials
+                  key: password
+          command: [bash, -ec]
+          args:
+            - |
+              psql -h postgres-cluster-rw.postgres-cluster -U postgres \
+                   -v ON_ERROR_STOP=1 \
+                   -v ZITADEL_PASSWORD="${ZITADEL_PASSWORD}" <<SQL
+              SELECT format('CREATE USER zitadel WITH PASSWORD %L', :'ZITADEL_PASSWORD')
+                WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname='zitadel')\gexec
+              ALTER USER zitadel WITH PASSWORD :'ZITADEL_PASSWORD';
+              SELECT 'CREATE DATABASE zitadel OWNER zitadel'
+                WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='zitadel')\gexec
+              GRANT ALL PRIVILEGES ON DATABASE zitadel TO zitadel;
+              SQL

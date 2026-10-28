@@ -1,0 +1,100 @@
+zitadel:
+  masterkeySecretName: zitadel-masterkey
+  configSecretName: zitadel-config
+  configSecretKey: config-yaml
+  configmapConfig:
+    ExternalDomain: zitadel.homelab.xiehang.com
+    ExternalPort: 443
+    ExternalSecure: true
+    # TLS terminates at the gateway; upstream is cleartext HTTP/2 (h2c).
+    TLS:
+      Enabled: false
+    # Direct, not through the pooler: Zitadel is not validated under PgBouncer
+    # transaction mode. Connections are capped instead.
+    Database:
+      postgres:
+        Host: postgres-cluster-rw.postgres-cluster.svc
+        Port: 5432
+        Database: zitadel
+        MaxOpenConns: 10
+        MaxIdleConns: 5
+        User:
+          Username: zitadel
+          SSL:
+            Mode: prefer
+        Admin:
+          Username: zitadel
+          SSL:
+            Mode: prefer
+    FirstInstance:
+      Org:
+        Name: homelab
+        Human:
+          UserName: admin
+          FirstName: Homelab
+          LastName: Admin
+          Email:
+            Address: admin@homelab.xiehang.com
+            Verified: true
+          PasswordChangeRequired: false
+    DefaultInstance:
+      # Use usernames as-is instead of suffixing the org domain. Setup still
+      # creates the admin as admin@<org domain>; seed-zitadel.sh renames it
+      # to plain "admin".
+      DomainPolicy:
+        UserLoginMustBeDomain: false
+      LoginPolicy:
+        AllowRegister: false
+        AllowUsernamePassword: true
+        AllowExternalIDP: true
+      # The admin password is a 40-char random Vault value; drop the
+      # character-class rules so it cannot be rejected for lacking a symbol.
+      PasswordComplexityPolicy:
+        MinLength: 20
+        HasLowercase: false
+        HasUppercase: false
+        HasNumber: false
+        HasSymbol: false
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+# The Zitadel database and user come from the zitadel-config app's bootstrap
+# Job (same as every other app), so init only creates Zitadel's schemas.
+initJob:
+  command: zitadel
+
+login:
+  sessionCookieSecretName: zitadel-login-cookie
+  # Issued by cert-manager in the zitadel-config app (06-login-client-key.yaml).
+  loginServiceKeySecretName: zitadel-login-client
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  gateway:
+    httpRoute:
+      enabled: true
+      parentRefs:
+        - name: default-gateway
+          namespace: gateway-system
+          sectionName: https
+      paths:
+        - path: /ui/v2/login
+          pathType: PathPrefix
+
+gateway:
+  httpRoute:
+    enabled: true
+    parentRefs:
+      - name: default-gateway
+        namespace: gateway-system
+        sectionName: https
+    paths:
+      - path: /
+        pathType: PathPrefix

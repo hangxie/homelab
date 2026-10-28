@@ -25,7 +25,7 @@ See `README.md` for architecture, bootstrap flow, and rebuild modes.
 - **Disable a workload:** comment out its line. Pruning is automatic.
 - **Platform component:** edit `gitops/platform/<component>/`. Respect sync waves in `gitops/cluster/applications/<component>.yaml`.
 - **New secret path:** add to `scripts/vault-secrets.template.yaml`, re-run `scripts/seed-vault.sh`. `generate: false` entries must be `vault kv put` first.
-- **Postgres client:** connect through `postgres-cluster-pooler-rw` (or `-ro`), never `postgres-cluster-rw`; direct connections are for admin work only (bootstrap Jobs, backup, restore, deployment). The pooler runs in transaction mode, so fix incompatible drivers client-side first (e.g. lib/pq needs `binary_parameters=yes`, see Grafana's `values.yaml`); change PgBouncer config only as a last resort.
+- **Postgres client:** connect through `postgres-cluster-pooler-rw` (or `-ro`), never `postgres-cluster-rw`; direct connections are for admin work only (bootstrap Jobs, backup, restore, deployment). The pooler runs in transaction mode, so fix incompatible drivers client-side first (e.g. lib/pq needs `binary_parameters=yes`, see Grafana's `values.yaml`); change PgBouncer config only as a last resort. Exception: Zitadel is not validated under transaction mode, so it connects to `postgres-cluster-rw` directly with a capped pool (see its `values.yaml`).
 - **Grafana dashboard:** drop the vendored `.json` under the component's `dashboards/` directory and add it to the `configMapGenerator` in that directory's `kustomization.yaml`. Ordinary manifests stay plain YAML.
 
 ## Commands
