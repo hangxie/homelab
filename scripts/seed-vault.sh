@@ -131,8 +131,9 @@ ensure_role() {
 # "true" by default; entries that set `generate: false` (e.g. externally minted
 # credentials like Harbor robots) must be populated from vault or the secrets
 # file and will fail the run rather than fall through to random generation.
-# `format` defaults to "password"; set `format: fernet` for Fernet keys, or
-# `format: hex` for consumers that require a hex-encoded secret.
+# `format` defaults to "password"; set `format: fernet` for Fernet keys,
+# `format: hex` for consumers that require a hex-encoded secret, or
+# `format: key32` for a 32-character key.
 extract_template_entries() {
   local only_json='[]'
   if (( ${#ONLY_PATHS[@]} )); then
@@ -181,6 +182,12 @@ generate_hex() {
   openssl rand -hex 32 | tr -d '\n'
 }
 
+# 24 random bytes encoded as url-safe base64 (exactly 32 chars, no padding),
+# for consumers that need a 32-character key (e.g. Zitadel's masterkey).
+generate_key32() {
+  openssl rand -base64 24 | tr -d '\n' | tr '/+' '_-'
+}
+
 resolve_value() {
   local path="$1" field="$2" generate="$3" format="${4:-password}" value
   # --regenerate drops the Vault lookup for generatable entries so an existing
@@ -213,6 +220,8 @@ resolve_value() {
     generate_fernet_key
   elif [[ "${format}" == "hex" ]]; then
     generate_hex
+  elif [[ "${format}" == "key32" ]]; then
+    generate_key32
   else
     generate_random
   fi

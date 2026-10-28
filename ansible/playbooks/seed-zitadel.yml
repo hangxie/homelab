@@ -1,0 +1,27 @@
+---
+# Apply scripts/zitadel.template.yaml (login providers, allowed users, admin
+# rename) once Argo CD has brought Zitadel up. The script waits for Zitadel.
+#
+# Pre-requisites on the operator workstation:
+#   VAULT_ADDR + VAULT_TOKEN exported (reads the idp/* Vault paths)
+#   curl, jq, yq installed
+
+- name: Seed Zitadel configuration
+  hosts: localhost
+  gather_facts: false
+  vars:
+    repo_root: "{{ playbook_dir }}/../.."
+
+  tasks:
+    - name: Seed Zitadel providers and users
+      command: "{{ repo_root }}/scripts/seed-zitadel.sh"
+      environment:
+        KUBECONFIG:  "{{ bootstrap_kubeconfig }}"
+        VAULT_ADDR:  "{{ lookup('env', 'VAULT_ADDR') }}"
+        VAULT_TOKEN: "{{ lookup('env', 'VAULT_TOKEN') }}"
+      register: seed_result
+      changed_when: "'Creating' in seed_result.stdout or 'Renaming' in seed_result.stdout"
+
+    - name: Show seed-zitadel output
+      debug:
+        msg: "{{ seed_result.stdout_lines }}"

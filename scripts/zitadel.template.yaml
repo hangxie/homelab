@@ -1,0 +1,28 @@
+# Template consumed by scripts/seed-zitadel.sh. Zitadel has no config files for
+# providers, users or clients, so the script applies this file through the API.
+
+# Break-glass local login. Zitadel's setup creates it as
+# <username>@<org domain>; the script renames it to plain <username>.
+admin:
+  username: admin
+
+# Login providers. Client id/secret come from Vault (generate: false entries in
+# scripts/vault-secrets.template.yaml). Account creation through a provider is
+# off: a login only succeeds when it links, by verified email, to a user below.
+idps:
+  - name: GitHub
+    type: github
+    vault: idp/github
+    scopes: [read:user, user:email]
+  - name: Google
+    type: google
+    vault: idp/google
+    scopes: [openid, profile, email]
+
+# Pre-created users: the login allowlist.
+users:
+  - username: xiehang@gmail.com
+    email: xiehang@gmail.com
+    givenName: Hang
+    familyName: Xie
+    iamOwner: true

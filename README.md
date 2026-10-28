@@ -186,6 +186,12 @@ vault kv put homelab/cloudflare/api-token \
   api-token='<scoped token from Cloudflare>'
 vault kv put homelab/slack/mimir \
   webhook-url='<incoming webhook URL from Slack>'
+vault kv put homelab/idp/github \
+  client-id='<GitHub OAuth app client id>' \
+  client-secret='<GitHub OAuth app client secret>'
+vault kv put homelab/idp/google \
+  client-id='<Google OAuth client id>' \
+  client-secret='<Google OAuth client secret>'
 
 # 3. Seed Vault (sets up AppRole/policy and generates random passwords for everything else).
 scripts/seed-vault.sh
@@ -203,7 +209,8 @@ cd ..
 
 # 5. Bootstrap the cluster. This runs the API VIP, kubeadm, Cilium bootstrap,
 #    node joins, kubeconfig finalization, NVIDIA host stack, Argo CD,
-#    Vault AppRole Secret, root/platform convergence, then Cilium post-bootstrap.
+#    Vault AppRole Secret, root/platform convergence, Cilium post-bootstrap,
+#    then Zitadel seeding (waits for Zitadel to come up).
 ansible-playbook \
   -i ansible/inventory.ini \
   ansible/bootstrap-k8s.yml
@@ -243,6 +250,7 @@ with the same `VAULT_TOKEN` used for seeding. Current entries:
   `render-fallback-config` init container substitutes it into the Alertmanager
   config before Mimir starts. A missing Vault path leaves the Alertmanager pods
   stuck in `CreateContainerConfigError`.
+- `idp/github`, `idp/google` — OAuth clients for Zitadel's GitHub and Google login providers, fields `client-id` and `client-secret`. Both register the callback URL `https://zitadel.homelab.xiehang.com/idps/callback`. Read by the operator only, through `scripts/seed-zitadel.sh`; see "Single sign-on" below.
 
 Re-running `scripts/seed-vault.sh` is idempotent: existing Vault values are kept. `--regenerate` mints fresh values even where Vault already has one, and `--only <path>` narrows the write to named template paths. Template-pinned defaults (usernames) and the `generate: false` credentials above are never touched.
 
@@ -381,6 +389,21 @@ vault kv put homelab/harbor/jars \
    ```
 
 4. Revoke the old webhook in the Slack app's Incoming Webhooks page.
+
+### Single sign-on
+
+Zitadel (`https://zitadel.homelab.xiehang.com`) is the identity provider. Argo CD deploys it as two apps: `zitadel-config` (wave 640: ExternalSecrets and the database bootstrap Job) and `zitadel` (wave 650: the chart). It connects to `postgres-cluster-rw` directly, not through the pooler.
+
+Zitadel has no config files for login providers or users, so `scripts/zitadel.template.yaml` lists them and `scripts/seed-zitadel.sh` applies it through the API, using the `iam-admin-pat` token that Zitadel's setup Job writes into the `zitadel` namespace. The script is idempotent and runs at the end of `bootstrap-k8s.yml`; run it by hand after editing the template:
+
+```bash
+scripts/seed-zitadel.sh   # needs VAULT_ADDR + VAULT_TOKEN and kubectl access
+```
+
+- Allowlist: account creation through GitHub or Google is off. A provider login only succeeds when it links, by verified email, to a user pre-created from the template.
+- Break-glass: the local `admin` login works when GitHub and Google are down. Its password is `homelab/zitadel/admin` in Vault, applied only when Zitadel's database is created.
+- Rebuild: Zitadel's state lives in Postgres, so a Reset or Nuke loses it; the setup Job and `seed-zitadel.sh` recreate everything from Git and Vault, and provider logins re-link by email.
+- `zitadel/masterkey` encrypts Zitadel's data at rest. Never rotate it on a live database; only change it together with a fresh database.
 
 ### Verification
 

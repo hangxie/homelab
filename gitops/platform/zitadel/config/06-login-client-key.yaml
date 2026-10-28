@@ -1,0 +1,29 @@
+# Keypair the Login UI signs its system-API JWTs with; Zitadel trusts the
+# certificate. The chart can generate one, but with random template functions
+# that change on every Argo CD render (and roll both Deployments through their
+# checksum annotations), so cert-manager issues it once instead. Both ends read
+# the same Secret, so it never needs to live in Vault.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: zitadel-selfsigned
+  namespace: zitadel
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: zitadel-login-client
+  namespace: zitadel
+spec:
+  secretName: zitadel-login-client
+  commonName: login-client
+  duration: 87600h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Never
+  issuerRef:
+    name: zitadel-selfsigned
+    kind: Issuer
