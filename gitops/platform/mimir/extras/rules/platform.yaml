@@ -1,6 +1,6 @@
 # ── Platform services ───────────────────────────────────────────────────────
 # The components everything else depends on: DNS, the API server, the CNI,
-# certificates and secret delivery.
+# certificates, secret delivery and SSO.
 
 groups:
   - name: certificates
@@ -106,3 +106,45 @@ groups:
         annotations:
           summary: "A GPU node has stopped advertising its GPUs"
           description: "{{ printf \"%.0f\" $value }} nodes have NVIDIA hardware but fewer are advertising nvidia.com/gpu capacity. Usual cause is a kernel upgrade leaving DKMS without a built module — check `dkms status` and `nvidia-smi` on the GPU workers."
+
+  # Zitadel is the SSO provider. Outright downtime is covered by the
+  # InternalServiceProbeFailed probe on /debug/ready; these catch it degrading
+  # while still answering.
+  - name: zitadel
+    interval: 1m
+    rules:
+      # The pool is capped at 10 (values.yaml); a full pool queues every request.
+      - alert: ZitadelDatabasePoolExhausted
+        expr: |
+          max by (pod) (zitadel_database_pool_acquired_conns{job="zitadel"})
+            >= max by (pod) (zitadel_database_pool_max_conns{job="zitadel"})
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Zitadel's database pool is full"
+          description: "All of {{ $labels.pod }}'s database connections have been in use for 10 minutes; logins are waiting on the pool."
+
+      # The Login UI talks to Zitadel over gRPC, the console and apps over HTTP,
+      # so both counters are needed to see a failing login.
+      - alert: ZitadelServerErrors
+        expr: |
+          sum(increase({__name__=~"http_server_return_code_counter_total|grpc_server_grpc_status_code_total", job="zitadel", return_code=~"5.."}[15m])) > 5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Zitadel is returning server errors"
+          description: "Zitadel returned {{ printf \"%.0f\" $value }} 5xx responses in the last 15 minutes."
+
+      # Reads come from projections, so a stuck one serves stale users,
+      # providers or sessions without any request failing.
+      - alert: ZitadelProjectionFailing
+        expr: |
+          sum by (projection) (increase(projection_events_processed_total{job="zitadel", success="false"}[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A Zitadel projection is failing"
+          description: "Projection {{ $labels.projection }} failed to process {{ printf \"%.0f\" $value }} events in the last 15 minutes; reads from it are stale."
