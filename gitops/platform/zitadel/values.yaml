@@ -55,12 +55,13 @@ zitadel:
         HasUppercase: false
         HasNumber: false
         HasSymbol: false
-  resources:
-    requests:
-      cpu: 200m
-      memory: 512Mi
-    limits:
-      memory: 1Gi
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
 
 # The Zitadel database and user come from the zitadel-config app's bootstrap
 # Job (same as every other app), so init only creates Zitadel's schemas.

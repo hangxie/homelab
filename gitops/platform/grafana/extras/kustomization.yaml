@@ -35,3 +35,11 @@ configMapGenerator:
         k8s-sidecar-target-directory: /tmp/dashboards/Infrastructure
     files:
       - dashboards/ai-inference.json
+  # Built here: Zitadel publishes no dashboard of its own.
+  - name: grafana-dashboard-zitadel
+    namespace: grafana
+    options:
+      annotations:
+        k8s-sidecar-target-directory: /tmp/dashboards/Infrastructure
+    files:
+      - dashboards/zitadel.json

@@ -1203,6 +1203,44 @@ alloy:
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
+      // ── Zitadel ───────────────────────────────────────────────────────────────
+      // Scraped from the pod: the gateway blocks /debug/* except the health
+      // checks. The name label excludes the zitadel-login Service.
+
+      discovery.kubernetes "zitadel" {
+        role = "endpoints"
+        namespaces {
+          names = ["zitadel"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/name=zitadel"
+        }
+      }
+
+      discovery.relabel "zitadel" {
+        targets = discovery.kubernetes.zitadel.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "http2-server"
+          action        = "keep"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+      }
+
+      prometheus.scrape "zitadel" {
+        clustering {
+          enabled = true
+        }
+        targets      = discovery.relabel.zitadel.output
+        job_name     = "zitadel"
+        metrics_path = "/debug/metrics"
+        forward_to   = [prometheus.remote_write.mimir.receiver]
+      }
+
       // ── External hosts ────────────────────────────────────────────────────────
       // node_exporter runs on the hosts themselves (pi 192.168.0.200, media
       // 192.168.0.201), plus the macOS AI host, and Alloy pulls them over the LAN.
@@ -1444,6 +1482,13 @@ alloy:
         target {
           name    = "argocd"
           address = "https://argocd.homelab.xiehang.com/healthz"
+          module  = "http_2xx"
+          labels  = {scope = "internal"}
+        }
+        // Readiness includes the database. Every SSO login depends on it.
+        target {
+          name    = "zitadel"
+          address = "https://zitadel.homelab.xiehang.com/debug/ready"
           module  = "http_2xx"
           labels  = {scope = "internal"}
         }
