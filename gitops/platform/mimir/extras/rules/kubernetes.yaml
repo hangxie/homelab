@@ -195,3 +195,14 @@ groups:
         annotations:
           summary: "Node reports resource pressure"
           description: "Node {{ $labels.node }} has been reporting {{ $labels.condition }} for 15 minutes."
+
+  # kube-prometheus recording rules that vendored dashboards (e.g. the CNPG
+  # chart's) query. cAdvisor already carries `node`, so no kube_pod_info join.
+  - name: kubernetes-recording
+    interval: 1m
+    rules:
+      - record: node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate
+        expr: |
+          sum by (cluster, namespace, pod, container, node) (
+            irate(container_cpu_usage_seconds_total{job="kubernetes-cadvisor", image!=""}[5m])
+          )
