@@ -19,6 +19,24 @@ idps:
     vault: idp/google
     scopes: [openid, profile, email]
 
+# Sessions last 12h everywhere. Zitadel cannot end an app's session, and a
+# Zitadel logout does not revoke refresh tokens, so instead every login is
+# capped at 12h: tokens here (apps that use the token as their session, and
+# refresh tokens should an app request them), Zitadel's own login below (so a
+# re-login asks for credentials), and each app's own session setting.
+oidcSettings:
+  accessTokenLifetime: 43200s
+  idTokenLifetime: 43200s
+  refreshTokenIdleExpiration: 43200s
+  refreshTokenExpiration: 43200s
+
+# How long a password or GitHub/Google login stays valid for new app logins.
+loginPolicy:
+  passwordCheckLifetime: 43200s
+  externalLoginCheckLifetime: 43200s
+  secondFactorCheckLifetime: 43200s
+  multiFactorCheckLifetime: 43200s
+
 # Pre-created users: the login allowlist.
 users:
   - username: xiehang@gmail.com
@@ -26,3 +44,19 @@ users:
     givenName: Hang
     familyName: Xie
     iamOwner: true
+    # Roles in the project below; a user without one cannot log in to any app.
+    roles: [admin]
+
+# Project holding one OIDC client per app. Logins require a role grant on it,
+# and the script's groupsClaim Action puts the granted roles in a `groups` list
+# claim for apps to map. Clients not listed here are deleted from the project.
+project:
+  name: homelab
+  roles: [admin, viewer]
+
+# The script writes each client's generated id/secret to Vault oidc/<name>
+# (fields client-id, client-secret); the app reads it through an ExternalSecret.
+clients:
+  - name: grafana
+    redirectUris: [https://grafana.homelab.xiehang.com/login/generic_oauth]
+    postLogoutRedirectUris: [https://grafana.homelab.xiehang.com/login]

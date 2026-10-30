@@ -251,6 +251,7 @@ with the same `VAULT_TOKEN` used for seeding. Current entries:
   config before Mimir starts. A missing Vault path leaves the Alertmanager pods
   stuck in `CreateContainerConfigError`.
 - `idp/github`, `idp/google` — OAuth clients for Zitadel's GitHub and Google login providers, fields `client-id` and `client-secret`. Both register the callback URL `https://zitadel.homelab.xiehang.com/idps/callback`. Read by the operator only, through `scripts/seed-zitadel.sh`; see "Single sign-on" below.
+- `oidc/<app>` — Zitadel OIDC client for each app in `scripts/zitadel.template.yaml`, fields `client-id` and `client-secret`. Not in `vault-secrets.template.yaml`: Zitadel generates them, and `scripts/seed-zitadel.sh` writes them here.
 
 Re-running `scripts/seed-vault.sh` is idempotent: existing Vault values are kept. `--regenerate` mints fresh values even where Vault already has one, and `--only <path>` narrows the write to named template paths. Template-pinned defaults (usernames) and the `generate: false` credentials above are never touched.
 
@@ -401,6 +402,8 @@ scripts/seed-zitadel.sh   # needs VAULT_ADDR + VAULT_TOKEN and kubectl access
 ```
 
 - Allowlist: account creation through GitHub or Google is off. A provider login only succeeds when it links, by verified email, to a user pre-created from the template.
+- Apps: each app is an OIDC client in the Zitadel project `homelab`, listed under `clients:` in the template. A login needs a role grant on the project (`roles:` per user); the roles (`admin`, `viewer`) reach apps as a `groups` list claim, added by the `groupsClaim` Action the script manages (Zitadel's own roles claim is a map most apps cannot read). The script writes each client's id/secret to Vault `oidc/<app>` when it creates the client or Vault holds a stale client id; `scripts/seed-zitadel.sh --regenerate` mints fresh secrets for all clients. Apps read them through an ExternalSecret, which refreshes hourly, so restart the app after a new secret. Each app keeps its local admin login as break-glass.
+- Sessions: every login lasts at most 12h. Zitadel cannot end an app's own session, and a Zitadel logout does not revoke refresh tokens, so a logout does not reach apps; instead the template caps tokens (`oidcSettings`) and Zitadel's own login (`loginPolicy`) at 12h, and each app caps its own session at 12h (e.g. Grafana's `login_maximum_lifetime_duration`).
 - Break-glass: the local `admin` login works when GitHub and Google are down. Its password is `homelab/zitadel/admin` in Vault, applied only when Zitadel's database is created.
 - Rebuild: Zitadel's state lives in Postgres, so a Reset or Nuke loses it; the setup Job and `seed-zitadel.sh` recreate everything from Git and Vault, and provider logins re-link by email.
 - `zitadel/masterkey` encrypts Zitadel's data at rest. Never rotate it on a live database; only change it together with a fresh database.
