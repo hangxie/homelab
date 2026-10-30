@@ -972,6 +972,18 @@ alloy:
           regex         = "argocd-dex-server"
           action        = "drop"
         }
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          target_label  = "component"
+        }
       }
 
       prometheus.scrape "argocd" {
@@ -980,6 +992,30 @@ alloy:
         }
         targets    = discovery.relabel.argocd.output
         job_name   = "argocd"
+        forward_to = [prometheus.relabel.argocd.receiver]
+      }
+
+      // The Argo CD dashboard (gnetId 14584) selects on the upstream metrics
+      // Service names as `job`; anything unmapped keeps job="argocd".
+      prometheus.relabel "argocd" {
+        rule {
+          source_labels = ["component"]
+          regex         = "argocd-application-controller"
+          target_label  = "job"
+          replacement   = "argocd-metrics"
+        }
+        rule {
+          source_labels = ["component"]
+          regex         = "(argocd-server|argocd-notifications-controller)"
+          target_label  = "job"
+          replacement   = "${1}-metrics"
+        }
+        rule {
+          source_labels = ["component"]
+          regex         = "(argocd-repo-server|argocd-applicationset-controller)"
+          target_label  = "job"
+          replacement   = "${1}"
+        }
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
