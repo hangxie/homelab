@@ -405,9 +405,68 @@ scripts/seed-zitadel.sh   # needs VAULT_ADDR + VAULT_TOKEN and kubectl access
 - Apps: each app is an OIDC client in the Zitadel project `homelab`, listed under `clients:` in the template. A login needs a role grant on the project (`roles:` per user); the roles (`admin`, `viewer`) reach apps as a `groups` list claim, added by the `groupsClaim` Action the script manages (Zitadel's own roles claim is a map most apps cannot read); only grants on `homelab` count, so a role in another project never reaches the claim. The script writes each client's id/secret to Vault `oidc/<app>` when it creates the client, or Vault holds a stale client id or no secret. Zitadel never returns a secret, so a wrong one cannot be detected: `scripts/seed-zitadel.sh --regenerate` mints fresh secrets for all clients and is the recovery. Apps read them through an ExternalSecret, which refreshes hourly, so restart the app after a new secret. Apps keep their local admin login as break-glass where they can run it alongside SSO; kafka-ui, JupyterHub, Superset and Airflow cannot, so they are Zitadel-only.
 - Sessions: every login lasts at most 12h. Zitadel cannot end an app's own session, and a Zitadel logout does not revoke refresh tokens, so a logout does not reach apps; instead the template caps tokens (`oidcSettings`) and Zitadel's own login (`loginPolicy`) at 12h, and each app caps its own session at 12h (e.g. Grafana's `login_maximum_lifetime_duration`). Exception: kafka-ui only has a 30m idle timeout. An idle session bounces to Zitadel, so its 12h login still applies, but nonstop use can outlast 12h.
 - Revoking access: removing a user's role (`roles:` in the template, then the script) or deactivating the user in the Zitadel console blocks new logins and silent re-logins at once, but apps map roles at login and keep their sessions until their cap. To cut a privileged user off sooner, also end the app session: Grafana (Administration → Users → the user → force logout), Open WebUI (Admin Panel → Users: change role or delete), Superset and Airflow (List Users: remove the role or deactivate the user), JupyterHub (Admin: stop the server and delete the user), kafka-ui (restart the pod; sessions live in memory). Argo CD and Trino validate the token locally, so it stays usable until it expires, at most 12h; Argo CD's local `admin` can still act in the meantime.
-- Break-glass: the local `admin` login works when GitHub and Google are down. Its password is `homelab/zitadel/admin` in Vault, applied only when Zitadel's database is created.
+- Break-glass: the local `admin` login works when GitHub and Google are down, in Zitadel and, through its `admin` role on `homelab`, in every app. Its password is `homelab/zitadel/admin` in Vault, applied only when Zitadel's database is created. See [Break-glass access](#break-glass-access) for when Zitadel itself is down.
 - Rebuild: Zitadel's state lives in Postgres, so a Reset or Nuke loses it; the setup Job and `seed-zitadel.sh` recreate everything from Git and Vault, and provider logins re-link by email.
 - `zitadel/masterkey` encrypts Zitadel's data at rest. Never rotate it on a live database; only change it together with a fresh database.
+
+#### Break-glass access
+
+Sessions already open keep working until their cap (12h; kafka-ui until 30m idle). For new logins, pick the case:
+
+**GitHub or Google unreachable, Zitadel up.** Sign in on Zitadel's login page with the local username `admin` instead of a provider button; its password is `homelab/zitadel/admin` in Vault. It holds the `admin` role on `homelab` (`admin.roles` in the template), so every app accepts it through SSO as usual. Nothing to redeploy.
+
+**Zitadel down.** Apps that keep a local login next to SSO need nothing special; `kubectl homelab list dashboards` prints their credentials:
+
+| App | Local login |
+|---|---|
+| Grafana | the form on the login page |
+| Open WebUI | the form on the login page |
+| Argo CD | local `admin` (UI or CLI) |
+| Trino | password over CLI/JDBC; the web UI is SSO-only |
+
+kafka-ui, JupyterHub, Superset and Airflow are SSO-only and have no stored local password, so a local login is switched on by hand:
+
+1. Stop Argo CD from reverting the change: remove `syncPolicy.automated` from `root` and the app, and for `wl-*` apps first add the app to `ignoreApplicationDifferences` on the `workloads-helm` ApplicationSet (as in AGENTS.md's change workflow).
+2. Make up a password for the session (`PW="$(openssl rand -base64 30)"`) and switch the app:
+   - kafka-ui: drop the SSO config file and use the form login.
+     ```bash
+     kubectl -n kafka create secret generic kafka-ui-breakglass \
+       --from-literal=SPRING_SECURITY_USER_PASSWORD="${PW}"
+     kubectl -n kafka set env deploy/kafka-ui SPRING_CONFIG_ADDITIONALLOCATION- \
+       AUTH_TYPE=LOGIN_FORM SPRING_SECURITY_USER_NAME=admin
+     kubectl -n kafka set env deploy/kafka-ui --from=secret/kafka-ui-breakglass
+     ```
+   - Superset: switch FAB to database login and set the `admin` password.
+     ```bash
+     kubectl -n superset get secret wl-superset-config -o json \
+       | jq '.data["superset_config.py"] |= (@base64d | sub("AUTH_TYPE = AUTH_OAUTH"; "AUTH_TYPE = AUTH_DB") | @base64)' \
+       | kubectl replace -f -
+     kubectl -n superset rollout restart deploy/wl-superset
+     kubectl -n superset exec deploy/wl-superset -c superset -- \
+       superset fab reset-password --username admin --password "${PW}"
+     ```
+   - Airflow: the same, in the api-server's `webserver_config.py`.
+     ```bash
+     kubectl -n airflow get cm wl-airflow-api-server-config -o json \
+       | jq '.data["webserver_config.py"] |= sub("AUTH_TYPE = AUTH_OAUTH"; "AUTH_TYPE = AUTH_DB")' \
+       | kubectl replace -f -
+     kubectl -n airflow rollout restart deploy/wl-airflow-api-server
+     kubectl -n airflow exec deploy/wl-airflow-api-server -c api-server -- \
+       airflow users reset-password --username admin --password "${PW}"
+     ```
+   - JupyterHub: the hub reads its config from `values.yaml` in the `hub` Secret.
+     ```bash
+     VALUES="$(kubectl -n jupyter get secret hub -o json | jq -r '.data["values.yaml"] | @base64d' \
+       | PW="${PW}" yq -y '.hub.config.JupyterHub.authenticator_class = "dummy"
+           | .hub.config.DummyAuthenticator.password = env.PW
+           | .hub.config.Authenticator.admin_users = ["admin"]')"
+     kubectl -n jupyter get secret hub -o json \
+       | jq --arg v "${VALUES}" '.data["values.yaml"] = ($v | @base64)' \
+       | kubectl replace -f -
+     kubectl -n jupyter rollout restart deploy/hub
+     ```
+     Then sign in as `admin` with `${PW}`.
+3. When Zitadel is back, re-enable sync on the app and `root` (and drop the ApplicationSet entry). Argo CD restores the SSO config from Git; delete `kafka-ui-breakglass` by hand.
 
 ### Verification
 

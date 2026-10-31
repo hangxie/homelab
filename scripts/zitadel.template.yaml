@@ -5,6 +5,8 @@
 # <username>@<org domain>; the script renames it to plain <username>.
 admin:
   username: admin
+  # Project roles, so it can sign in to apps when GitHub and Google are down.
+  roles: [admin]
 
 # Login providers. Client id/secret come from Vault (generate: false entries in
 # scripts/vault-secrets.template.yaml). Account creation through a provider is

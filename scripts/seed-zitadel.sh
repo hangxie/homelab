@@ -96,6 +96,17 @@ ensure_admin_username() {
   api PUT "/v2/users/human/${id}" "$(jq -nc --arg u "${username}" '{username: $u}')" >/dev/null
 }
 
+# The break-glass admin's project roles, so it can sign in to apps when GitHub
+# and Google are unreachable. It is IAM owner anyway, so this adds no privilege.
+ensure_admin_grant() {
+  local admin id
+  admin="$(yq -c '.admin' "${TEMPLATE}")"
+  id="$(api POST /v2/users "$(jq -nc --arg u "$(jq -r '.username' <<<"${admin}")" \
+    '{queries: [{userNameQuery: {userName: $u, method: "TEXT_QUERY_METHOD_EQUALS"}}]}')" \
+    | jq -r '.result[0].userId')"
+  ensure_user_grant "${id}" "${admin}"
+}
+
 # Instance-level provider, so it applies to every org. Linking by verified
 # email onto a pre-created user is allowed; creating accounts is not.
 ensure_idp() {
@@ -513,6 +524,7 @@ main() {
   ensure_groups_action
   ensure_project_roles
   ensure_clients
+  ensure_admin_grant
   ensure_users
   echo
   echo "Zitadel seeding complete."
