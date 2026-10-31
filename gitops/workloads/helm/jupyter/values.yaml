@@ -5,21 +5,37 @@ hub:
     upgrade: true
   existingSecret: jupyterhub-db
   config:
-    Authenticator:
-      admin_users:
-        - admin
+    # Zitadel SSO. A notebook server runs arbitrary code, so only the admin
+    # group gets in (viewer has no read-only meaning here) and is a hub admin.
+    # Endpoints are spelled out so nothing is discovered at startup. The hub
+    # cookie lasts the 12h used across apps.
     JupyterHub:
-      authenticator_class: dummy
+      authenticator_class: generic-oauth
+      cookie_max_age_days: 0.5
+    GenericOAuthenticator:
+      login_service: Zitadel
+      oauth_callback_url: https://jupyter.homelab.xiehang.com/hub/oauth_callback
+      authorize_url: https://zitadel.homelab.xiehang.com/oauth/v2/authorize
+      token_url: https://zitadel.homelab.xiehang.com/oauth/v2/token
+      userdata_url: https://zitadel.homelab.xiehang.com/oidc/v1/userinfo
+      scope: [openid, profile, email]
+      username_claim: preferred_username
+      auth_state_groups_key: oauth_user.groups
+      manage_groups: true
+      allowed_groups: [admin]
+      admin_groups: [admin]
+  # Read by OAuthenticator itself.
   extraEnv:
-    - name: JUPYTERHUB_ADMIN_PASSWORD
+    - name: OAUTH_CLIENT_ID
       valueFrom:
         secretKeyRef:
-          name: jupyter-admin
-          key: password
-  extraConfig:
-    01-admin-password: |
-      import os
-      c.DummyAuthenticator.password = os.environ["JUPYTERHUB_ADMIN_PASSWORD"]
+          name: jupyter-oidc
+          key: client-id
+    - name: OAUTH_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: jupyter-oidc
+          key: client-secret
   networkPolicy:
     # Cilium's CIDR selectors do not match in-cluster pod identities, so the
     # chart's default `egressAllowRules.privateIPs: true` (ipBlock 10.0.0.0/8)
