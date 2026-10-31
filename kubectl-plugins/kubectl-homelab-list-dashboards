@@ -98,7 +98,7 @@ while IFS=$'\t' read -r ns name hostname; do
     url="${URL_SCHEME}://$hostname"
     case "$ns/$name" in
         airflow/airflow)
-            print_secret_row "$url" airflow airflow-admin password admin
+            print_row "$url" "-" "(Zitadel SSO)"
             ;;
         alloy/alloy)
             print_row "$url" "-" "(no auth)"

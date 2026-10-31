@@ -3,57 +3,9 @@ defaultAirflowTag: "3.2.2"
 
 executor: KubernetesExecutor
 
+# Users come from Zitadel (apiServer.apiServerConfig), so no local admin.
 createUserJob:
-  applyCustomEnv: false
-  ttlSecondsAfterFinished: null
-  # The chart ships this as a Helm post-install/post-upgrade hook, which Argo CD
-  # maps to PostSync. PostSync only runs after all resources are Healthy, but the
-  # scheduler/api-server never become Healthy until migrations are applied, so
-  # this hook would deadlock and never run. Render it as a plain Job and re-tag it
-  # as an Argo CD Sync hook (see migrateDatabaseJob for the full rationale).
-  useHelmHooks: false
-  jobAnnotations:
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: "0"
-  # The Job is a Sync hook, but its ServiceAccount is a plain resource that
-  # defaults to wave 0 -- the same wave as the Job. Pull the SA into an earlier
-  # wave so it always exists before the hook pod is created (see
-  # migrateDatabaseJob.serviceAccount for the full rationale).
-  serviceAccount:
-    annotations:
-      argocd.argoproj.io/sync-wave: "-1"
-  defaultUser:
-    enabled: true
-    username: admin
-    email: admin@homelab.xiehang.com
-  # Chart hardcodes the `-p` arg from defaultUser.password. Override args to
-  # read the password from the airflow-admin Secret (sourced from Vault).
-  env:
-    - name: AIRFLOW_ADMIN_PASSWORD
-      valueFrom:
-        secretKeyRef:
-          name: airflow-admin
-          key: password
-  args:
-    - "bash"
-    - "-c"
-    - |-
-      exec \
-      airflow users create "$@"
-    - --
-    - "-r"
-    - "{{ .Values.createUserJob.defaultUser.role }}"
-    - "-u"
-    - "{{ .Values.createUserJob.defaultUser.username }}"
-    - "-e"
-    - "{{ .Values.createUserJob.defaultUser.email }}"
-    - "-f"
-    - "{{ .Values.createUserJob.defaultUser.firstName }}"
-    - "-l"
-    - "{{ .Values.createUserJob.defaultUser.lastName }}"
-    - "-p"
-    - "$(AIRFLOW_ADMIN_PASSWORD)"
+  enabled: false
 
 migrateDatabaseJob:
   applyCustomEnv: false
@@ -83,6 +35,12 @@ migrateDatabaseJob:
 apiSecretKeySecretName: airflow-api-secret-key
 jwtSecretName: airflow-jwt-secret
 fernetKeySecretName: airflow-fernet-key
+
+# The UI session is the api-server's JWT; cap it at the 12h used across apps
+# (default 24h).
+config:
+  api_auth:
+    jwt_expiration_time: 43200
 
 # The migrate (wave -1) and create-user (wave 0) Jobs run as Sync hooks and mount
 # this airflow config ConfigMap, which otherwise renders as a plain resource at
@@ -137,6 +95,67 @@ apiServer:
     periodSeconds: 10
     timeoutSeconds: 20
     failureThreshold: 30
+  # Trust the gateway's X-Forwarded-Proto so the OAuth callback URL is https.
+  # The pods are only reachable in-cluster.
+  args: ["bash", "-c", "exec airflow api-server --proxy-headers"]
+  env:
+    - name: FORWARDED_ALLOW_IPS
+      value: "*"
+    - name: OIDC_CLIENT_ID
+      valueFrom:
+        secretKeyRef:
+          name: airflow-oidc
+          key: client-id
+    - name: OIDC_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: airflow-oidc
+          key: client-secret
+  # Zitadel SSO. FAB takes one AUTH_TYPE, so the local login is gone. FAB has
+  # no generic OIDC userinfo reader, hence the small security manager; the
+  # `groups` claim picks the role at every login (admin is Admin, viewer is
+  # Viewer). Users without a role are refused by Zitadel before they get here.
+  apiServerConfig: |
+    import os
+    from datetime import timedelta
+    from flask_appbuilder.security.manager import AUTH_OAUTH
+    from airflow.providers.fab.auth_manager.security_manager.override import (
+        FabAirflowSecurityManagerOverride,
+    )
+
+    AUTH_TYPE = AUTH_OAUTH
+    AUTH_USER_REGISTRATION = True
+    AUTH_USER_REGISTRATION_ROLE = "Public"
+    AUTH_ROLES_MAPPING = {"admin": ["Admin"], "viewer": ["Viewer"]}
+    AUTH_ROLES_SYNC_AT_LOGIN = True
+    PERMANENT_SESSION_LIFETIME = timedelta(hours=12)
+    OAUTH_PROVIDERS = [{
+        "name": "zitadel",
+        "icon": "fa-key",
+        "token_key": "access_token",
+        "remote_app": {
+            "client_id": os.environ["OIDC_CLIENT_ID"],
+            "client_secret": os.environ["OIDC_CLIENT_SECRET"],
+            "api_base_url": "https://zitadel.homelab.xiehang.com/",
+            "authorize_url": "https://zitadel.homelab.xiehang.com/oauth/v2/authorize",
+            "access_token_url": "https://zitadel.homelab.xiehang.com/oauth/v2/token",
+            "jwks_uri": "https://zitadel.homelab.xiehang.com/oauth/v2/keys",
+            "client_kwargs": {"scope": "openid profile email"},
+        },
+    }]
+
+    class ZitadelSecurityManager(FabAirflowSecurityManagerOverride):
+        def get_oauth_user_info(self, provider, resp):
+            me = self.oauth_remotes[provider].get("oidc/v1/userinfo").json()
+            return {
+                "username": me["preferred_username"],
+                "email": me.get("email", ""),
+                "first_name": me.get("given_name", ""),
+                "last_name": me.get("family_name", ""),
+                "role_keys": me.get("groups", []),
+            }
+
+    SECURITY_MANAGER_CLASS = ZitadelSecurityManager
 
 # Task logs land on the shared logs PVC and are pruned by the per-component
 # log-groomer sidecars. Lower retention from the chart default (15d) to 7d to
