@@ -62,3 +62,5 @@ clients:
     postLogoutRedirectUris: [https://grafana.homelab.xiehang.com/login]
   - name: kafka-ui
     redirectUris: [https://kafka.homelab.xiehang.com/login/oauth2/code/zitadel]
+  - name: openwebui
+    redirectUris: [https://openwebui.homelab.xiehang.com/oauth/oidc/callback]

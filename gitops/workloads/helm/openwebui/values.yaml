@@ -50,6 +50,39 @@ extraEnvVars:
       secretKeyRef:
         name: openwebui-secret-key
         key: secret-key
+  # Zitadel SSO. The `groups` claim sets the role on every login: admin is
+  # admin, viewer is user, anyone else is refused. The local login form stays
+  # as break-glass. Sessions are capped at the 12h used across apps.
+  - name: ENABLE_OAUTH_SIGNUP
+    value: "true"
+  - name: OAUTH_PROVIDER_NAME
+    value: Zitadel
+  - name: OPENID_PROVIDER_URL
+    value: https://zitadel.homelab.xiehang.com/.well-known/openid-configuration
+  - name: OPENID_REDIRECT_URI
+    value: https://openwebui.homelab.xiehang.com/oauth/oidc/callback
+  - name: OAUTH_SCOPES
+    value: openid email profile
+  - name: OAUTH_CLIENT_ID
+    valueFrom:
+      secretKeyRef:
+        name: openwebui-oidc
+        key: client-id
+  - name: OAUTH_CLIENT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: openwebui-oidc
+        key: client-secret
+  - name: ENABLE_OAUTH_ROLE_MANAGEMENT
+    value: "true"
+  - name: OAUTH_ROLES_CLAIM
+    value: groups
+  - name: OAUTH_ALLOWED_ROLES
+    value: admin,viewer
+  - name: OAUTH_ADMIN_ROLES
+    value: admin
+  - name: JWT_EXPIRES_IN
+    value: 12h
   - name: DATABASE_URL
     valueFrom:
       secretKeyRef:
