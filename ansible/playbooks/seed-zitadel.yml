@@ -1,9 +1,10 @@
 ---
-# Apply scripts/zitadel.template.yaml (login providers, allowed users, admin
-# rename) once Argo CD has brought Zitadel up. The script waits for Zitadel.
+# Apply scripts/zitadel.template.yaml (login providers, allowed users, OIDC
+# clients, admin rename) once Argo CD has brought Zitadel up. The script waits
+# for Zitadel.
 #
 # Pre-requisites on the operator workstation:
-#   VAULT_ADDR + VAULT_TOKEN exported (reads the idp/* Vault paths)
+#   VAULT_ADDR + VAULT_TOKEN exported (reads idp/*, writes oidc/*)
 #   curl, jq, yq installed
 
 - name: Seed Zitadel configuration
@@ -20,7 +21,7 @@
         VAULT_ADDR:  "{{ lookup('env', 'VAULT_ADDR') }}"
         VAULT_TOKEN: "{{ lookup('env', 'VAULT_TOKEN') }}"
       register: seed_result
-      changed_when: "'Creating' in seed_result.stdout or 'Renaming' in seed_result.stdout"
+      changed_when: "'Creating' in seed_result.stdout or 'Renaming' in seed_result.stdout or 'Writing' in seed_result.stdout"
 
     - name: Show seed-zitadel output
       debug:
