@@ -1,12 +1,12 @@
 # Ray namespace contents — KubeRay-managed RayService running vLLM via
-# Ray Serve's LLM API. Single application, one configured LLMConfig from the
-# MODELS env var. Worker pod init container reads the live RayService CR and
-# pulls the listed model into the CephFS PVC.
+# Ray Serve's LLM API. Single application serving one model from the MODELS
+# env var, sharded across both GPUs of the one GPU node. Worker pod init
+# container reads the live RayService CR and pulls the model into the CephFS PVC.
 #
 # Operator workflow:
-#   - Add a model:    edit MODELS env var (comma-separated) and the matching
-#                     model_list in litellm.yaml, commit, push.
-#   - Remove a model: same; then optionally `kubectl homelab model vllm delete <id>`.
+#   - Switch model:   edit MODELS env var and the matching model_list in
+#                     litellm.yaml, commit, push; then optionally
+#                     `kubectl homelab model vllm delete <old id>`.
 #   - Change a serve script or the tool chat template: commit, then
 #     `kubectl -n ray delete raycluster <name>` -- subPath mounts never refresh
 #     and upgradeStrategy None leaves the running cluster on the old pod spec.
@@ -107,9 +107,9 @@ spec:
   serviceUnhealthySecondThreshold: 1800
   deploymentUnhealthySecondThreshold: 1800
   # In-place update instead of KubeRay's default NewCluster strategy, which
-  # stands up a second RayCluster before cutting over. Both GPU nodes expose
-  # one GPU and each is held by a ray worker, so the new cluster's workers
-  # stay Pending forever and the upgrade deadlocks. Costs a short outage on every serveConfigV2 change.
+  # stands up a second RayCluster before cutting over. The one GPU node's two
+  # cards are both held by its ray worker, so the new cluster's worker stays
+  # Pending forever and the upgrade deadlocks. Costs a short outage on every serveConfigV2 change.
   upgradeStrategy:
     type: None
   serveConfigV2: |
@@ -121,7 +121,9 @@ spec:
           env_vars:
             PYTHONPATH: /home/ray
             _RAY_LLM_PATCH: "1"
-            MODELS: "cyankiwi/Qwen3.5-4B-AWQ-4bit,casperhansen/llama-3.2-3b-instruct-awq"
+            # One model at a time, sharded across both cards of the GPU node.
+            MODELS: "cyankiwi/Qwen3.5-4B-AWQ-4bit"
+            TENSOR_PARALLEL_SIZE: "2"
             MAX_MODEL_LEN: "16384"
             GPU_MEMORY_UTILIZATION: "0.93"
             MAX_NUM_SEQS: "4"
@@ -159,9 +161,9 @@ spec:
       - groupName: gpu-worker
         replicas: 0
         minReplicas: 0
-        maxReplicas: 2
+        maxReplicas: 1
         rayStartParams:
-          num-gpus: "1"
+          num-gpus: "2"
         template:
           spec:
             serviceAccountName: ray-vllm
@@ -338,12 +340,11 @@ spec:
               - name: ray-worker
                 image: hangxie/ray-vllm:v0.1.0
                 resources:
-                  # GPU nodes have 12 GiB RAM (11.6 GiB allocatable); ~1.5 GiB
-                  # is held by daemonsets, so the 10 GiB limit is a burst
-                  # ceiling that overcommits the node -- the 4 GiB request is
-                  # what actually has to fit.
-                  requests: { cpu: "2", memory: "4Gi", nvidia.com/gpu: "1" }
-                  limits:   { cpu: "4", memory: "10Gi", nvidia.com/gpu: "1" }
+                  # The GPU node has 16 GiB RAM, ~1 GiB of it held by
+                  # daemonsets. Each tensor-parallel rank keeps its own CUDA
+                  # context and torch runtime in host RAM, ~2.5 GiB apiece.
+                  requests: { cpu: "4", memory: "12Gi", nvidia.com/gpu: "2" }
+                  limits:   { cpu: "8", memory: "14Gi", nvidia.com/gpu: "2" }
                 env:
                   - { name: PYTHONPATH, value: /home/ray }
                 ports:

@@ -2,8 +2,8 @@ locals {
   ssh_key         = var.ssh_public_key != "" ? var.ssh_public_key : file(pathexpand(var.ssh_public_key_file))
   masters         = { for k, v in var.nodes : k => v if startswith(k, "master-") }
   workers         = { for k, v in var.nodes : k => v if !startswith(k, "master-") }
-  gpu_workers     = { for k, v in local.workers : k => v if v.gpu_pci_id != null }
-  non_gpu_workers = { for k, v in local.workers : k => v if v.gpu_pci_id == null }
+  gpu_workers     = { for k, v in local.workers : k => v if length(v.gpu_pci_ids) > 0 }
+  non_gpu_workers = { for k, v in local.workers : k => v if length(v.gpu_pci_ids) == 0 }
 }
 
 resource "proxmox_virtual_environment_vm" "node2" {
@@ -65,11 +65,12 @@ resource "proxmox_virtual_environment_vm" "node2" {
   }
 
   dynamic "hostpci" {
-    for_each = each.value.gpu_pci_id != null ? [each.value.gpu_pci_id] : []
+    for_each = each.value.gpu_pci_ids
     content {
-      device  = "hostpci0"
+      device  = "hostpci${hostpci.key}"
       pcie    = true
-      mapping = each.value.gpu_pci_id
+      mapping = hostpci.value
+      rombar  = false
     }
   }
 

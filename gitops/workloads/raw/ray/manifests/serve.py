@@ -56,7 +56,7 @@ def _engine_overrides(model_id: str) -> dict:
 
 def _make_config(model_id: str) -> LLMConfig:
     engine_kwargs = dict(
-        tensor_parallel_size=1,
+        tensor_parallel_size=int(os.environ.get("TENSOR_PARALLEL_SIZE", "1")),
         gpu_memory_utilization=float(os.environ.get("GPU_MEMORY_UTILIZATION", "0.90")),
         max_num_seqs=int(os.environ.get("MAX_NUM_SEQS", "1")),
         # fp8 KV cache is emulated on these Ampere cards, and stacked on AWQ weights it
