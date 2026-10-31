@@ -68,3 +68,5 @@ clients:
     redirectUris: [https://trino.homelab.xiehang.com/oauth2/callback]
   - name: jupyter
     redirectUris: [https://jupyter.homelab.xiehang.com/hub/oauth_callback]
+  - name: superset
+    redirectUris: [https://superset.homelab.xiehang.com/oauth-authorized/zitadel]

@@ -10,15 +10,16 @@ redis:
 # Postgres metadata DB connection fails at boot with
 # `ModuleNotFoundError: No module named 'psycopg2'`. Superset 5.0.0 uses an
 # uv-managed venv at /app/.venv, so install into that interpreter explicitly.
+# Authlib is FAB's OAuth client, also missing from the image.
 bootstrapScript: |
   #!/bin/bash
   set -e
   if [ -x "/app/.venv/bin/python" ] && command -v uv >/dev/null 2>&1; then
-    uv pip install --quiet --python /app/.venv/bin/python psycopg2-binary==2.9.10
-    /app/.venv/bin/python -c "import psycopg2"
+    uv pip install --quiet --python /app/.venv/bin/python psycopg2-binary==2.9.10 authlib==1.6.12
+    /app/.venv/bin/python -c "import psycopg2, authlib"
   else
-    python -m pip install --quiet psycopg2-binary==2.9.10
-    python -c "import psycopg2"
+    python -m pip install --quiet psycopg2-binary==2.9.10 authlib==1.6.12
+    python -c "import psycopg2, authlib"
   fi
   if [ ! -f ~/bootstrap ]; then echo "Running Superset with uid $(id -u)" > ~/bootstrap; fi
 
@@ -73,11 +74,16 @@ extraEnvRaw:
       secretKeyRef:
         name: superset-db-credentials
         key: password
-  - name: SUPERSET_ADMIN_PASSWORD
+  - name: OIDC_CLIENT_ID
     valueFrom:
       secretKeyRef:
-        name: superset-admin
-        key: password
+        name: superset-oidc
+        key: client-id
+  - name: OIDC_CLIENT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: superset-oidc
+        key: client-secret
   # Overrides the placeholder redis_password baked into the chart's -env Secret.
   - name: REDIS_PASSWORD
     valueFrom:
@@ -85,15 +91,56 @@ extraEnvRaw:
         name: superset-redis
         key: password
 
+# Zitadel SSO. FAB takes one AUTH_TYPE, so the local login is gone. FAB has
+# no generic OIDC userinfo reader, hence the small security manager; the
+# `groups` claim picks the role at every login (admin is Admin, viewer is
+# Gamma). Users without a role are refused by Zitadel before they get here.
+# ProxyFix makes the callback URL https behind the gateway.
+configOverrides:
+  zitadel: |
+    import os
+    from datetime import timedelta
+    from flask_appbuilder.security.manager import AUTH_OAUTH
+    from superset.security import SupersetSecurityManager
+
+    ENABLE_PROXY_FIX = True
+    AUTH_TYPE = AUTH_OAUTH
+    AUTH_USER_REGISTRATION = True
+    AUTH_USER_REGISTRATION_ROLE = "Public"
+    AUTH_ROLES_MAPPING = {"admin": ["Admin"], "viewer": ["Gamma"]}
+    AUTH_ROLES_SYNC_AT_LOGIN = True
+    PERMANENT_SESSION_LIFETIME = timedelta(hours=12)
+    OAUTH_PROVIDERS = [{
+        "name": "zitadel",
+        "icon": "fa-key",
+        "token_key": "access_token",
+        "remote_app": {
+            "client_id": os.environ["OIDC_CLIENT_ID"],
+            "client_secret": os.environ["OIDC_CLIENT_SECRET"],
+            "api_base_url": "https://zitadel.homelab.xiehang.com/",
+            "authorize_url": "https://zitadel.homelab.xiehang.com/oauth/v2/authorize",
+            "access_token_url": "https://zitadel.homelab.xiehang.com/oauth/v2/token",
+            "jwks_uri": "https://zitadel.homelab.xiehang.com/oauth/v2/keys",
+            "client_kwargs": {"scope": "openid profile email"},
+        },
+    }]
+
+    class ZitadelSecurityManager(SupersetSecurityManager):
+        def oauth_user_info(self, provider, response=None):
+            me = self.oauth_remotes[provider].get("oidc/v1/userinfo").json()
+            return {
+                "username": me["preferred_username"],
+                "email": me.get("email", ""),
+                "first_name": me.get("given_name", ""),
+                "last_name": me.get("family_name", ""),
+                "role_keys": me.get("groups", []),
+            }
+
+    CUSTOM_SECURITY_MANAGER = ZitadelSecurityManager
+
 init:
   loadExamples: false
-  adminUser:
-    username: admin
-    email: admin@homelab.xiehang.com
-    password: '"${SUPERSET_ADMIN_PASSWORD}"'
-  # `superset fab create-admin` is no-op when the row already exists, so a
-  # rotated Vault password never reaches the metadata DB. Append
-  # `fab reset-password` so each post-install/post-upgrade hook re-syncs it.
+  createAdmin: false
   initscript: |-
     #!/bin/sh
     set -eu
@@ -101,20 +148,6 @@ init:
     superset db upgrade
     echo "Initializing roles..."
     superset init
-    {{ if .Values.init.createAdmin }}
-    echo "Creating admin user..."
-    superset fab create-admin \
-                    --username {{ .Values.init.adminUser.username }} \
-                    --firstname {{ .Values.init.adminUser.firstname }} \
-                    --lastname {{ .Values.init.adminUser.lastname }} \
-                    --email {{ .Values.init.adminUser.email }} \
-                    --password {{ .Values.init.adminUser.password }} \
-                    || true
-    echo "Syncing admin password from Vault..."
-    superset fab reset-password \
-                    --username {{ .Values.init.adminUser.username }} \
-                    --password {{ .Values.init.adminUser.password }}
-    {{- end }}
     if [ -f "{{ .Values.extraConfigMountPath }}/import_datasources.yaml" ]; then
       echo "Importing database connections.... "
       superset import_datasources -p {{ .Values.extraConfigMountPath }}/import_datasources.yaml
