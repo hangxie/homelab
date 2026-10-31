@@ -98,7 +98,7 @@ while IFS=$'\t' read -r ns name hostname; do
     url="${URL_SCHEME}://$hostname"
     case "$ns/$name" in
         airflow/airflow)
-            print_secret_row "$url" airflow airflow-admin password admin
+            print_row "$url" "-" "(Zitadel SSO)"
             ;;
         alloy/alloy)
             print_row "$url" "-" "(no auth)"
@@ -124,10 +124,10 @@ while IFS=$'\t' read -r ns name hostname; do
             print_row "$url" "-" "(no auth)"
             ;;
         jupyter/jupyter|jupyter/jupyterhub)
-            print_secret_row "$url" jupyter jupyter-admin password admin
+            print_row "$url" "-" "(Zitadel SSO)"
             ;;
         kafka/kafka-ui)
-            print_secret_user_pass_row "$url" kafka kafka-ui-admin username password admin
+            print_row "$url" "-" "(Zitadel SSO)"
             ;;
         kube-system/hubble)
             print_row "$url" "-" "(no auth)"
@@ -150,7 +150,7 @@ while IFS=$'\t' read -r ns name hostname; do
             print_secret_row "$url" rook-ceph rook-ceph-dashboard-password password admin
             ;;
         superset/superset)
-            print_secret_row "$url" superset superset-admin password admin
+            print_row "$url" "-" "(Zitadel SSO)"
             ;;
         trino/trino)
             print_secret_user_pass_row "$url" trino trino-credentials username password admin

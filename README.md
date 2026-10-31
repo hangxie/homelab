@@ -251,6 +251,7 @@ with the same `VAULT_TOKEN` used for seeding. Current entries:
   config before Mimir starts. A missing Vault path leaves the Alertmanager pods
   stuck in `CreateContainerConfigError`.
 - `idp/github`, `idp/google` — OAuth clients for Zitadel's GitHub and Google login providers, fields `client-id` and `client-secret`. Both register the callback URL `https://zitadel.homelab.xiehang.com/idps/callback`. Read by the operator only, through `scripts/seed-zitadel.sh`; see "Single sign-on" below.
+- `oidc/<app>` — Zitadel OIDC client for each app in `scripts/zitadel.template.yaml`, fields `client-id` and `client-secret`. Not in `vault-secrets.template.yaml`: Zitadel generates them, and `scripts/seed-zitadel.sh` writes them here.
 
 Re-running `scripts/seed-vault.sh` is idempotent: existing Vault values are kept. `--regenerate` mints fresh values even where Vault already has one, and `--only <path>` narrows the write to named template paths. Template-pinned defaults (usernames) and the `generate: false` credentials above are never touched.
 
@@ -268,7 +269,7 @@ It discovers the affected `ExternalSecret`s from the cluster by matching `remote
 
 The operator wait matters for `postgres-cnpg/superuser`: CNPG copies that Secret into the database only when it reconciles, and a cluster reporting healthy will sit on a stale value indefinitely. Every `*-postgres-bootstrap` Job authenticates as that superuser, so without the wait they all fail with `password authentication failed for user "postgres"` while Vault and the Secret both look correct. The script nudges the `Cluster` and waits for `status.secretsResourceVersion.superuserSecretVersion` to match the live Secret before re-running any Job.
 
-Seven paths are held back from a bare run because nothing in the cluster re-applies them, or because re-applying them destroys data: `mysql/root`, `cassandra/admin`, `dbeaver/admin`, `airflow/admin`, `openwebui/admin`, `airflow/fernet-key` and `superset/secret`. `scripts/rotate-cred.sh --help` prints the reason for each. Naming one on the command line rotates it anyway and prints the manual step that is now outstanding.
+Six paths are held back from a bare run because nothing in the cluster re-applies them, or because re-applying them destroys data: `mysql/root`, `cassandra/admin`, `dbeaver/admin`, `openwebui/admin`, `airflow/fernet-key` and `superset/secret`. `scripts/rotate-cred.sh --help` prints the reason for each. Naming one on the command line rotates it anyway and prints the manual step that is now outstanding.
 
 The vLLM `/v1` endpoint (LiteLLM in the `ray` namespace) requires `Authorization: Bearer sk-<ray/litellm master-key>`; `kubectl homelab list dashboards` prints the full key. Rotating it restarts LiteLLM, but Open WebUI keeps connection keys in its database once an admin has saved the connection settings, so update the key there too.
 
@@ -401,6 +402,8 @@ scripts/seed-zitadel.sh   # needs VAULT_ADDR + VAULT_TOKEN and kubectl access
 ```
 
 - Allowlist: account creation through GitHub or Google is off. A provider login only succeeds when it links, by verified email, to a user pre-created from the template.
+- Apps: each app is an OIDC client in the Zitadel project `homelab`, listed under `clients:` in the template. A login needs a role grant on the project (`roles:` per user); the roles (`admin`, `viewer`) reach apps as a `groups` list claim, added by the `groupsClaim` Action the script manages (Zitadel's own roles claim is a map most apps cannot read). The script writes each client's id/secret to Vault `oidc/<app>` when it creates the client or Vault holds a stale client id; `scripts/seed-zitadel.sh --regenerate` mints fresh secrets for all clients. Apps read them through an ExternalSecret, which refreshes hourly, so restart the app after a new secret. Apps keep their local admin login as break-glass where they can run it alongside SSO; kafka-ui, JupyterHub, Superset and Airflow cannot, so they are Zitadel-only.
+- Sessions: every login lasts at most 12h. Zitadel cannot end an app's own session, and a Zitadel logout does not revoke refresh tokens, so a logout does not reach apps; instead the template caps tokens (`oidcSettings`) and Zitadel's own login (`loginPolicy`) at 12h, and each app caps its own session at 12h (e.g. Grafana's `login_maximum_lifetime_duration`). Apps that only have an idle timeout (kafka-ui, 30m) bounce to Zitadel when idle, so its 12h login still applies, but nonstop use can outlast it.
 - Break-glass: the local `admin` login works when GitHub and Google are down. Its password is `homelab/zitadel/admin` in Vault, applied only when Zitadel's database is created.
 - Rebuild: Zitadel's state lives in Postgres, so a Reset or Nuke loses it; the setup Job and `seed-zitadel.sh` recreate everything from Git and Vault, and provider logins re-link by email.
 - `zitadel/masterkey` encrypts Zitadel's data at rest. Never rotate it on a live database; only change it together with a fresh database.

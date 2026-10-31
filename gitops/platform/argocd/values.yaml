@@ -24,10 +24,24 @@ configs:
     resource.customizations.ignoreDifferences.PersistentVolumeClaim: |
       jsonPointers:
         - /spec/volumeName
+    # Zitadel SSO next to the local admin, which stays as break-glass. The
+    # session is Zitadel's 12h ID token; groups are read from userinfo, and
+    # logout also ends the Zitadel session.
+    oidc.config: |
+      name: Zitadel
+      issuer: https://zitadel.homelab.xiehang.com
+      clientID: $argocd-oidc:client-id
+      clientSecret: $argocd-oidc:client-secret
+      requestedScopes: [openid, profile, email]
+      enableUserInfoGroups: true
+      userInfoPath: /oidc/v1/userinfo
+      logoutURL: https://zitadel.homelab.xiehang.com/oidc/v1/end_session?id_token_hint={{token}}&post_logout_redirect_uri={{logoutRedirectURL}}
   rbac:
+    # Any Zitadel user (the viewer role) gets the read-only default.
     policy.default: role:readonly
     policy.csv: |
       g, argocd-admins, role:admin
+      g, admin, role:admin
 
 controller:
   replicas: 3

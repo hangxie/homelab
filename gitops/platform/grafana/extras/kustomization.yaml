@@ -10,6 +10,7 @@ resources:
   - 02-datasources.yaml
   - 04-routes.yaml
   - 05-grafana-db.yaml
+  - 06-grafana-oidc-externalsecret.yaml
 
 # The sidecar names files after the ConfigMap's data keys, not the ConfigMap,
 # so a hashed name would have Argo prune the old ConfigMap and delete the very

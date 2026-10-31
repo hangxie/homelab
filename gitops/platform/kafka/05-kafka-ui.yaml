@@ -1,3 +1,65 @@
+# Zitadel SSO. The UI is read-write (it can delete topics and produce
+# messages), so the Zitadel `groups` claim picks the role: admin gets
+# everything, viewer read-only, and anyone else sees no cluster. Endpoints
+# are spelled out rather than discovered from issuer-uri, which Spring fetches
+# at startup and would crash-loop the pod while Zitadel is down. The session
+# idles out after 30m and renews silently against Zitadel's 12h login.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-ui-config
+  namespace: kafka
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+data:
+  config.yml: |
+    auth:
+      type: OAUTH2
+      oauth2:
+        client:
+          zitadel:
+            provider: zitadel
+            client-name: Zitadel
+            client-id: ${OIDC_CLIENT_ID}
+            client-secret: ${OIDC_CLIENT_SECRET}
+            scope: openid,profile,email
+            authorization-grant-type: authorization_code
+            redirect-uri: https://kafka.homelab.xiehang.com/login/oauth2/code/zitadel
+            authorization-uri: https://zitadel.homelab.xiehang.com/oauth/v2/authorize
+            token-uri: https://zitadel.homelab.xiehang.com/oauth/v2/token
+            user-info-uri: https://zitadel.homelab.xiehang.com/oidc/v1/userinfo
+            jwk-set-uri: https://zitadel.homelab.xiehang.com/oauth/v2/keys
+            user-name-attribute: preferred_username
+            custom-params:
+              type: oauth
+              roles-field: groups
+    rbac:
+      roles:
+        - name: admin
+          clusters: [homelab]
+          subjects:
+            - { provider: oauth, type: role, value: admin }
+          permissions:
+            - { resource: applicationconfig, actions: all }
+            - { resource: clusterconfig, actions: all }
+            - { resource: topic, value: ".*", actions: all }
+            - { resource: consumer, value: ".*", actions: all }
+            - { resource: schema, value: ".*", actions: all }
+            - { resource: connect, value: ".*", actions: all }
+            - { resource: ksql, actions: all }
+            - { resource: acl, actions: all }
+        - name: viewer
+          clusters: [homelab]
+          subjects:
+            - { provider: oauth, type: role, value: viewer }
+          permissions:
+            - { resource: clusterconfig, actions: [view] }
+            - { resource: topic, value: ".*", actions: [view, messages_read] }
+            - { resource: consumer, value: ".*", actions: [view] }
+            - { resource: schema, value: ".*", actions: [view] }
+            - { resource: connect, value: ".*", actions: [view] }
+            - { resource: acl, actions: [view] }
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,18 +86,13 @@ spec:
           ports:
             - { name: http, containerPort: 8080 }
           env:
-            # Single local login. The UI is read-write — it can delete
-            # topics and produce messages — so unlike the other dashboards
-            # it is not left open on the gateway. Kafbat reads the one
-            # account straight from Spring Security's user properties; no
-            # proxy or identity provider involved.
-            - { name: AUTH_TYPE, value: LOGIN_FORM }
-            - name: SPRING_SECURITY_USER_NAME
+            - { name: SPRING_CONFIG_ADDITIONALLOCATION, value: /etc/kafkaui/config.yml }
+            - name: OIDC_CLIENT_ID
               valueFrom:
-                secretKeyRef: { name: kafka-ui-admin, key: username }
-            - name: SPRING_SECURITY_USER_PASSWORD
+                secretKeyRef: { name: kafka-ui-oidc, key: client-id }
+            - name: OIDC_CLIENT_SECRET
               valueFrom:
-                secretKeyRef: { name: kafka-ui-admin, key: password }
+                secretKeyRef: { name: kafka-ui-oidc, key: client-secret }
             - { name: KAFKA_CLUSTERS_0_NAME, value: homelab }
             # Plaintext internal listener from 02-kafka.yaml.
             - { name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS, value: kafka-kafka-bootstrap:9092 }
@@ -58,12 +115,17 @@ spec:
           readinessProbe:
             httpGet: { path: /actuator/health, port: http }
             periodSeconds: 10
+          volumeMounts:
+            - { name: config, mountPath: /etc/kafkaui, readOnly: true }
           resources:
             requests:
               cpu: 100m
               memory: 512Mi
             limits:
               memory: 1Gi
+      volumes:
+        - name: config
+          configMap: { name: kafka-ui-config }
 ---
 apiVersion: v1
 kind: Service

@@ -1,0 +1,23 @@
+# The hub's OAuth login calls Zitadel at https://zitadel.homelab.xiehang.com.
+# Cilium's gateway checks the hub's egress against the backend pod, so the
+# chart's egress policy otherwise makes the gateway answer 403.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hub-zitadel-egress
+  namespace: jupyter
+spec:
+  endpointSelector:
+    matchLabels:
+      app: jupyterhub
+      component: hub
+      release: wl-jupyter
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: zitadel
+            app.kubernetes.io/name: zitadel
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
