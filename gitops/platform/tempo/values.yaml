@@ -1,4 +1,7 @@
-replicas: 2
+# This chart is single-binary: replicas share no ring, so a trace lives only in
+# the ingester that received it and the Service finds it only half the time
+# until it is flushed. HA means moving to tempo-distributed, not adding replicas.
+replicas: 1
 
 tempo:
   storage:
@@ -57,11 +60,3 @@ securityContext:
   runAsGroup: 10001
   fsGroup: 10001
   runAsNonRoot: true
-
-affinity:
-  podAntiAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      - labelSelector:
-          matchLabels:
-            app.kubernetes.io/name: tempo
-        topologyKey: kubernetes.io/hostname
