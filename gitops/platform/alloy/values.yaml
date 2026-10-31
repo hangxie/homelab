@@ -8,6 +8,19 @@ alloy:
     limits:
       memory: 1536Mi
 
+  # otelcol.receiver.otlp listens on these in every pod; without a Service port
+  # apps can't reach it as alloy.alloy:4317 / :4318.
+  extraPorts:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+      appProtocol: grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+
   configMap:
     create: true
     content: |
