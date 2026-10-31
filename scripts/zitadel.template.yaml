@@ -66,3 +66,5 @@ clients:
     redirectUris: [https://openwebui.homelab.xiehang.com/oauth/oidc/callback]
   - name: trino
     redirectUris: [https://trino.homelab.xiehang.com/oauth2/callback]
+  - name: jupyter
+    redirectUris: [https://jupyter.homelab.xiehang.com/hub/oauth_callback]
