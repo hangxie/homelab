@@ -64,8 +64,8 @@ variable "nodes" {
     # One single-entry map per disk, in scsi order: { <proxmox datastore> = "<size in GiB>" }.
     # The first entry is the OS disk and also carries the EFI and cloud-init
     # volumes; subsequent entries are the etcd (masters) or Ceph (workers) disks.
-    disks      = list(map(string))
-    gpu_pci_id = optional(string) # GPU's PCI id, null means no GPU
+    disks       = list(map(string))
+    gpu_pci_ids = optional(list(string), []) # Proxmox PCI mappings of the GPUs passed through, empty means no GPU
   }))
 
   validation {

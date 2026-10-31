@@ -87,6 +87,20 @@
         content: |
           deb [signed-by={{ nvidia_cuda_keyring_path }}] {{ nvidia_cuda_repo_url }} /
 
+    # Pinning only the two top-level packages is not enough: their ~20 exact-
+    # version dependencies (libcuda1, firmware-nvidia-gsp, ...) resolve to the
+    # repo's newest release, and once that moves past the pin a fresh host can't
+    # resolve the install at all. Version pins only apply to named packages, not
+    # `Package: *`, so the stack is named by its four source packages.
+    - name: Pin the NVIDIA driver stack to one version
+      copy:
+        dest: /etc/apt/preferences.d/nvidia-driver
+        mode: '0644'
+        content: |
+          Package: src:nvidia-graphics-drivers src:nvidia-kmod-open src:nvidia-modprobe src:nvidia-persistenced
+          Pin: version {{ nvidia_driver_version }}
+          Pin-Priority: 1001
+
     - name: Install NVIDIA container toolkit
       apt:
         name: nvidia-container-toolkit
@@ -125,10 +139,6 @@
     # was missing, which made the driver install-once: an already-working host
     # never moved off whatever version it was first built with, so pinning a
     # version here would have had no effect on it.
-    #
-    # Only the two packages that set the driver version are pinned; the rest of
-    # the stack (libcuda1, libnvidia-ml1, firmware-nvidia-gsp, ...) is versioned
-    # in their dependencies and follows automatically.
     #
     # The headers meta-package is tracked rather than the running kernel's
     # versioned headers: a versioned pin stops matching after a kernel upgrade,
