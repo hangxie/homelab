@@ -127,7 +127,7 @@ while IFS=$'\t' read -r ns name hostname; do
             print_secret_row "$url" jupyter jupyter-admin password admin
             ;;
         kafka/kafka-ui)
-            print_secret_user_pass_row "$url" kafka kafka-ui-admin username password admin
+            print_row "$url" "-" "(Zitadel SSO)"
             ;;
         kube-system/hubble)
             print_row "$url" "-" "(no auth)"
