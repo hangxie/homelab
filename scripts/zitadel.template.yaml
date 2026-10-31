@@ -72,3 +72,6 @@ clients:
     redirectUris: [https://superset.homelab.xiehang.com/oauth-authorized/zitadel]
   - name: airflow
     redirectUris: [https://airflow.homelab.xiehang.com/auth/oauth-authorized/zitadel]
+  - name: argocd
+    redirectUris: [https://argocd.homelab.xiehang.com/auth/callback]
+    postLogoutRedirectUris: [https://argocd.homelab.xiehang.com]
