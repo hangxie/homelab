@@ -70,3 +70,5 @@ clients:
     redirectUris: [https://jupyter.homelab.xiehang.com/hub/oauth_callback]
   - name: superset
     redirectUris: [https://superset.homelab.xiehang.com/oauth-authorized/zitadel]
+  - name: airflow
+    redirectUris: [https://airflow.homelab.xiehang.com/auth/oauth-authorized/zitadel]

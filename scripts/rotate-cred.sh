@@ -70,8 +70,6 @@ hold_reason() {
       echo "Cassandra keeps its auth table in the data directory; the Vault value only seeds a fresh cluster" ;;
     dbeaver/admin)
       echo "CloudBeaver persists the admin in its workspace PVC; rotating needs a workspace wipe (see README.md)" ;;
-    airflow/admin)
-      echo "the chart's create-user Job does not reset an existing user; change it in the Airflow UI" ;;
     openwebui/admin)
       echo "OpenWebUI persists the admin in its own database; change it in the UI or wipe the open-webui PVC" ;;
     airflow/fernet-key)
