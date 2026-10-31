@@ -64,3 +64,5 @@ clients:
     redirectUris: [https://kafka.homelab.xiehang.com/login/oauth2/code/zitadel]
   - name: openwebui
     redirectUris: [https://openwebui.homelab.xiehang.com/oauth/oidc/callback]
+  - name: trino
+    redirectUris: [https://trino.homelab.xiehang.com/oauth2/callback]

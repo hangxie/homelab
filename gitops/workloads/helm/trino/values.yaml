@@ -7,6 +7,8 @@ envFrom:
       name: trino-postgres
   - secretRef:
       name: trino-clickhouse
+  - secretRef:
+      name: trino-oidc
 
 coordinator:
   jvm:
@@ -68,7 +70,24 @@ worker:
 server:
   workers: 2
   config:
-    authenticationType: PASSWORD
+    authenticationType: OAUTH2,PASSWORD
+  # Zitadel SSO for the web UI; clients (CLI, JDBC, Superset) can still use
+  # the password. Endpoints are spelled out because discovery runs at startup
+  # and would stop the coordinator while Zitadel is down. No refresh tokens,
+  # so a web UI login ends with the 12h access token. Coordinator only:
+  # workers reject config properties they do not use.
+  coordinatorExtraConfig: |
+    web-ui.authentication.type=oauth2
+    http-server.authentication.oauth2.issuer=https://zitadel.homelab.xiehang.com
+    http-server.authentication.oauth2.oidc.discovery=false
+    http-server.authentication.oauth2.auth-url=https://zitadel.homelab.xiehang.com/oauth/v2/authorize
+    http-server.authentication.oauth2.token-url=https://zitadel.homelab.xiehang.com/oauth/v2/token
+    http-server.authentication.oauth2.jwks-url=https://zitadel.homelab.xiehang.com/oauth/v2/keys
+    http-server.authentication.oauth2.userinfo-url=https://zitadel.homelab.xiehang.com/oidc/v1/userinfo
+    http-server.authentication.oauth2.client-id=${ENV:OIDC_CLIENT_ID}
+    http-server.authentication.oauth2.client-secret=${ENV:OIDC_CLIENT_SECRET}
+    http-server.authentication.oauth2.scopes=openid,profile,email
+    http-server.authentication.oauth2.principal-field=preferred_username
 
 additionalConfigProperties:
   - internal-communication.shared-secret=homelab-trino-internal-shared-secret-20260603
