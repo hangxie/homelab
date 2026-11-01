@@ -40,5 +40,5 @@ nodes = {
   "worker-1" = { hypervisor = "node2", ip = "192.168.0.221", cores = 16, memory = 32768, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { nvme = "320" }] }
   "worker-2" = { hypervisor = "node2", ip = "192.168.0.222", cores = 16, memory = 32768, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { nvme = "320" }] }
   "worker-3" = { hypervisor = "node2", ip = "192.168.0.223", cores = 16, memory = 32768, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { nvme = "320" }] }
-  "worker-4" = { hypervisor = "node2", ip = "192.168.0.224", cores = 8, memory = 16384, disks = [{ "local-lvm" = "40" }, { nvme = "100" }], gpu_pci_ids = ["gpu0", "gpu1"] }
+  "worker-4" = { hypervisor = "node2", ip = "192.168.0.224", cores = 8, memory = 24576, disks = [{ "local-lvm" = "40" }, { nvme = "100" }], gpu_pci_ids = ["gpu0", "gpu1"] }
 }
