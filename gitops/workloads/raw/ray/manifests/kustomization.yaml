@@ -59,5 +59,4 @@ configMapGenerator:
     namespace: ray
     files:
       - serve.py
-      - sitecustomize.py
       - tool_chat_template_llama3.2_json.jinja
