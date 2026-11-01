@@ -98,6 +98,20 @@ spec:
     requests:
       storage: 50Gi
 ---
+# The GPU worker's ~/.cache, mostly vLLM's torch.compile cache. Without it
+# every new worker pod compiles from scratch (~90 s per start).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vllm-compile-cache
+  namespace: ray
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: rook-ceph-block
+  resources:
+    requests:
+      storage: 2Gi
+---
 apiVersion: ray.io/v1
 kind: RayService
 metadata:
@@ -122,9 +136,9 @@ spec:
             PYTHONPATH: /home/ray
             _RAY_LLM_PATCH: "1"
             # One model at a time, sharded across both cards of the GPU node.
-            MODELS: "cyankiwi/Qwen3.5-4B-AWQ-4bit"
+            MODELS: "cyankiwi/Qwen3.5-9B-AWQ-4bit"
             TENSOR_PARALLEL_SIZE: "2"
-            MAX_MODEL_LEN: "16384"
+            MAX_MODEL_LEN: "32768"
             GPU_MEMORY_UTILIZATION: "0.93"
             MAX_NUM_SEQS: "4"
             HF_HUB_OFFLINE: "1"
@@ -140,8 +154,10 @@ spec:
             - name: ray-head
               image: hangxie/ray-vllm:v0.1.0
               resources:
+                # Ray's memory monitor kills workers at 95% of the limit; at 6Gi the
+                # dashboard and telemetry agents pushed the ingress replica over.
                 requests: { cpu: "2", memory: "4Gi" }
-                limits:   { cpu: "2", memory: "6Gi" }
+                limits:   { cpu: "2", memory: "8Gi" }
               env:
                 - { name: PYTHONPATH, value: /home/ray }
               ports:
@@ -167,6 +183,9 @@ spec:
         template:
           spec:
             serviceAccountName: ray-vllm
+            # Makes the RBD-backed compile cache writable by the ray user (gid 100).
+            # CephFS ignores fsGroup, so llm-models is untouched.
+            securityContext: { fsGroup: 100, fsGroupChangePolicy: OnRootMismatch }
             nodeSelector:
               feature.node.kubernetes.io/pci-0300_10de.present: "true"
             tolerations:
@@ -347,6 +366,11 @@ spec:
                   limits:   { cpu: "8", memory: "14Gi", nvidia.com/gpu: "2" }
                 env:
                   - { name: PYTHONPATH, value: /home/ray }
+                  # Qwen3.5's Gated-DeltaNet Triton kernels JIT ~200 variants and
+                  # autotune them on every start (~3 min) unless both land on the
+                  # cache volume; Triton defaults to ~/.triton and skips autotune caching.
+                  - { name: TRITON_CACHE_DIR,        value: /home/ray/.cache/triton }
+                  - { name: TRITON_CACHE_AUTOTUNING, value: "1" }
                 ports:
                   - { name: metrics, containerPort: 8080, protocol: TCP }
                 volumeMounts:
@@ -355,9 +379,15 @@ spec:
                   - { name: serve-script, mountPath: /home/ray/tool_chat_template_llama3.2_json.jinja, subPath: tool_chat_template_llama3.2_json.jinja }
                   - { name: dshm,         mountPath: /dev/shm }
                   - { name: llm-models,   mountPath: /mnt/models, readOnly: true }
+                  # All of ~/.cache (vLLM, torch, kernels): mounting only ~/.cache/vllm
+                  # leaves its parent root-owned and torch's makedirs fails. One directory
+                  # per image so an upgrade starts empty and stale ones are easy to delete;
+                  # the full image ref keeps check-pinned-versions in step.
+                  - { name: vllm-cache,   mountPath: /home/ray/.cache, subPath: hangxie/ray-vllm:v0.1.0 }
             volumes:
               - { name: serve-script, configMap: { name: ray-vllm-serve-script } }
               - { name: dshm,         emptyDir: { medium: Memory } }
               - { name: llm-models,   persistentVolumeClaim: { claimName: llm-models } }
+              - { name: vllm-cache,   persistentVolumeClaim: { claimName: vllm-compile-cache } }
               - { name: shared-bin,   emptyDir: {} }
               - { name: host-ca,      hostPath: { path: /etc/ssl/certs, type: Directory } }

@@ -30,9 +30,9 @@ metadata:
 data:
   config.yaml: |
     model_list:
-      - model_name: cyankiwi/Qwen3.5-4B-AWQ-4bit
+      - model_name: cyankiwi/Qwen3.5-9B-AWQ-4bit
         litellm_params:
-          model: openai/cyankiwi/Qwen3.5-4B-AWQ-4bit
+          model: openai/cyankiwi/Qwen3.5-9B-AWQ-4bit
           api_base: http://ray-vllm-serve-svc.ray.svc:8000/v1
           api_key: dummy
     litellm_settings:

@@ -33,12 +33,19 @@ def _tool_call_kwargs(model_id: str) -> dict:
             return dict(kwargs, enable_auto_tool_choice=True)
     return {}
 
-# Per-model engine overrides, first substring match wins. Qwen3.5-4B stays at
-# 16K: 32K needs 1.11 GiB of KV cache, which only fits in eager mode, and eager
-# decodes far slower. It skips the vision tower. Clients that omit max_tokens
-# let thinking loop for 20K+ tokens, hence the default cap and thinking off
-# unless the request opts in.
+# Per-model engine overrides, first substring match wins. Qwen3.5-9B pins its
+# KV cache per card instead of profiling under tensor parallel 2: profiled free
+# memory swung from 0.51 GiB (cold torch.compile) to 1.32 GiB (warm), and the
+# warm figure hit CUDA OOM on the first prefill. 640 MiB holds one 32K sequence
+# (0.56 GiB); 1.16 GiB served fine, so it leaves margin. Qwen3.5 skips the
+# vision tower. Clients that omit max_tokens let thinking loop for 20K+ tokens,
+# hence the default cap and thinking off unless the request opts in.
 ENGINE_OVERRIDES = (
+    ("qwen3.5-9b", dict(
+        max_model_len=32768, language_model_only=True, kv_cache_memory_bytes=640 * 2**20,
+        override_generation_config=dict(max_new_tokens=4096, temperature=0.7, top_p=0.8, top_k=20),
+        default_chat_template_kwargs=dict(enable_thinking=False),
+    )),
     ("qwen3.5-4b", dict(
         max_model_len=16384, language_model_only=True, gpu_memory_utilization=0.95,
         override_generation_config=dict(max_new_tokens=4096, temperature=0.7, top_p=0.8, top_k=20),
