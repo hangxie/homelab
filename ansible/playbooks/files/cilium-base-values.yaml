@@ -7,12 +7,15 @@ kubeProxyReplacement: true
 k8sServicePort: 6443
 ipam:
   mode: kubernetes
-routingMode: tunnel
-tunnelProtocol: vxlan
+# All nodes share one L2 segment, so pod traffic routes directly with no
+# tunnel. ipv4NativeRoutingCIDR is set per playbook.
+routingMode: native
+autoDirectNodeRoutes: true
+# Transparent encryption (WireGuard or IPsec) capped node-to-node throughput,
+# and with it Ceph, at ~200-270 MB/s against ~1.2 GB/s without (#265). Ceph
+# encrypts its own traffic with msgr2 secure mode (CephCluster spec).
 encryption:
-  enabled: true
-  type: wireguard
-  nodeEncryption: true
+  enabled: false
 gatewayAPI:
   enabled: true
   enableAlpn: true

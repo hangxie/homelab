@@ -63,8 +63,11 @@ spec:
     enabled: false
   network:
     connections:
+      # msgr2 secure mode (AES-GCM) on every daemon and kernel client. Cilium
+      # runs without transparent encryption, so this is Ceph's only in-transit
+      # protection; it costs ~5-15% read throughput (#265).
       encryption:
-        enabled: false
+        enabled: true
       compression:
         enabled: false
   crashCollector:

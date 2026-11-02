@@ -117,6 +117,7 @@
           - "{{ playbook_dir }}/files/cilium-base-values.yaml"
         values:
           k8sServiceHost: "{{ control_plane_host }}"
+          ipv4NativeRoutingCIDR: "{{ pod_network_cidr }}"
           # Only master-0 is schedulable at this point, so cap operator
           # replicas at 1 to keep `wait: true` from timing out on a
           # pending second pod. Bumped to 2 in cilium-post-bootstrap.yml.
