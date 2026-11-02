@@ -121,6 +121,7 @@
           - "{{ playbook_dir }}/files/cilium-base-values.yaml"
         values:
           k8sServiceHost: "{{ kube_api_endpoint_host }}"
+          ipv4NativeRoutingCIDR: "{{ pod_network_cidr }}"
           authentication:
             enabled: true
             mutual:
