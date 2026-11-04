@@ -5,3 +5,8 @@ replicaCount: 2
 
 monitoring:
   podMonitorEnabled: false
+  grafanaDashboard:
+    create: true
+    namespace: grafana
+    labels:
+      grafana_dashboard: "1"

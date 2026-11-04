@@ -596,6 +596,24 @@ alloy:
         }
         targets    = discovery.relabel.cnpg_cluster.output
         job_name   = "postgres-cluster"
+        forward_to = [prometheus.relabel.cnpg_cluster.receiver]
+      }
+
+      // Backups go through the Barman Cloud plugin, which leaves the in-tree
+      // cnpg_collector_* backup metrics at 0 and reports the real values as
+      // barman_cloud_cloudnative_pg_io_*. Swap them so the chart dashboard works.
+      prometheus.relabel "cnpg_cluster" {
+        rule {
+          source_labels = ["__name__"]
+          regex         = "cnpg_collector_(first_recoverability_point|last_available_backup_timestamp|last_failed_backup_timestamp)"
+          action        = "drop"
+        }
+        rule {
+          source_labels = ["__name__"]
+          regex         = "barman_cloud_cloudnative_pg_io_(first_recoverability_point|last_available_backup_timestamp|last_failed_backup_timestamp)"
+          target_label  = "__name__"
+          replacement   = "cnpg_collector_${1}"
+        }
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
