@@ -76,7 +76,11 @@ alloy:
         forward_to = [loki.write.default.receiver]
       }
 
+      // Same cluster label as metrics; the Loki Logs dashboard filters on it.
       loki.write "default" {
+        external_labels = {
+          cluster = "homelab",
+        }
         endpoint {
           url = "http://loki-gateway.loki/loki/api/v1/push"
         }
@@ -166,6 +170,10 @@ alloy:
           replacement  = sys.env("K8S_NODE_NAME")
         }
         rule {
+          target_label = "instance"
+          replacement  = sys.env("K8S_NODE_NAME")
+        }
+        rule {
           target_label = "service"
           replacement  = "kubelet"
         }
@@ -193,6 +201,12 @@ alloy:
           target_label = "node"
           replacement  = sys.env("K8S_NODE_NAME")
         }
+        // Without this, instance is the API proxy address on every node, and
+        // dashboards joining cAdvisor to node-exporter on instance match nothing.
+        rule {
+          target_label = "instance"
+          replacement  = sys.env("K8S_NODE_NAME")
+        }
         rule {
           target_label = "service"
           replacement  = "kubelet"
@@ -207,6 +221,18 @@ alloy:
         bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
         tls_config {
           insecure_skip_verify = true
+        }
+        forward_to = [prometheus.relabel.cadvisor.receiver]
+      }
+
+      // The Loki chart names its containers read/write/backend, but the chart's
+      // own resources dashboards select container="loki".
+      prometheus.relabel "cadvisor" {
+        rule {
+          source_labels = ["namespace", "container"]
+          regex         = "loki;(read|write|backend)"
+          target_label  = "container"
+          replacement   = "loki"
         }
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
