@@ -230,6 +230,18 @@ alloy:
         }
         targets    = discovery.kubernetes.ksm.targets
         job_name   = "kube-state-metrics"
+        forward_to = [prometheus.relabel.ksm.receiver]
+      }
+
+      // The Loki resources dashboards match PVCs on label_name=~"loki-write.*",
+      // the `name` label older Loki charts set. Rebuild it as <name>-<component>.
+      prometheus.relabel "ksm" {
+        rule {
+          source_labels = ["__name__", "label_app_kubernetes_io_name", "label_app_kubernetes_io_component"]
+          regex         = "kube_persistentvolumeclaim_labels;(.+);(.+)"
+          target_label  = "label_name"
+          replacement   = "${1}-${2}"
+        }
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
@@ -668,6 +680,12 @@ alloy:
           regex         = "metrics"
           action        = "keep"
         }
+        // The Ray dashboards filter every panel on ray_io_cluster, the label
+        // KubeRay's own PodMonitor copies from the pod.
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_ray_io_cluster"]
+          target_label  = "ray_io_cluster"
+        }
       }
 
       prometheus.scrape "ray_head" {
@@ -696,6 +714,10 @@ alloy:
           source_labels = ["__meta_kubernetes_pod_container_port_name"]
           regex         = "metrics"
           action        = "keep"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_ray_io_cluster"]
+          target_label  = "ray_io_cluster"
         }
       }
 
@@ -870,8 +892,16 @@ alloy:
         targets = discovery.kubernetes.scylladb.targets
         rule {
           source_labels = ["__meta_kubernetes_endpoint_port_name"]
-          regex         = "prometheus"
+          regex         = "prometheus|node-exporter"
           action        = "keep"
+        }
+        // The Scylla OS dashboard reads the pod's own node-exporter under
+        // job=~"node_exporter.*", alongside Scylla's cluster/dc labels.
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "node-exporter"
+          target_label  = "job"
+          replacement   = "node_exporter"
         }
         rule {
           source_labels = ["__meta_kubernetes_pod_label_scylla_cluster"]
