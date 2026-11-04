@@ -206,3 +206,14 @@ groups:
           sum by (cluster, namespace, pod, container, node) (
             irate(container_cpu_usage_seconds_total{job="kubernetes-cadvisor", image!=""}[5m])
           )
+
+  # CoreDNS 1.11 folded coredns_forward_{requests,responses}_total into the
+  # proxy plugin's histogram; the System / CoreDNS dashboard still reads the
+  # old counters, so republish them from its _count.
+  - name: coredns-recording
+    interval: 1m
+    rules:
+      - record: coredns_forward_requests_total
+        expr: sum without (rcode) (coredns_proxy_request_duration_seconds_count{proxy_name="forward"})
+      - record: coredns_forward_responses_total
+        expr: coredns_proxy_request_duration_seconds_count{proxy_name="forward"}
