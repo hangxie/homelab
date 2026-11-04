@@ -86,6 +86,12 @@ monitoring:
       grafana_dashboard: "1"
     annotations:
       k8s-sidecar-target-directory: /tmp/dashboards/Loki
+    # The mixin dropped SimpleScalable, so these only know Distributed
+    # components and match none of our read/write/backend pods.
+    loki-reads-resources:
+      enabled: false
+    loki-writes-resources:
+      enabled: false
 
 # Helm test hook; Argo CD never runs it.
 test:
