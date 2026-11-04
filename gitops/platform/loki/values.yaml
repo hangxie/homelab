@@ -75,10 +75,18 @@ gateway:
   maxUnavailable: 1
 
 monitoring:
+  # Only dashboards are enabled here, so this just keeps their ConfigMaps
+  # next to Grafana.
+  namespace: grafana
+  # The dashboards filter on this label; Alloy already stamps `cluster`.
+  appInstanceLabelName: cluster
   dashboards:
     enabled: true
-    namespace: grafana
     labels:
       grafana_dashboard: "1"
     annotations:
       k8s-sidecar-target-directory: /tmp/dashboards/Loki
+
+# Helm test hook; Argo CD never runs it.
+test:
+  enabled: false
