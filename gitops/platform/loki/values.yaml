@@ -76,6 +76,9 @@ gateway:
 
 monitoring:
   dashboards:
-    # Disabled: patched versions with correct datasource/cluster/namespace defaults
-    # are provisioned via extras/dashboards/*.json instead.
-    enabled: false
+    enabled: true
+    namespace: grafana
+    labels:
+      grafana_dashboard: "1"
+    annotations:
+      k8s-sidecar-target-directory: /tmp/dashboards/Loki
