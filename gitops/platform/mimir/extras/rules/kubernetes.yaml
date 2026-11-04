@@ -217,3 +217,18 @@ groups:
         expr: sum without (rcode) (coredns_proxy_request_duration_seconds_count{proxy_name="forward"})
       - record: coredns_forward_responses_total
         expr: coredns_proxy_request_duration_seconds_count{proxy_name="forward"}
+
+  # The mixin Scheduler dashboard reads histograms removed after 1.23;
+  # republish them from their replacements. Volume scheduling has no exact
+  # successor (plugin_execution_duration is sampled), so it stays empty.
+  - name: scheduler-recording
+    interval: 1m
+    rules:
+      - record: scheduler_e2e_scheduling_duration_seconds_bucket
+        expr: scheduler_scheduling_attempt_duration_seconds_bucket
+      - record: scheduler_e2e_scheduling_duration_seconds_count
+        expr: scheduler_scheduling_attempt_duration_seconds_count
+      - record: scheduler_binding_duration_seconds_bucket
+        expr: scheduler_framework_extension_point_duration_seconds_bucket{extension_point="Bind"}
+      - record: scheduler_binding_duration_seconds_count
+        expr: scheduler_framework_extension_point_duration_seconds_count{extension_point="Bind"}
