@@ -20,27 +20,17 @@ generatorOptions:
   labels:
     grafana_dashboard: "1"
   annotations:
-    k8s-sidecar-target-directory: /tmp/dashboards/Kubernetes
+    k8s-sidecar-target-directory: /tmp/dashboards/Infrastructure
 
-# Dashboards are vendored upstream JSON, kept as .json so they can be jq'd,
-# diffed against a refreshed copy, and pasted into Grafana's import dialog.
+# Dashboards built here, with no upstream to pull from; kept as .json so they
+# can be jq'd and pasted into Grafana's import dialog. Upstream dashboards come
+# from gnetId/url in values.yaml instead.
 configMapGenerator:
-  - name: grafana-dashboard-k8s-views-pods
-    namespace: grafana
-    files:
-      - dashboards/k8s_views_pods.json
   - name: grafana-dashboard-ai-inference
     namespace: grafana
-    options:
-      annotations:
-        k8s-sidecar-target-directory: /tmp/dashboards/Infrastructure
     files:
       - dashboards/ai-inference.json
-  # Built here: Zitadel publishes no dashboard of its own.
   - name: grafana-dashboard-zitadel
     namespace: grafana
-    options:
-      annotations:
-        k8s-sidecar-target-directory: /tmp/dashboards/Infrastructure
     files:
       - dashboards/zitadel.json
