@@ -179,6 +179,25 @@ groups:
           summary: "Tempo compaction is erroring"
           description: "Tempo has been failing block compaction for 30 minutes; trace storage will keep growing."
 
+  # loki-mixin recording rules the Loki chart dashboards query. Two changes
+  # from upstream: `cluster` is kept from the source series rather than
+  # stamped, and rates use 5m since 1m holds one sample at our 60s scrape.
+  - name: loki-recording
+    interval: 1m
+    rules:
+      - record: job:loki_request_duration_seconds_bucket:sum_rate
+        expr: sum by (cluster, job, le) (rate(loki_request_duration_seconds_bucket[5m]))
+      - record: job:loki_request_duration_seconds_sum:sum_rate
+        expr: sum by (cluster, job) (rate(loki_request_duration_seconds_sum[5m]))
+      - record: job:loki_request_duration_seconds_count:sum_rate
+        expr: sum by (cluster, job) (rate(loki_request_duration_seconds_count[5m]))
+      - record: job_route:loki_request_duration_seconds_bucket:sum_rate
+        expr: sum by (cluster, job, route, le) (rate(loki_request_duration_seconds_bucket[5m]))
+      - record: job_route:loki_request_duration_seconds_sum:sum_rate
+        expr: sum by (cluster, job, route) (rate(loki_request_duration_seconds_sum[5m]))
+      - record: job_route:loki_request_duration_seconds_count:sum_rate
+        expr: sum by (cluster, job, route) (rate(loki_request_duration_seconds_count[5m]))
+
   - name: alloy
     interval: 1m
     rules:
