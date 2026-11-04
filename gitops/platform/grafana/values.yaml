@@ -178,6 +178,12 @@ dashboards:
     k8s-views-pods:
       gnetId: 15760
       datasource: Mimir
+    k8s-system-api-server:
+      gnetId: 15761
+      datasource: Mimir
+    k8s-system-coredns:
+      gnetId: 15762
+      datasource: Mimir
   platform:
     argocd:
       gnetId: 14584

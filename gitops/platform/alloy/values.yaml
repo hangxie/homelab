@@ -985,11 +985,34 @@ alloy:
 
       // ── Kubernetes API server ─────────────────────────────────────────────────
 
+      // Scrape each API server directly: through the kubernetes Service VIP a
+      // scrape reaches whichever master the connection lands on, so the other
+      // two go unmonitored and a dead one never shows as down.
+      discovery.kubernetes "apiserver" {
+        role = "endpoints"
+        namespaces {
+          names = ["default"]
+        }
+        selectors {
+          role  = "endpoints"
+          field = "metadata.name=kubernetes"
+        }
+      }
+
+      discovery.relabel "apiserver" {
+        targets = discovery.kubernetes.apiserver.targets
+        rule {
+          source_labels = ["__meta_kubernetes_endpoint_port_name"]
+          regex         = "https"
+          action        = "keep"
+        }
+      }
+
       prometheus.scrape "apiserver" {
         clustering {
           enabled = true
         }
-        targets      = [{"__address__" = "kubernetes.default.svc:443"}]
+        targets      = discovery.relabel.apiserver.output
         job_name     = "apiserver"
         scheme       = "https"
         metrics_path = "/metrics"
