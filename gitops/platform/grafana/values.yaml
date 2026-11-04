@@ -184,6 +184,15 @@ dashboards:
     k8s-system-coredns:
       gnetId: 15762
       datasource: Mimir
+    # kubernetes-mixin; dotdc has no controller manager / scheduler dashboards.
+    k8s-controller-manager:
+      gnetId: 21010
+      revision: 2
+      datasource: Mimir
+    k8s-scheduler:
+      gnetId: 21023
+      revision: 2
+      datasource: Mimir
   platform:
     argocd:
       gnetId: 14584

@@ -1023,6 +1023,58 @@ alloy:
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
+      // ── Controller manager / scheduler ────────────────────────────────────────
+      // Static pods on the host network; kubeadm is told to bind them on
+      // 0.0.0.0 (ansible), and /metrics needs a token, not a client cert.
+
+      discovery.kubernetes "control_plane" {
+        role = "pod"
+        namespaces {
+          names = ["kube-system"]
+        }
+        selectors {
+          role  = "pod"
+          label = "tier=control-plane,component in (kube-controller-manager,kube-scheduler)"
+        }
+      }
+
+      discovery.relabel "control_plane" {
+        targets = discovery.kubernetes.control_plane.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_component"]
+          target_label  = "job"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_component", "__meta_kubernetes_pod_ip"]
+          regex         = "kube-controller-manager;(.+)"
+          target_label  = "__address__"
+          replacement   = "$1:10257"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_component", "__meta_kubernetes_pod_ip"]
+          regex         = "kube-scheduler;(.+)"
+          target_label  = "__address__"
+          replacement   = "$1:10259"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_node_name"]
+          target_label  = "instance"
+        }
+      }
+
+      prometheus.scrape "control_plane" {
+        clustering {
+          enabled = true
+        }
+        targets      = discovery.relabel.control_plane.output
+        scheme       = "https"
+        bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        tls_config {
+          insecure_skip_verify = true
+        }
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
       // ── CoreDNS ───────────────────────────────────────────────────────────────
 
       discovery.kubernetes "coredns" {
