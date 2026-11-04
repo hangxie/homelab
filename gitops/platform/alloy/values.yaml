@@ -506,6 +506,11 @@ alloy:
           source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component"]
           target_label  = "component"
         }
+        // The Loki dashboards select and legend by pod (compactor, per-pod latency).
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
       }
 
       prometheus.scrape "loki" {
