@@ -130,6 +130,11 @@
                 install:
                   enabled: true
                   server:
+                    # The spire-server 1.15 image runs as 1000:1000, which can't write the
+                    # root-owned DB or hostPath socket dir. Keep running it as root.
+                    podSecurityContext:
+                      runAsUser: 0
+                      runAsGroup: 0
                     dataStorage:
                       storageClass: rook-ceph-block
           prometheus:

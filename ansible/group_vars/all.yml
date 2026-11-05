@@ -16,8 +16,8 @@ domain_suffix: "homelab.xiehang.com"
 vault_addr: "{{ lookup('env', 'VAULT_ADDR') | default('https://media.xiehang.com:8200', true) }}"
 
 # Cilium chart pinning. Spec §6.2 item 3 requires a pinned version.
-cilium_version: "1.19.4"
-gateway_api_version: "v1.5.1"
+cilium_version: "1.20.4"
+gateway_api_version: "v1.6.1"
 
 # Path used by every localhost play to find the bootstrap kubeconfig
 # produced by init-primary-master.yml.
