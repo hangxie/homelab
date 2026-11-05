@@ -9,8 +9,9 @@ admin:
   roles: [admin]
 
 # Login providers. Client id/secret come from Vault (generate: false entries in
-# scripts/vault-secrets.template.yaml). Account creation through a provider is
-# off: a login only succeeds when it links, by verified email, to a user below.
+# scripts/vault-secrets.template.yaml). Anyone can sign up through a provider:
+# a first login links by verified email to a user below, or else creates an
+# account with no role grant, which no app accepts until an admin adds one.
 idps:
   - name: GitHub
     type: github
@@ -39,7 +40,9 @@ loginPolicy:
   secondFactorCheckLifetime: 43200s
   multiFactorCheckLifetime: 43200s
 
-# Pre-created users: the login allowlist.
+# Pre-created users with their roles. Users not listed here are left alone:
+# sign-ups and console-made grants survive a re-run (not a rebuild), and
+# removing an entry does not delete the user; delete it in the console.
 users:
   - username: xiehang@gmail.com
     email: xiehang@gmail.com
