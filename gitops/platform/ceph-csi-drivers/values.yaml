@@ -34,6 +34,9 @@ drivers:
   cephfs:
     enabled: true
     name: rook-ceph.cephfs.csi.ceph.com
+    # Chart 1.0.4 defaults this to File, which makes kubelet chown every file
+    # of a shared CephFS volume per mount; the field is immutable on CSIDriver.
+    fsGroupPolicy: None
     nodePlugin:
       priorityClassName: system-node-critical
       tolerations:
