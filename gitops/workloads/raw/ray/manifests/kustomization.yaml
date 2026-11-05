@@ -9,6 +9,9 @@ resources:
   - ray.yaml
   - litellm.yaml
   - route-ray-dashboard.yaml
+  # Qwen3-TTS; shares the GPU node's two cards with ray-vllm, so it runs only
+  # while ray.yaml's serveConfigV2 has no applications (see tts.yaml).
+  - tts.yaml
 
 # The sidecar names files after the ConfigMap's data keys, not the ConfigMap,
 # so a hashed name would have Argo prune the old ConfigMap and delete the very
@@ -60,3 +63,4 @@ configMapGenerator:
     files:
       - serve.py
       - tool_chat_template_llama3.2_json.jinja
+      - model-pull.sh

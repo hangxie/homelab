@@ -1,0 +1,174 @@
+# Qwen3-TTS voice cloning (serve_tts in hangxie/ray-images) as its own RayService,
+# so it upgrades, restarts and fails independently of ray-vllm. One replica per
+# card on the GPU node (tts-worker group); reference voices come from the Harbor
+# artifact llm-models/tts-voices:latest, the model from the shared llm-models PVC.
+#
+# Operator workflow:
+#   - Shares the GPU node's two cards with ray-vllm, so only one of them can hold
+#     the node. Hand them back: comment out tts.yaml in kustomization.yaml and
+#     restore ray.yaml's vllm application; commit both. Reverse to come back.
+#   - Change voices: `oras push media.xiehang.com/llm-models/tts-voices:latest
+#     <name>.wav <name>.txt ...` from the voices directory (every pair, not just the
+#     new one), then `kubectl -n ray delete pod -l ray.io/group=tts-worker`.
+---
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: ray-tts
+  namespace: ray
+spec:
+  serviceUnhealthySecondThreshold: 1800
+  deploymentUnhealthySecondThreshold: 1800
+  # Same reason as ray-vllm: a second RayCluster's workers could never get the
+  # GPU node's cards, so an upgrade would deadlock. Costs a short outage.
+  upgradeStrategy:
+    type: None
+  serveConfigV2: |
+    applications:
+      - name: tts
+        route_prefix: /
+        import_path: serve_tts:app
+        runtime_env:
+          env_vars:
+            TTS_MODEL: "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+            TTS_MODEL_DIR: "/mnt/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+            TTS_VOICES_DIR: /mnt/voices
+            # One replica per card; Serve queues the rest, 503 past the queue.
+            TTS_NUM_REPLICAS: "2"
+            TTS_MAX_QUEUED_REQUESTS: "4"
+            HF_HUB_OFFLINE: "1"
+  rayClusterConfig:
+    enableInTreeAutoscaling: true
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: hangxie/ray-images:v0.4.0
+              resources:
+                requests: { cpu: "2", memory: "4Gi" }
+                limits:   { cpu: "2", memory: "8Gi" }
+              ports:
+                - { name: gcs,       containerPort: 6379 }
+                - { name: dashboard, containerPort: 8265 }
+                - { name: serve,     containerPort: 8000 }
+                - { name: metrics,   containerPort: 8080 }
+              volumeMounts:
+                - { name: dshm, mountPath: /dev/shm }
+          volumes:
+            - { name: dshm, emptyDir: { medium: Memory } }
+    workerGroupSpecs:
+      - groupName: tts-worker
+        replicas: 0
+        minReplicas: 0
+        maxReplicas: 2
+        rayStartParams:
+          num-gpus: "1"
+          # The image's TTS deployment asks for this custom resource.
+          resources: '"{\"tts\": 1}"'
+        template:
+          spec:
+            serviceAccountName: ray-vllm
+            nodeSelector:
+              feature.node.kubernetes.io/pci-0300_10de.present: "true"
+            tolerations:
+              - { key: gpu, operator: Equal, value: "true", effect: NoSchedule }
+            initContainers:
+              - name: oras-installer
+                image: ghcr.io/oras-project/oras:v1.2.2
+                command: [sh, -ceu, "cp /bin/oras /shared/oras"]
+                volumeMounts:
+                  - { name: shared-bin, mountPath: /shared }
+              - name: kubectl-installer
+                image: alpine/kubectl:1.36.1
+                command: [sh, -ceu, 'cp "$(command -v kubectl)" /shared/kubectl']
+                volumeMounts:
+                  - { name: shared-bin, mountPath: /shared }
+              - name: yq-installer
+                image: mikefarah/yq:4
+                command: [sh, -ceu, "cp /usr/bin/yq /shared/yq"]
+                volumeMounts:
+                  - { name: shared-bin, mountPath: /shared }
+              - name: model-pull
+                image: hangxie/ray-images:v0.4.0
+                # CephFS root must be writable for the lockfile + model dirs.
+                securityContext: { runAsUser: 0, runAsGroup: 0 }
+                env:
+                  - { name: HARBOR_REGISTRY,              value: media.xiehang.com }
+                  - { name: HARBOR_PROJECT,               value: llm-models }
+                  - { name: HF_HUB_DISABLE_PROGRESS_BARS, value: "1" }
+                  - { name: RAYSERVICE_NAME,              value: ray-tts }
+                  - { name: RAYSERVE_APP,                 value: tts }
+                  - { name: MODELS_VAR,                   value: TTS_MODEL }
+                  - name: HF_TOKEN
+                    valueFrom: { secretKeyRef: { name: hf-token, key: token } }
+                  - name: HARBOR_USERNAME
+                    valueFrom: { secretKeyRef: { name: harbor-credentials, key: username } }
+                  - name: HARBOR_PASSWORD
+                    valueFrom: { secretKeyRef: { name: harbor-credentials, key: password } }
+                command: [bash, /scripts/model-pull.sh]
+                volumeMounts:
+                  - { name: serve-script, mountPath: /scripts/model-pull.sh, subPath: model-pull.sh }
+                  - { name: llm-models,   mountPath: /mnt/models }
+                  - { name: shared-bin,   mountPath: /shared }
+                  - { name: host-ca,      mountPath: /etc/ssl/certs, readOnly: true }
+              # Reference voices (WAV + exact transcript pairs) are private recordings
+              # kept out of Git; Harbor is their source of truth.
+              - name: voices-pull
+                image: ghcr.io/oras-project/oras:v1.2.2
+                env:
+                  - { name: VOICES_REF, value: media.xiehang.com/llm-models/tts-voices:latest }
+                  - name: HARBOR_USERNAME
+                    valueFrom: { secretKeyRef: { name: harbor-credentials, key: username } }
+                  - name: HARBOR_PASSWORD
+                    valueFrom: { secretKeyRef: { name: harbor-credentials, key: password } }
+                command:
+                  - sh
+                  - -ceu
+                  - |
+                    echo "${HARBOR_PASSWORD}" | oras pull -u "${HARBOR_USERNAME}" --password-stdin \
+                      "${VOICES_REF}" --output /mnt/voices
+                    ls /mnt/voices/*.wav >/dev/null || { echo "ERROR: no voices in ${VOICES_REF}" >&2; exit 1; }
+                    echo "Pulled $(ls /mnt/voices/*.wav | wc -l) voices from ${VOICES_REF}"
+                volumeMounts:
+                  - { name: voices,  mountPath: /mnt/voices }
+                  - { name: host-ca, mountPath: /etc/ssl/certs, readOnly: true }
+            containers:
+              - name: ray-worker
+                image: hangxie/ray-images:v0.4.0
+                resources:
+                  # A replica holds ~2.6-3.0 GiB of host RAM (model, CUDA context, torch).
+                  requests: { cpu: "2", memory: "4Gi", nvidia.com/gpu: "1" }
+                  limits:   { cpu: "4", memory: "6Gi", nvidia.com/gpu: "1" }
+                ports:
+                  - { name: metrics, containerPort: 8080, protocol: TCP }
+                volumeMounts:
+                  - { name: dshm,       mountPath: /dev/shm }
+                  - { name: llm-models, mountPath: /mnt/models, readOnly: true }
+                  - { name: voices,     mountPath: /mnt/voices, readOnly: true }
+            volumes:
+              - { name: serve-script, configMap: { name: ray-vllm-serve-script } }
+              - { name: dshm,         emptyDir: { medium: Memory } }
+              - { name: llm-models,   persistentVolumeClaim: { claimName: llm-models } }
+              - { name: voices,       emptyDir: {} }
+              - { name: shared-bin,   emptyDir: {} }
+              - { name: host-ca,      hostPath: { path: /etc/ssl/certs, type: Directory } }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: tts
+  namespace: ray
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+      sectionName: https
+  hostnames:
+    - "tts.homelab.xiehang.com"
+  rules:
+    - backendRefs:
+        - name: ray-tts-serve-svc
+          port: 8000

@@ -1,7 +1,8 @@
 # Ray namespace contents — KubeRay-managed RayService running vLLM via
 # Ray Serve's LLM API. Single application serving one model from the MODELS
 # env var, sharded across both GPUs of the one GPU node. Worker pod init
-# container reads the live RayService CR and pulls the model into the CephFS PVC.
+# container reads the live RayService CR and pulls the model into the CephFS PVC
+# (model-pull.sh, shared with ray-tts in tts.yaml).
 #
 # Operator workflow:
 #   - Switch model:   edit MODELS env var and the matching model_list in
@@ -10,6 +11,8 @@
 #   - Change a serve script or the tool chat template: commit, then
 #     `kubectl -n ray delete raycluster <name>` -- subPath mounts never refresh
 #     and upgradeStrategy None leaves the running cluster on the old pod spec.
+#   - GPUs are currently lent to ray-tts (tts.yaml); see serveConfigV2 below
+#     to switch back.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -25,7 +28,7 @@ metadata:
 rules:
   - apiGroups: ["ray.io"]
     resources: ["rayservices"]
-    resourceNames: ["ray-vllm"]
+    resourceNames: ["ray-vllm", "ray-tts"]
     verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -126,22 +129,26 @@ spec:
   # Pending forever and the upgrade deadlocks. Costs a short outage on every serveConfigV2 change.
   upgradeStrategy:
     type: None
+  # The GPU node's cards are lent to ray-tts: with no applications the autoscaler
+  # drains gpu-worker. To serve vLLM again, swap `applications: []` for the
+  # commented block and comment out tts.yaml in kustomization.yaml.
   serveConfigV2: |
-    applications:
-      - name: vllm
-        route_prefix: /
-        import_path: serve:app
-        runtime_env:
-          env_vars:
-            PYTHONPATH: /home/ray
-            # One model at a time, sharded across both cards of the GPU node.
-            MODELS: "cyankiwi/Qwen3.5-9B-AWQ-4bit"
-            TENSOR_PARALLEL_SIZE: "2"
-            MAX_MODEL_LEN: "32768"
-            GPU_MEMORY_UTILIZATION: "0.93"
-            MAX_NUM_SEQS: "4"
-            HF_HUB_OFFLINE: "1"
-            PYTORCH_ALLOC_CONF: "expandable_segments:True"
+    applications: []
+    # applications:
+    #   - name: vllm
+    #     route_prefix: /
+    #     import_path: serve:app
+    #     runtime_env:
+    #       env_vars:
+    #         PYTHONPATH: /home/ray
+    #         # One model at a time, sharded across both cards of the GPU node.
+    #         MODELS: "cyankiwi/Qwen3.5-9B-AWQ-4bit"
+    #         TENSOR_PARALLEL_SIZE: "2"
+    #         MAX_MODEL_LEN: "32768"
+    #         GPU_MEMORY_UTILIZATION: "0.93"
+    #         MAX_NUM_SEQS: "4"
+    #         HF_HUB_OFFLINE: "1"
+    #         PYTORCH_ALLOC_CONF: "expandable_segments:True"
   rayClusterConfig:
     enableInTreeAutoscaling: true
     headGroupSpec:
@@ -151,7 +158,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: hangxie/ray-vllm:v0.3.0
+              image: hangxie/ray-images:v0.4.0
               resources:
                 # Ray's memory monitor kills workers at 95% of the limit; at 6Gi the
                 # dashboard and telemetry agents pushed the ingress replica over.
@@ -205,7 +212,7 @@ spec:
                 volumeMounts:
                   - { name: shared-bin, mountPath: /shared }
               - name: model-pull
-                image: hangxie/ray-vllm:v0.3.0
+                image: hangxie/ray-images:v0.4.0
                 # CephFS root must be writable for the lockfile + model dirs.
                 securityContext: { runAsUser: 0, runAsGroup: 0 }
                 env:
@@ -213,149 +220,23 @@ spec:
                   - { name: HARBOR_PROJECT,               value: llm-models }
                   - { name: HF_HUB_DISABLE_PROGRESS_BARS, value: "1" }
                   - { name: RAYSERVICE_NAME,              value: ray-vllm }
+                  - { name: RAYSERVE_APP,                 value: vllm }
+                  - { name: MODELS_VAR,                   value: MODELS }
                   - name: HF_TOKEN
                     valueFrom: { secretKeyRef: { name: hf-token, key: token } }
                   - name: HARBOR_USERNAME
                     valueFrom: { secretKeyRef: { name: harbor-credentials, key: username } }
                   - name: HARBOR_PASSWORD
                     valueFrom: { secretKeyRef: { name: harbor-credentials, key: password } }
-                command:
-                  - bash
-                  - -ceu
-                  - |
-                    export PATH="/shared:$PATH"
-                    mkdir -p /mnt/models
-
-                    MODELS=$(kubectl get rayservice "${RAYSERVICE_NAME}" \
-                               -o jsonpath='{.spec.serveConfigV2}' \
-                             | yq '.applications[0].runtime_env.env_vars.MODELS' - \
-                             | tr ',' '\n')
-
-                    if [ -z "${MODELS}" ] || [ "${MODELS}" = "null" ]; then
-                      echo "No MODELS env var in serveConfigV2; nothing to pull."
-                      exit 0
-                    fi
-
-                    slug() {
-                      echo "$1" | tr '[:upper:]/.+_' '[:lower:]----' \
-                                | tr -cd 'a-z0-9-' | tr -s '-'
-                    }
-
-                    for MODEL_ID in ${MODELS}; do
-                      MODEL_ID="$(echo "${MODEL_ID}" | xargs)"
-                      [ -z "${MODEL_ID}" ] && continue
-                      DEST="/mnt/models/${MODEL_ID}"
-                      LOCK="/mnt/models/.pull.lock.$(slug "${MODEL_ID}")"
-                      HARBOR_TAG="$(slug "${MODEL_ID}")"
-                      HARBOR_REF="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${HARBOR_TAG}:latest"
-
-                      (
-                        exec 9>"${LOCK}"
-                        flock -w 3600 -x 9 || { echo "ERROR: lock not acquired for ${MODEL_ID}" >&2; exit 1; }
-
-                        harbor_has_model() {
-                          HARBOR_REPO="${HARBOR_TAG}" python - <<'PY'
-                    import base64
-                    import os
-                    import sys
-                    import urllib.error
-                    import urllib.request
-
-                    registry = os.environ["HARBOR_REGISTRY"]
-                    project = os.environ["HARBOR_PROJECT"]
-                    repo = os.environ["HARBOR_REPO"]
-                    username = os.environ["HARBOR_USERNAME"]
-                    password = os.environ["HARBOR_PASSWORD"]
-                    url = f"https://{registry}/v2/{project}/{repo}/manifests/latest"
-                    request = urllib.request.Request(
-                        url,
-                        headers={
-                            "Accept": "application/vnd.oci.image.manifest.v1+json",
-                            "Authorization": "Basic "
-                            + base64.b64encode(f"{username}:{password}".encode()).decode(),
-                        },
-                    )
-                    try:
-                        with urllib.request.urlopen(request, timeout=20) as response:
-                            sys.exit(0 if response.status == 200 else 1)
-                    except urllib.error.HTTPError as exc:
-                        sys.exit(1 if exc.code == 404 else 2)
-                    except Exception:
-                        sys.exit(2)
-                    PY
-                        }
-                        push_to_harbor() {
-                          echo "Pushing to Harbor: ${HARBOR_REF}"
-                          (
-                            cd "${DEST}"
-                            # Word-split $FILES intentionally so each file becomes a separate oras arg.
-                            FILES=$(find . -maxdepth 1 -type f | sed 's|^\./||' | tr '\n' ' ')
-                            if [ -z "${FILES}" ]; then
-                              echo "ERROR: no files found under ${DEST}" >&2
-                              exit 1
-                            fi
-                            echo "${HARBOR_PASSWORD}" | oras push -u "${HARBOR_USERNAME}" --password-stdin \
-                                 "${HARBOR_REF}" ${FILES}
-                          )
-                        }
-
-                        # hf download writes config.json before the weights and leaves
-                        # *.incomplete files behind when interrupted, so config.json alone
-                        # doesn't mean the copy is whole.
-                        pvc_complete() {
-                          [ -f "${DEST}/config.json" ] \
-                            && [ -z "$(find "${DEST}/.cache" -name '*.incomplete' 2>/dev/null | head -1)" ]
-                        }
-
-                        if pvc_complete; then
-                          if harbor_has_model; then
-                            echo "PVC and Harbor ok: ${MODEL_ID}"
-                            exit 0
-                          fi
-                          echo "PVC ok but Harbor cache missing: ${MODEL_ID}"
-                          push_to_harbor || { echo "ERROR: Harbor push failed for ${HARBOR_REF}" >&2; exit 1; }
-                          echo "Pushed to Harbor: ${HARBOR_REF}"
-                          exit 0
-                        fi
-
-                        mkdir -p "${DEST}"
-                        chmod -R 777 "/mnt/models/$(dirname "${MODEL_ID}")"
-
-                        echo "Attempting Harbor pull: ${HARBOR_REF}"
-                        if echo "${HARBOR_PASSWORD}" | oras pull -u "${HARBOR_USERNAME}" --password-stdin \
-                             "${HARBOR_REF}" --output "${DEST}" \
-                           && [ -f "${DEST}/config.json" ]; then
-                          echo "Pulled from Harbor: ${MODEL_ID}"
-                          exit 0
-                        fi
-
-                        if [ -z "${HF_TOKEN:-}" ]; then
-                          echo "ERROR: HF_TOKEN empty; homelab policy requires a token." >&2
-                          exit 1
-                        fi
-
-                        echo "Downloading from HuggingFace: ${MODEL_ID}"
-                        # errexit is off inside this ( ... ) || exit 1 subshell, so a failed
-                        # download has to stop the push explicitly.
-                        # Mistral repos also ship a consolidated.safetensors copy of
-                        # the weights in Mistral format, which vLLM never reads here.
-                        hf download "${MODEL_ID}" --local-dir "${DEST}" --exclude 'consolidated*' \
-                          || { echo "ERROR: HF download failed for ${MODEL_ID}" >&2; exit 1; }
-                        pvc_complete || { echo "ERROR: HF download incomplete" >&2; exit 1; }
-
-                        push_to_harbor || { echo "ERROR: Harbor push failed for ${HARBOR_REF}" >&2; exit 1; }
-                        echo "Pushed to Harbor: ${HARBOR_REF}"
-                      ) || exit 1
-                    done
-
-                    echo "All configured models present on PVC."
+                command: [bash, /scripts/model-pull.sh]
                 volumeMounts:
-                  - { name: llm-models, mountPath: /mnt/models }
-                  - { name: shared-bin, mountPath: /shared }
-                  - { name: host-ca,    mountPath: /etc/ssl/certs, readOnly: true }
+                  - { name: serve-script, mountPath: /scripts/model-pull.sh, subPath: model-pull.sh }
+                  - { name: llm-models,   mountPath: /mnt/models }
+                  - { name: shared-bin,   mountPath: /shared }
+                  - { name: host-ca,      mountPath: /etc/ssl/certs, readOnly: true }
             containers:
               - name: ray-worker
-                image: hangxie/ray-vllm:v0.3.0
+                image: hangxie/ray-images:v0.4.0
                 resources:
                   # The GPU node has 16 GiB RAM, ~1 GiB of it held by
                   # daemonsets. Each tensor-parallel rank keeps its own CUDA
@@ -380,7 +261,7 @@ spec:
                   # leaves its parent root-owned and torch's makedirs fails. One directory
                   # per image so an upgrade starts empty and stale ones are easy to delete;
                   # the full image ref keeps check-pinned-versions in step.
-                  - { name: vllm-cache,   mountPath: /home/ray/.cache, subPath: hangxie/ray-vllm:v0.3.0 }
+                  - { name: vllm-cache,   mountPath: /home/ray/.cache, subPath: hangxie/ray-images:v0.4.0 }
             volumes:
               - { name: serve-script, configMap: { name: ray-vllm-serve-script } }
               - { name: dshm,         emptyDir: { medium: Memory } }
