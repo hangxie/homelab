@@ -136,7 +136,7 @@ AI also runs a Darwin-compatible node_exporter on port 9100, reachable from clus
 
 ### Network policy
 
-Cilium runs with `enable-policy: default`, so an endpoint is firewalled only once some policy selects it, and only in the directions that policy covers. The cluster is otherwise default-allow. Targeted, ingress-only `CiliumNetworkPolicy` objects protect the services that have no authentication of their own: `open-webui-redis` (no password), the Hive metastore (Thrift, unauthenticated), and HDFS (Hadoop simple auth — no Kerberos). Egress stays unrestricted everywhere.
+Cilium runs with `enable-policy: default`, so an endpoint is firewalled only once some policy selects it, and only in the directions that policy covers. The cluster is otherwise default-allow. Targeted, ingress-only `CiliumNetworkPolicy` objects protect the services that have no authentication of their own: `open-webui-redis` (no password), the Hive metastore (Thrift, unauthenticated), HDFS (Hadoop simple auth — no Kerberos), and Ray TTS (its API is checked at the Gateway, so only the Gateway and known callers may reach it). Egress stays unrestricted everywhere.
 
 Ansible owns the Cilium install; Argo CD owns the policy objects, which live beside the component they protect — a workload's `manifests/`/`extras/` or `gitops/platform/<component>/`. Two Cilium behaviours to respect when adding one:
 
@@ -277,8 +277,18 @@ TTS (`https://tts.homelab.xiehang.com/`) access:
 
 - **Login:** the page and `/voices` need a Zitadel login (through OAuth2 Proxy) with the `homelab` project's `admin` or `viewer` role. A session lasts 12h from login.
 - **Sign out:** the page has no button; open `https://tts.homelab.xiehang.com/oauth2/sign_out`. It ends both the TTS and the Zitadel session. Logging out of Zitadel elsewhere leaves the TTS session running.
-- **Public:** `/api` has no auth until bearer auth moves to the Gateway (#254). `/health` and FastAPI's doc routes (`/openapi.json`, `/docs`, `/docs/oauth2-redirect`, `/redoc`) stay public for good. All of these go straight to Ray Serve.
+- **API:** `/api` needs `Authorization: Bearer <PAT>` from a machine user with the `tts-user` or `admin` role (see API bearer tokens below).
+- **Public:** `/health` and FastAPI's doc routes (`/openapi.json`, `/docs`, `/docs/oauth2-redirect`, `/redoc`) need no auth.
 - **First deploy:** run `scripts/seed-vault.sh` (creates `ray/tts-oidc`), then `scripts/seed-zitadel.sh` (registers the `ray-tts` client and writes `oidc/ray-tts`).
+
+API bearer tokens (#254):
+
+- **How it works:** an HTTPRoute rule with an `ExternalAuth` filter asks Authorino (`gitops/platform/authorino`) about each request. Authorino introspects the opaque token at Zitadel, using the `authorino` API client from `apiClients:` in `scripts/zitadel.template.yaml`, and checks the project roles against that API's `AuthConfig`. Results are cached for 60s, so a deleted token or role stops working within a minute.
+- **Responses:** an invalid or expired bearer token gets 401 with `WWW-Authenticate: Bearer`, and a valid token without an allowed role gets 403. A request with no `Authorization: Bearer` header never reaches Authorino: it falls through to the page's OAuth2 Proxy, which redirects to the Zitadel login (302). Headless clients that see a 302 forgot the token.
+- **Issuing a token:** in the Zitadel console, create a machine user, grant it a `homelab` role (e.g. `tts-user`), and add a personal access token. Hand the PAT to the client, or put it in Vault for in-cluster clients. Console-made machine users are lost on a rebuild.
+- **Roles:** grant `*-user` roles to machine users only. Any role passes the project's login check, and Argo CD gives every logged-in user read-only access.
+- **Network policy:** a protected backend also needs a `CiliumNetworkPolicy` that only admits the Gateway (`fromEntities: [ingress]`) and its known in-cluster callers, else a pod could call it directly and skip the check (`ray-tts/manifests/networkpolicy.yaml`).
+- **Adding an API:** add an `AuthConfig` in `gitops/platform/authorino/`, a `from` entry for its namespace in `03-referencegrant.yaml`, the `ExternalAuth` filter on its route, the network policy, and a `*-user` role in the template.
 
 DBeaver/CloudBeaver is intentionally not Vault-seeded. It is an internal
 admin-only tool, and the first browser login creates the CloudBeaver admin in

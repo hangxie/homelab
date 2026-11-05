@@ -1,0 +1,36 @@
+# Ingress allowlist for ray-tts, built from Hubble flows. Outside callers must
+# come through the Gateway, where /api carries the bearer-token check (#254);
+# a pod calling ray-tts-serve-svc directly would skip it.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ray-tts-ingress
+  namespace: ray-tts
+spec:
+  endpointSelector: {}
+  ingress:
+    # Ray head <-> workers (GCS, object manager, Serve) and OAuth2 Proxy -> Ray Serve.
+    - fromEndpoints:
+        - {}
+    # Gateway Envoy: Ray Serve, Ray dashboard route, OAuth2 Proxy.
+    - fromEntities: [ingress]
+      toPorts:
+        - ports:
+            - { port: "8000", protocol: TCP }
+            - { port: "8265", protocol: TCP }
+            - { port: "4180", protocol: TCP }
+    # kubelet probes.
+    - fromEntities: [host]
+    # Metrics scrape.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: alloy
+            app.kubernetes.io/name: alloy
+      toPorts:
+        - ports:
+            - { port: "8080", protocol: TCP }
+    # RayService controller: dashboard API and Serve health checks.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kuberay-operator
+            app.kubernetes.io/name: kuberay-operator

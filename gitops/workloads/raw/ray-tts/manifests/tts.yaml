@@ -261,12 +261,30 @@ spec:
   hostnames:
     - "tts.homelab.xiehang.com"
   rules:
-    # The API stays unauthenticated until bearer auth lands at the Gateway (#254).
-    # /health and FastAPI's default doc routes are public and stay outside SSO and bearer auth.
+    # Bearer token checked by Authorino (AuthConfig authorino/ray-tts, #254).
+    # /api calls without one, i.e. the page's own, fall through to OAuth2 Proxy.
     - matches:
         - path:
             type: PathPrefix
             value: /api
+          headers:
+            - name: Authorization
+              type: RegularExpression
+              value: "^Bearer .+"
+      filters:
+        - type: ExternalAuth
+          externalAuth:
+            protocol: GRPC
+            backendRef:
+              name: authorino-authorino-authorization
+              namespace: authorino
+              port: 50051
+            grpc: {}
+      backendRefs:
+        - name: ray-tts-serve-svc
+          port: 8000
+    # /health and FastAPI's default doc routes are public and stay outside SSO and bearer auth.
+    - matches:
         - path:
             type: Exact
             value: /health

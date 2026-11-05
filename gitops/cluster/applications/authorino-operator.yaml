@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: authorino-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "150"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  # The chart exposes no values (its README: "no configuration parameters").
+  source:
+    repoURL: https://kuadrant.io/helm-charts/
+    chart: authorino-operator
+    targetRevision: 0.27.0
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: authorino-operator
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
