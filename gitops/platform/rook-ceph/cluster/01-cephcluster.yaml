@@ -52,6 +52,9 @@ spec:
     allowMultiplePerNode: false
   mgr:
     count: 2
+    modules:
+      - name: rook
+        enabled: true
   dashboard:
     enabled: true
     port: 7000
@@ -67,8 +70,9 @@ spec:
         enabled: true
       compression:
         enabled: false
-      # msgr1 has no encryption, so stop binding 6789 and hand out only :3300
-      # mon addresses; every client must already be on msgr2 (#272).
+      # Implied by encryption, but kept explicit so msgr1 (unencrypted) stays
+      # off if encryption is ever disabled. Rook fixes a mon's port when it
+      # creates the mon, so mons from before #270 need a failover to drop 6789.
       requireMsgr2: true
   crashCollector:
     disable: false
