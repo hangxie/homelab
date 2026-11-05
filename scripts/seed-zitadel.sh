@@ -365,6 +365,39 @@ ensure_client() {
   fi
 }
 
+# Confidential API client with client-secret (basic) auth: it never logs users
+# in, it only introspects tokens (e.g. Authorino for the Gateway).
+ensure_api_client() {
+  local client="$1" apps="$2" name current app_id client_id created stored stored_secret
+  name="$(jq -r '.name' <<<"${client}")"
+  current="$(jq -c --arg n "${name}" '.[] | select(.name == $n)' <<<"${apps}")"
+  if [[ -z "${current}" ]]; then
+    echo ">>> Creating API client ${name}"
+    created="$(api POST "/management/v1/projects/${PROJECT_ID}/apps/api" \
+      "$(jq -nc --arg n "${name}" '{name: $n, authMethodType: "API_AUTH_METHOD_TYPE_BASIC"}')")"
+    write_client_secret "${name}" "$(jq -r '.clientId' <<<"${created}")" "$(jq -r '.clientSecret' <<<"${created}")"
+    return
+  fi
+  app_id="$(jq -r '.id' <<<"${current}")"
+  client_id="$(jq -r '.apiConfig.clientId' <<<"${current}")"
+  # Responses omit the zero value: BASIC is the first API auth method.
+  if [[ "$(jq -r '.apiConfig.authMethodType // "API_AUTH_METHOD_TYPE_BASIC"' <<<"${current}")" == "API_AUTH_METHOD_TYPE_BASIC" ]]; then
+    echo ">>> API client ${name} up to date"
+  else
+    echo ">>> Updating API client ${name}"
+    api PUT "/management/v1/projects/${PROJECT_ID}/apps/${app_id}/api_config" \
+      '{"authMethodType": "API_AUTH_METHOD_TYPE_BASIC"}' >/dev/null
+  fi
+  stored="$(vault kv get -field=client-id "${KV_MOUNT}/oidc/${name}" 2>/dev/null || true)"
+  stored_secret="$(vault kv get -field=client-secret "${KV_MOUNT}/oidc/${name}" 2>/dev/null || true)"
+  if [[ "${REGENERATE}" == "true" || "${stored}" != "${client_id}" || -z "${stored_secret}" ]]; then
+    echo ">>> Generating a new secret for API client ${name}"
+    write_client_secret "${name}" "${client_id}" "$(api POST \
+      "/management/v1/projects/${PROJECT_ID}/apps/${app_id}/api_config/_generate_client_secret" '{}' \
+      | jq -r '.clientSecret')"
+  fi
+}
+
 # The template is the client list: unlisted apps in the project are deleted.
 # Their Vault oidc/<name> paths are left for the operator to remove.
 ensure_clients() {
@@ -375,7 +408,12 @@ ensure_clients() {
     [[ -n "${client}" ]] || continue
     ensure_client "${client}" "${apps}"
   done <<<"${clients}"
-  unlisted="$(jq -r --argjson want "$(yq -c '[.clients[].name]' "${TEMPLATE}")" \
+  clients="$(yq -c '(.apiClients // [])[]' "${TEMPLATE}")"
+  while read -r client; do
+    [[ -n "${client}" ]] || continue
+    ensure_api_client "${client}" "${apps}"
+  done <<<"${clients}"
+  unlisted="$(jq -r --argjson want "$(yq -c '[.clients[].name] + [(.apiClients // [])[].name]' "${TEMPLATE}")" \
     '.[] | select(.name as $n | $want | index($n) | not) | "\(.id) \(.name)"' <<<"${apps}")"
   while read -r id name; do
     [[ -n "${id}" ]] || continue

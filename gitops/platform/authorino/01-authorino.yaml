@@ -1,0 +1,22 @@
+# Bearer-token authorizer for the Gateway's HTTPRoute ExternalAuth filter (#254).
+# Cluster-wide: it serves every AuthConfig, and they all live in this namespace
+# so the role policy for every API is in one place. Plain gRPC on 50051 inside
+# the cluster; the Gateway terminates client TLS.
+apiVersion: operator.authorino.kuadrant.io/v1beta1
+kind: Authorino
+metadata:
+  name: authorino
+  namespace: authorino
+spec:
+  replicas: 2
+  clusterWide: true
+  # MiB per evaluator. An entry may use at most 1/1024 of it: at the 1 MiB
+  # default a cached introspection result (~1 KiB plus the token as key) is
+  # rejected and every request goes to Zitadel.
+  evaluatorCacheSize: 16
+  listener:
+    tls:
+      enabled: false
+  oidcServer:
+    tls:
+      enabled: false

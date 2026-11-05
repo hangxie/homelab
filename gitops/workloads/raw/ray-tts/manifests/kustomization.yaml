@@ -10,6 +10,7 @@ namespace: ray-tts
 resources:
   - tts.yaml
   - oauth2-proxy.yaml
+  - networkpolicy.yaml
   - route-ray-dashboard.yaml
 
 components:

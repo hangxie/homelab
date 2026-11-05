@@ -1,0 +1,16 @@
+# Lets HTTPRoutes in API namespaces point their ExternalAuth filter at the
+# Authorino Service here. Add a `from` entry per namespace that hosts an API.
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: external-auth
+  namespace: authorino
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: ray-tts
+  to:
+    - group: ""
+      kind: Service
+      name: authorino-authorino-authorization
