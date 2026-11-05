@@ -261,6 +261,30 @@ spec:
   hostnames:
     - "tts.homelab.xiehang.com"
   rules:
-    - backendRefs:
+    # The API stays unauthenticated until bearer auth lands at the Gateway (#254).
+    # /health and FastAPI's default doc routes are public and stay outside SSO and bearer auth.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+        - path:
+            type: Exact
+            value: /health
+        - path:
+            type: Exact
+            value: /openapi.json
+        - path:
+            type: Exact
+            value: /docs
+        - path:
+            type: Exact
+            value: /docs/oauth2-redirect
+        - path:
+            type: Exact
+            value: /redoc
+      backendRefs:
         - name: ray-tts-serve-svc
           port: 8000
+    - backendRefs:
+        - name: tts-oauth2-proxy
+          port: 4180

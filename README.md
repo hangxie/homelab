@@ -273,6 +273,13 @@ Six paths are held back from a bare run because nothing in the cluster re-applie
 
 The vLLM `/v1` endpoint (LiteLLM in the `ray` namespace) requires `Authorization: Bearer sk-<ray/litellm master-key>`; `kubectl homelab list dashboards` prints the full key. Rotating it restarts LiteLLM, but Open WebUI keeps connection keys in its database once an admin has saved the connection settings, so update the key there too.
 
+TTS (`https://tts.homelab.xiehang.com/`) access:
+
+- **Login:** the page and `/voices` need a Zitadel login (through OAuth2 Proxy) with the `homelab` project's `admin` or `viewer` role. A session lasts 12h from login.
+- **Sign out:** the page has no button; open `https://tts.homelab.xiehang.com/oauth2/sign_out`. It ends both the TTS and the Zitadel session. Logging out of Zitadel elsewhere leaves the TTS session running.
+- **Public:** `/api` has no auth until bearer auth moves to the Gateway (#254). `/health` and FastAPI's doc routes (`/openapi.json`, `/docs`, `/docs/oauth2-redirect`, `/redoc`) stay public for good. All of these go straight to Ray Serve.
+- **First deploy:** run `scripts/seed-vault.sh` (creates `ray/tts-oidc`), then `scripts/seed-zitadel.sh` (registers the `ray-tts` client and writes `oidc/ray-tts`).
+
 DBeaver/CloudBeaver is intentionally not Vault-seeded. It is an internal
 admin-only tool, and the first browser login creates the CloudBeaver admin in
 the workspace PVC. `kubectl homelab list dashboards` reports that setup step
