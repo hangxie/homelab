@@ -8,14 +8,6 @@ spec:
     # Rook 1.20 dropped Reef (v18.x) — Squid (v19.x) is the floor.
     image: quay.io/ceph/ceph:v19.2.4
   cephConfig:
-    global:
-      # network.connections.encryption leaves the mon-specific modes at
-      # "secure crc" before Rook v1.20.9 (rook/rook#18319), so a client can
-      # still pick an unencrypted msgr2 session to a mon. Drop once Rook
-      # is >= v1.20.9.
-      ms_mon_cluster_mode: secure
-      ms_mon_service_mode: secure
-      ms_mon_client_mode: secure
     mon:
       mon_data_avail_warn: "15"
       mon_data_avail_crit: "5"
@@ -60,9 +52,6 @@ spec:
     allowMultiplePerNode: false
   mgr:
     count: 2
-    modules:
-      - name: rook
-        enabled: true
   dashboard:
     enabled: true
     port: 7000
@@ -78,6 +67,9 @@ spec:
         enabled: true
       compression:
         enabled: false
+      # msgr1 has no encryption, so stop binding 6789 and hand out only :3300
+      # mon addresses; every client must already be on msgr2 (#272).
+      requireMsgr2: true
   crashCollector:
     disable: false
   logCollector:
