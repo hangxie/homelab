@@ -8,6 +8,11 @@ spec:
     # Rook 1.20 dropped Reef (v18.x) — Squid (v19.x) is the floor.
     image: quay.io/ceph/ceph:v19.2.4
   cephConfig:
+    global:
+      # requireMsgr2 only makes the mons v2-only; OSDs, MDS and mgr still bind
+      # an unencrypted msgr1 port beside msgr2 unless this is off. Daemons
+      # pick it up on restart.
+      ms_bind_msgr1: "false"
     mon:
       mon_data_avail_warn: "15"
       mon_data_avail_crit: "5"
