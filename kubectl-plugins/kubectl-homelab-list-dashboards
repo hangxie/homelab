@@ -135,14 +135,14 @@ while IFS=$'\t' read -r ns name hostname; do
         grafana/grafana)
             print_secret_user_pass_row "$url" grafana grafana-admin username password admin
             ;;
-        ray/ray-dashboard|spark/spark-history-server)
+        ray-vllm/ray-dashboard|ray-tts/ray-dashboard|ray-tts/tts|spark/spark-history-server)
             print_row "$url" "-" "(no auth)"
             ;;
         openwebui/open-webui)
             print_secret_row "$url" openwebui openwebui-admin password admin@homelab.xiehang.com
             ;;
-        ray/litellm)
-            print_secret_row "${url}/v1" ray litellm-master-key master-key "(bearer)"
+        ray-vllm/litellm)
+            print_secret_row "${url}/v1" ray-vllm litellm-master-key master-key "(bearer)"
             ;;
         rook-ceph/ceph)
             # rook's own secret, with the Vault value merged into it by
@@ -154,6 +154,15 @@ while IFS=$'\t' read -r ns name hostname; do
             ;;
         trino/trino)
             print_secret_user_pass_row "$url" trino trino-credentials username password admin
+            ;;
+        zitadel/zitadel)
+            # Break-glass admin; the password only exists inside the merged config file.
+            pass=$(get_secret zitadel zitadel-config config-yaml \
+                | awk '/Human:/ { h = 1 } h && /Password:/ { gsub(/^[^:]*: *"?|"$/, ""); print; exit }')
+            print_row "$url" admin "${pass:-(secret missing)}"
+            ;;
+        zitadel/zitadel-debug|zitadel/zitadel-login)
+            # Path routes on the same host as zitadel/zitadel.
             ;;
         *)
             print_row "$url" "-" "(credentials unknown)"
