@@ -18,21 +18,14 @@
         - apiserver_ready.rc == 0
         - "'ok' in apiserver_ready.stdout"
 
-    - name: Check if Gateway API CRDs are installed
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ bootstrap_kubeconfig }}"
-        api_version: apiextensions.k8s.io/v1
-        kind: CustomResourceDefinition
-        name: gateways.gateway.networking.k8s.io
-      register: gateway_crd_check
-
+    # Applied on every run so a gateway_api_version bump reaches a live cluster.
+    # Cilium 1.20 needs >= v1.6.1, which serves TLSRoute at v1.
     - name: Install Gateway API CRDs (standard channel)
       kubernetes.core.k8s:
         kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: present
         apply: true
         src: "https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ gateway_api_version }}/standard-install.yaml"
-      when: gateway_crd_check.resources | length == 0
 
     - name: Wait for Gateway API CRDs to be established
       kubernetes.core.k8s_info:
@@ -51,41 +44,6 @@
         - gatewayclasses.gateway.networking.k8s.io
         - referencegrants.gateway.networking.k8s.io
         - tlsroutes.gateway.networking.k8s.io
-
-    # Cilium 1.19.x looks up TLSRoute at v1alpha2. Gateway API >= v1.3 promotes
-    # TLSRoute to v1 and stops serving v1alpha2, which crashes the operator.
-    # This patch re-enables v1alpha2 serving idempotently.
-    - name: Read TLSRoute CRD versions
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ bootstrap_kubeconfig }}"
-        api_version: apiextensions.k8s.io/v1
-        kind: CustomResourceDefinition
-        name: tlsroutes.gateway.networking.k8s.io
-      register: tlsroute_crd
-
-    - name: Locate TLSRoute v1alpha2 CRD version
-      set_fact:
-        tlsroute_v1alpha2_index: "{{ ansible_loop.index0 }}"
-        tlsroute_v1alpha2_served: "{{ item.served | default(false) | bool }}"
-      loop: "{{ tlsroute_crd.resources[0].spec.versions }}"
-      loop_control:
-        extended: true
-        label: "{{ item.name }}"
-      when: item.name == "v1alpha2"
-
-    - name: Ensure TLSRoute v1alpha2 is served for Cilium operator compatibility
-      kubernetes.core.k8s_json_patch:
-        kubeconfig: "{{ bootstrap_kubeconfig }}"
-        api_version: apiextensions.k8s.io/v1
-        kind: CustomResourceDefinition
-        name: tlsroutes.gateway.networking.k8s.io
-        patch:
-          - op: replace
-            path: "/spec/versions/{{ tlsroute_v1alpha2_index }}/served"
-            value: true
-      when:
-        - tlsroute_v1alpha2_index is defined
-        - not (tlsroute_v1alpha2_served | bool)
 
     - name: Ensure Cilium helm repo is present
       kubernetes.core.helm_repository:
