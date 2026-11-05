@@ -158,7 +158,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: hangxie/ray-images:v0.4.0
+              image: hangxie/ray-images:v0.4.1-rc1
               resources:
                 # Ray's memory monitor kills workers at 95% of the limit; at 6Gi the
                 # dashboard and telemetry agents pushed the ingress replica over.
@@ -212,7 +212,7 @@ spec:
                 volumeMounts:
                   - { name: shared-bin, mountPath: /shared }
               - name: model-pull
-                image: hangxie/ray-images:v0.4.0
+                image: hangxie/ray-images:v0.4.1-rc1
                 # CephFS root must be writable for the lockfile + model dirs.
                 securityContext: { runAsUser: 0, runAsGroup: 0 }
                 env:
@@ -236,7 +236,7 @@ spec:
                   - { name: host-ca,      mountPath: /etc/ssl/certs, readOnly: true }
             containers:
               - name: ray-worker
-                image: hangxie/ray-images:v0.4.0
+                image: hangxie/ray-images:v0.4.1-rc1
                 resources:
                   # The GPU node has 16 GiB RAM, ~1 GiB of it held by
                   # daemonsets. Each tensor-parallel rank keeps its own CUDA
@@ -261,7 +261,7 @@ spec:
                   # leaves its parent root-owned and torch's makedirs fails. One directory
                   # per image so an upgrade starts empty and stale ones are easy to delete;
                   # the full image ref keeps check-pinned-versions in step.
-                  - { name: vllm-cache,   mountPath: /home/ray/.cache, subPath: hangxie/ray-images:v0.4.0 }
+                  - { name: vllm-cache,   mountPath: /home/ray/.cache, subPath: hangxie/ray-images:v0.4.1-rc1 }
             volumes:
               - { name: serve-script, configMap: { name: ray-vllm-serve-script } }
               - { name: model-pull,   configMap: { name: ray-model-pull } }

@@ -73,6 +73,11 @@ spec:
           ports:
             - { containerPort: 4000 }
           env:
+            # Personal OpenWebUI connections send bearer tokens from the browser.
+            - name: LITELLM_CORS_ORIGINS
+              value: https://openwebui.homelab.xiehang.com
+            - name: LITELLM_CORS_ALLOW_CREDENTIALS
+              value: "false"
             - name: LITELLM_MASTER_KEY
               valueFrom:
                 secretKeyRef:

@@ -32,6 +32,9 @@ openaiBaseApiUrls:
   - https://vllm.homelab.xiehang.com/v1
 
 extraEnvVars:
+  # Expose User Settings > Connections for personal OpenAI-compatible URLs and tokens.
+  - name: ENABLE_DIRECT_CONNECTIONS
+    value: "true"
   # One key per openaiBaseApiUrls entry, same order.
   - name: OPENAI_API_KEYS
     valueFrom:

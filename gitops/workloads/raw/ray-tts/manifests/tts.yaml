@@ -125,6 +125,7 @@ spec:
             TTS_MODEL: "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
             TTS_MODEL_DIR: "/mnt/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base"
             TTS_VOICES_DIR: /mnt/voices
+            TTS_API_KEY_FILE: /var/run/secrets/tts-api-key/token
             # One replica per card; Serve queues the rest, 503 past the queue.
             TTS_NUM_REPLICAS: "2"
             TTS_MAX_QUEUED_REQUESTS: "4"
@@ -138,7 +139,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: hangxie/ray-images:v0.4.0
+              image: hangxie/ray-images:v0.4.1-rc1
               resources:
                 requests: { cpu: "2", memory: "4Gi" }
                 limits:   { cpu: "2", memory: "8Gi" }
@@ -184,7 +185,7 @@ spec:
                 volumeMounts:
                   - { name: shared-bin, mountPath: /shared }
               - name: model-pull
-                image: hangxie/ray-images:v0.4.0
+                image: hangxie/ray-images:v0.4.1-rc1
                 # CephFS root must be writable for the lockfile + model dirs.
                 securityContext: { runAsUser: 0, runAsGroup: 0 }
                 env:
@@ -229,7 +230,7 @@ spec:
                   - { name: host-ca, mountPath: /etc/ssl/certs, readOnly: true }
             containers:
               - name: ray-worker
-                image: hangxie/ray-images:v0.4.0
+                image: hangxie/ray-images:v0.4.1-rc1
                 resources:
                   # A replica holds ~2.6-3.0 GiB of host RAM (model, CUDA context, torch).
                   requests: { cpu: "2", memory: "4Gi", nvidia.com/gpu: "1" }
@@ -240,11 +241,14 @@ spec:
                   - { name: dshm,       mountPath: /dev/shm }
                   - { name: llm-models, mountPath: /mnt/models, readOnly: true }
                   - { name: voices,     mountPath: /mnt/voices, readOnly: true }
+                  # Mount the whole Secret directory so projected key rotations are visible.
+                  - { name: tts-api-key, mountPath: /var/run/secrets/tts-api-key, readOnly: true }
             volumes:
               - { name: model-pull,   configMap: { name: ray-model-pull } }
               - { name: dshm,         emptyDir: { medium: Memory } }
               - { name: llm-models,   persistentVolumeClaim: { claimName: llm-models } }
               - { name: voices,       emptyDir: {} }
+              - { name: tts-api-key,   secret: { secretName: tts-api-key } }
               - { name: shared-bin,   emptyDir: {} }
               - { name: host-ca,      hostPath: { path: /etc/ssl/certs, type: Directory } }
 ---
@@ -261,6 +265,14 @@ spec:
   hostnames:
     - "tts.homelab.xiehang.com"
   rules:
-    - backendRefs:
+    # API clients authenticate in the TTS application and never receive an SSO redirect.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+      backendRefs:
         - name: ray-tts-serve-svc
           port: 8000
+    - backendRefs:
+        - name: tts-oauth2-proxy
+          port: 4180

@@ -5,7 +5,7 @@ NAMESPACE="${VLLM_NAMESPACE:-ray-vllm}"
 PVC_NAME="${VLLM_PVC_NAME:-llm-models}"
 HARBOR_REGISTRY="media.xiehang.com"
 HARBOR_PROJECT="llm-models"
-RAY_IMAGE="hangxie/ray-images:v0.4.0"
+RAY_IMAGE="hangxie/ray-images:v0.4.1-rc1"
 
 usage() {
     cat <<'EOF'
