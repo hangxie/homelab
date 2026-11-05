@@ -19,13 +19,19 @@
         - "'ok' in apiserver_ready.stdout"
 
     # Applied on every run so a gateway_api_version bump reaches a live cluster.
-    # Cilium 1.20 needs >= v1.6.1, which serves TLSRoute at v1.
-    - name: Install Gateway API CRDs (standard channel)
+    # Cilium 1.20 needs >= v1.6.1, which serves TLSRoute at v1. Experimental
+    # channel for the HTTPRoute ExternalAuth filter (API bearer auth, #254).
+    # Server-side: the experimental HTTPRoute CRD overflows the 256 KiB
+    # last-applied annotation that client-side apply writes.
+    - name: Install Gateway API CRDs (experimental channel)
       kubernetes.core.k8s:
         kubeconfig: "{{ bootstrap_kubeconfig }}"
         state: present
         apply: true
-        src: "https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ gateway_api_version }}/standard-install.yaml"
+        server_side_apply:
+          field_manager: ansible-gateway-api
+          force_conflicts: true
+        src: "https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ gateway_api_version }}/experimental-install.yaml"
 
     - name: Wait for Gateway API CRDs to be established
       kubernetes.core.k8s_info:
