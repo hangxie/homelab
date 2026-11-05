@@ -2,7 +2,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: litellm-master-key
-  namespace: ray
+  namespace: ray-vllm
 spec:
   refreshInterval: 1h
   secretStoreRef:
@@ -26,14 +26,14 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: litellm-config
-  namespace: ray
+  namespace: ray-vllm
 data:
   config.yaml: |
     model_list:
       - model_name: cyankiwi/Qwen3.5-9B-AWQ-4bit
         litellm_params:
           model: openai/cyankiwi/Qwen3.5-9B-AWQ-4bit
-          api_base: http://ray-vllm-serve-svc.ray.svc:8000/v1
+          api_base: http://ray-vllm-serve-svc.ray-vllm.svc:8000/v1
           api_key: dummy
     litellm_settings:
       drop_params: true
@@ -48,7 +48,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: litellm
-  namespace: ray
+  namespace: ray-vllm
 spec:
   replicas: 2
   selector:
@@ -89,7 +89,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: litellm
-  namespace: ray
+  namespace: ray-vllm
 spec:
   maxUnavailable: 1
   selector:
@@ -100,7 +100,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: litellm
-  namespace: ray
+  namespace: ray-vllm
 spec:
   selector:
     app.kubernetes.io/name: litellm
@@ -111,7 +111,7 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: litellm
-  namespace: ray
+  namespace: ray-vllm
 spec:
   parentRefs:
     - name: default-gateway

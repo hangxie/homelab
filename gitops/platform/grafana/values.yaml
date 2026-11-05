@@ -234,7 +234,7 @@ dashboards:
       datasource: Mimir
     # Ray's own dashboards (cluster overview, serve, serve-deployment) are
     # vendored directly from the Ray source tree and provisioned via the
-    # sidecar from gitops/workloads/raw/ray/manifests/, since they match
+    # sidecar from extras/dashboards/ray-*.json, since they match
     # the ray_* metric names Ray actually exports. gnetId 14708 was an
     # unrelated dashboard that happened to be named "ray" and had no
     # matching metrics.

@@ -1,0 +1,15 @@
+# kustomize renders this whole directory: Argo CD switches renderers the moment
+# a kustomization.yaml appears here and stops picking up loose files. A new
+# manifest dropped in this directory is silently ignored until it is listed
+# under `resources:`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ray-tts
+
+resources:
+  - tts.yaml
+  - route-ray-dashboard.yaml
+
+components:
+  - ../../../components/ray-model-pull

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-NAMESPACE="${VLLM_NAMESPACE:-ray}"
+NAMESPACE="${VLLM_NAMESPACE:-ray-vllm}"
 PVC_NAME="${VLLM_PVC_NAME:-llm-models}"
 HARBOR_REGISTRY="media.xiehang.com"
 HARBOR_PROJECT="llm-models"
@@ -22,7 +22,7 @@ Examples:
   kubectl homelab model vllm delete Qwen/Qwen3-4B-AWQ
 
 Environment:
-  VLLM_NAMESPACE=<name>  Kubernetes namespace; default ray
+  VLLM_NAMESPACE=<name>  Kubernetes namespace; default ray-vllm
   VLLM_PVC_NAME=<name>  Model PVC name; default llm-models
 EOF
 }
@@ -543,7 +543,7 @@ cmd_delete() {
 
     # Safety: refuse if the model is currently listed in the live
     # RayService's MODELS env var. Operator must remove it from
-    # gitops/workloads/raw/ray/manifests/ray.yaml and commit first.
+    # gitops/workloads/raw/ray-vllm/manifests/ray.yaml and commit first.
     # Only a confirmed NotFound skips this check; any other lookup
     # failure (RBAC, missing CRD, API outage) aborts the delete.
     local RS_ERR RS_PRESENT=1 SERVE_CONFIG=""
@@ -576,7 +576,7 @@ cmd_delete() {
         fi
         if echo "${LIVE_MODELS}" | grep -Fxq -- "${MODEL_ID}"; then
             echo "Error: ${MODEL_ID} is still listed in RayService MODELS." >&2
-            echo "Remove it from gitops/workloads/raw/ray/manifests/ray.yaml and commit first." >&2
+            echo "Remove it from gitops/workloads/raw/ray-vllm/manifests/ray.yaml and commit first." >&2
             exit 1
         fi
     fi

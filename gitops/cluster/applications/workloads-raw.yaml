@@ -13,13 +13,17 @@ spec:
           # Mandatory — required for the cluster's data platform.
           - name: hdfs
           - name: hive
-          - name: ray
           - name: redis
           # Optional — comment a line out to disable that workload.
           # Pruning is automatic: a disabled workload's resources
           # (including PVCs) are deleted on the next Argo sync.
           - name: dbeaver
           - name: mysql
+          # Ray Serve on the GPU node; both want its two cards, so enable one
+          # at a time. Their model and compile-cache PVCs are Delete=false and
+          # survive a disable, so switching back starts warm.
+          # - name: ray-vllm
+          - name: ray-tts
   template:
     metadata:
       name: 'wl-{{ .name }}'

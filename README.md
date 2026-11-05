@@ -311,11 +311,10 @@ propagate to OpenWebUI on its own — change it in the UI, or wipe the
      password='<new secret from Harbor>'
    ```
 
-3. Force the `harbor-credentials` Secret in the `ray` namespace to refresh from
-   Vault immediately (otherwise wait for the 1h ExternalSecret refresh):
+3. Force the `harbor-credentials` Secret in the enabled Ray namespaces (`ray-vllm`, `ray-tts`) to refresh from Vault immediately (otherwise wait for the 1h ExternalSecret refresh):
 
    ```bash
-   kubectl -n ray annotate externalsecret harbor-credentials \
+   kubectl -n ray-tts annotate externalsecret harbor-credentials \
      force-sync=$(date +%s) --overwrite
    ```
 
@@ -360,10 +359,10 @@ vault kv put homelab/harbor/jars \
      token='<new HuggingFace read token>'
    ```
 
-3. Force the `hf-token` Secret in the `ray` namespace to refresh:
+3. Force the `hf-token` Secret in the enabled Ray namespaces (`ray-vllm`, `ray-tts`) to refresh:
 
    ```bash
-   kubectl -n ray annotate externalsecret hf-token \
+   kubectl -n ray-tts annotate externalsecret hf-token \
      force-sync=$(date +%s) --overwrite
    ```
 

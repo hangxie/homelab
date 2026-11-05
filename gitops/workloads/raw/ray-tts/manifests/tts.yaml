@@ -1,21 +1,113 @@
-# Qwen3-TTS voice cloning (serve_tts in hangxie/ray-images) as its own RayService,
-# so it upgrades, restarts and fails independently of ray-vllm. One replica per
-# card on the GPU node (tts-worker group); reference voices come from the Harbor
-# artifact llm-models/tts-voices:latest, the model from the shared llm-models PVC.
+# ray-tts namespace contents — Qwen3-TTS voice cloning (serve_tts in
+# hangxie/ray-images) as its own RayService and Argo CD app, so it upgrades,
+# restarts and fails independently of ray-vllm. One replica per card on the GPU
+# node (tts-worker group); reference voices come from the Harbor artifact
+# llm-models/tts-voices:latest, the model from this namespace's llm-models PVC
+# (components/ray-model-pull, shared with raw/ray-vllm).
 #
 # Operator workflow:
-#   - Shares the GPU node's two cards with ray-vllm, so only one of them can hold
-#     the node. Hand them back: comment out tts.yaml in kustomization.yaml and
-#     restore ray.yaml's vllm application; commit both. Reverse to come back.
+#   - Enable/disable: the `ray-tts` line in workloads-raw.yaml. It shares the GPU
+#     node's two cards with ray-vllm, so enable only one of them until there are
+#     more GPUs. The model PVC survives a disable.
 #   - Change voices: `oras push media.xiehang.com/llm-models/tts-voices:latest
 #     <name>.wav <name>.txt ...` from the voices directory (every pair, not just the
-#     new one), then `kubectl -n ray delete pod -l ray.io/group=tts-worker`.
+#     new one), then `kubectl -n ray-tts delete pod -l ray.io/group=tts-worker`.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ray-tts
+  namespace: ray-tts
+---
+# model-pull reads the model list from the live RayService.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ray-tts
+  namespace: ray-tts
+rules:
+  - apiGroups: ["ray.io"]
+    resources: ["rayservices"]
+    resourceNames: ["ray-tts"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ray-tts
+  namespace: ray-tts
+subjects:
+  - kind: ServiceAccount
+    name: ray-tts
+    namespace: ray-tts
+roleRef:
+  kind: Role
+  name: ray-tts
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: harbor-credentials
+  namespace: ray-tts
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: harbor-credentials
+    creationPolicy: Owner
+  data:
+    - secretKey: username
+      remoteRef:
+        key: harbor/llm-models
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: harbor/llm-models
+        property: password
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: hf-token
+  namespace: ray-tts
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: hf-token
+    creationPolicy: Owner
+  data:
+    - secretKey: token
+      remoteRef:
+        key: huggingface/api-token
+        property: token
+---
+# The model is ~4.3 GiB. Kept when the app is disabled (Delete=false), so
+# re-enabling skips the pull.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llm-models
+  namespace: ray-tts
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: rook-cephfs
+  resources:
+    requests:
+      storage: 10Gi
 ---
 apiVersion: ray.io/v1
 kind: RayService
 metadata:
   name: ray-tts
-  namespace: ray
+  namespace: ray-tts
 spec:
   serviceUnhealthySecondThreshold: 1800
   deploymentUnhealthySecondThreshold: 1800
@@ -70,7 +162,7 @@ spec:
           resources: '"{\"tts\": 1}"'
         template:
           spec:
-            serviceAccountName: ray-vllm
+            serviceAccountName: ray-tts
             nodeSelector:
               feature.node.kubernetes.io/pci-0300_10de.present: "true"
             tolerations:
@@ -110,7 +202,7 @@ spec:
                     valueFrom: { secretKeyRef: { name: harbor-credentials, key: password } }
                 command: [bash, /scripts/model-pull.sh]
                 volumeMounts:
-                  - { name: serve-script, mountPath: /scripts/model-pull.sh, subPath: model-pull.sh }
+                  - { name: model-pull,   mountPath: /scripts/model-pull.sh, subPath: model-pull.sh }
                   - { name: llm-models,   mountPath: /mnt/models }
                   - { name: shared-bin,   mountPath: /shared }
                   - { name: host-ca,      mountPath: /etc/ssl/certs, readOnly: true }
@@ -149,7 +241,7 @@ spec:
                   - { name: llm-models, mountPath: /mnt/models, readOnly: true }
                   - { name: voices,     mountPath: /mnt/voices, readOnly: true }
             volumes:
-              - { name: serve-script, configMap: { name: ray-vllm-serve-script } }
+              - { name: model-pull,   configMap: { name: ray-model-pull } }
               - { name: dshm,         emptyDir: { medium: Memory } }
               - { name: llm-models,   persistentVolumeClaim: { claimName: llm-models } }
               - { name: voices,       emptyDir: {} }
@@ -160,7 +252,7 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: tts
-  namespace: ray
+  namespace: ray-tts
 spec:
   parentRefs:
     - name: default-gateway
