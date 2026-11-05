@@ -1,0 +1,13 @@
+# model-pull.sh for the GPU worker init containers of both Ray Serve workloads
+# (raw/ray-vllm, raw/ray-tts): one copy, rendered into each app's namespace.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+configMapGenerator:
+  # Fixed name: the worker pods mount it by name. subPath mounts never refresh,
+  # so a change here needs the RayCluster recreated.
+  - name: ray-model-pull
+    files:
+      - model-pull.sh
+    options:
+      disableNameSuffixHash: true

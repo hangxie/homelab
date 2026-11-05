@@ -1,45 +1,46 @@
-# Ray namespace contents — KubeRay-managed RayService running vLLM via
+# ray-vllm namespace contents — KubeRay-managed RayService running vLLM via
 # Ray Serve's LLM API. Single application serving one model from the MODELS
 # env var, sharded across both GPUs of the one GPU node. Worker pod init
 # container reads the live RayService CR and pulls the model into the CephFS PVC
-# (model-pull.sh, shared with ray-tts in tts.yaml).
+# (components/ray-model-pull, shared with raw/ray-tts).
 #
 # Operator workflow:
+#   - Enable/disable: the `ray-vllm` line in workloads-raw.yaml. It shares the GPU
+#     node's two cards with ray-tts, so enable only one of them until there are
+#     more GPUs. Both PVCs survive a disable, so re-enabling starts warm.
 #   - Switch model:   edit MODELS env var and the matching model_list in
 #                     litellm.yaml, commit, push; then optionally
 #                     `kubectl homelab model vllm delete <old id>`.
 #   - Change a serve script or the tool chat template: commit, then
-#     `kubectl -n ray delete raycluster <name>` -- subPath mounts never refresh
+#     `kubectl -n ray-vllm delete raycluster <name>` -- subPath mounts never refresh
 #     and upgradeStrategy None leaves the running cluster on the old pod spec.
-#   - GPUs are currently lent to ray-tts (tts.yaml); see serveConfigV2 below
-#     to switch back.
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: ray-vllm
-  namespace: ray
+  namespace: ray-vllm
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: ray-vllm
-  namespace: ray
+  namespace: ray-vllm
 rules:
   - apiGroups: ["ray.io"]
     resources: ["rayservices"]
-    resourceNames: ["ray-vllm", "ray-tts"]
+    resourceNames: ["ray-vllm"]
     verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: ray-vllm
-  namespace: ray
+  namespace: ray-vllm
 subjects:
   - kind: ServiceAccount
     name: ray-vllm
-    namespace: ray
+    namespace: ray-vllm
 roleRef:
   kind: Role
   name: ray-vllm
@@ -49,7 +50,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: harbor-credentials
-  namespace: ray
+  namespace: ray-vllm
 spec:
   refreshInterval: 1h
   secretStoreRef:
@@ -72,7 +73,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: hf-token
-  namespace: ray
+  namespace: ray-vllm
 spec:
   refreshInterval: 1h
   secretStoreRef:
@@ -91,9 +92,10 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: llm-models
-  namespace: ray
+  namespace: ray-vllm
+  # Kept when the app is disabled (Delete=false), so re-enabling skips the pull.
   annotations:
-    argocd.argoproj.io/sync-options: Prune=false
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
   accessModes: [ReadWriteMany]
   storageClassName: rook-cephfs
@@ -107,7 +109,9 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: vllm-compile-cache
-  namespace: ray
+  namespace: ray-vllm
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
   accessModes: [ReadWriteOnce]
   storageClassName: rook-ceph-block
@@ -119,7 +123,7 @@ apiVersion: ray.io/v1
 kind: RayService
 metadata:
   name: ray-vllm
-  namespace: ray
+  namespace: ray-vllm
 spec:
   serviceUnhealthySecondThreshold: 1800
   deploymentUnhealthySecondThreshold: 1800
@@ -129,26 +133,22 @@ spec:
   # Pending forever and the upgrade deadlocks. Costs a short outage on every serveConfigV2 change.
   upgradeStrategy:
     type: None
-  # The GPU node's cards are lent to ray-tts: with no applications the autoscaler
-  # drains gpu-worker. To serve vLLM again, swap `applications: []` for the
-  # commented block and comment out tts.yaml in kustomization.yaml.
   serveConfigV2: |
-    applications: []
-    # applications:
-    #   - name: vllm
-    #     route_prefix: /
-    #     import_path: serve:app
-    #     runtime_env:
-    #       env_vars:
-    #         PYTHONPATH: /home/ray
-    #         # One model at a time, sharded across both cards of the GPU node.
-    #         MODELS: "cyankiwi/Qwen3.5-9B-AWQ-4bit"
-    #         TENSOR_PARALLEL_SIZE: "2"
-    #         MAX_MODEL_LEN: "32768"
-    #         GPU_MEMORY_UTILIZATION: "0.93"
-    #         MAX_NUM_SEQS: "4"
-    #         HF_HUB_OFFLINE: "1"
-    #         PYTORCH_ALLOC_CONF: "expandable_segments:True"
+    applications:
+      - name: vllm
+        route_prefix: /
+        import_path: serve:app
+        runtime_env:
+          env_vars:
+            PYTHONPATH: /home/ray
+            # One model at a time, sharded across both cards of the GPU node.
+            MODELS: "cyankiwi/Qwen3.5-9B-AWQ-4bit"
+            TENSOR_PARALLEL_SIZE: "2"
+            MAX_MODEL_LEN: "32768"
+            GPU_MEMORY_UTILIZATION: "0.93"
+            MAX_NUM_SEQS: "4"
+            HF_HUB_OFFLINE: "1"
+            PYTORCH_ALLOC_CONF: "expandable_segments:True"
   rayClusterConfig:
     enableInTreeAutoscaling: true
     headGroupSpec:
@@ -230,7 +230,7 @@ spec:
                     valueFrom: { secretKeyRef: { name: harbor-credentials, key: password } }
                 command: [bash, /scripts/model-pull.sh]
                 volumeMounts:
-                  - { name: serve-script, mountPath: /scripts/model-pull.sh, subPath: model-pull.sh }
+                  - { name: model-pull,   mountPath: /scripts/model-pull.sh, subPath: model-pull.sh }
                   - { name: llm-models,   mountPath: /mnt/models }
                   - { name: shared-bin,   mountPath: /shared }
                   - { name: host-ca,      mountPath: /etc/ssl/certs, readOnly: true }
@@ -264,6 +264,7 @@ spec:
                   - { name: vllm-cache,   mountPath: /home/ray/.cache, subPath: hangxie/ray-images:v0.4.0 }
             volumes:
               - { name: serve-script, configMap: { name: ray-vllm-serve-script } }
+              - { name: model-pull,   configMap: { name: ray-model-pull } }
               - { name: dshm,         emptyDir: { medium: Memory } }
               - { name: llm-models,   persistentVolumeClaim: { claimName: llm-models } }
               - { name: vllm-cache,   persistentVolumeClaim: { claimName: vllm-compile-cache } }

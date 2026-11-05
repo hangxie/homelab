@@ -1,0 +1,30 @@
+# kustomize renders this whole directory: Argo CD switches renderers the moment
+# a kustomization.yaml appears here and stops picking up loose files. A new
+# manifest dropped in this directory is silently ignored until it is listed
+# under `resources:`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ray-vllm
+
+resources:
+  - ray.yaml
+  - litellm.yaml
+  - route-ray-dashboard.yaml
+
+components:
+  - ../../../components/ray-model-pull
+
+# The RayService mounts the serve scripts by name, so no hash suffix.
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  # Mounted by the RayService head and worker pods at /home/ray/<name> via
+  # subPath. Kept as real .py/.jinja files so they stay syntax-highlighted and
+  # lintable instead of living as opaque block scalars inside ray.yaml. subPath
+  # mounts never refresh, so a change here needs the RayCluster recreated.
+  - name: ray-vllm-serve-script
+    files:
+      - serve.py
+      - tool_chat_template_llama3.2_json.jinja

@@ -34,3 +34,27 @@ configMapGenerator:
     namespace: grafana
     files:
       - dashboards/zitadel.json
+
+  # Ray's own dashboards, vendored from the Ray source tree (no gnetId/url) and
+  # shared by every RayService, so they live here rather than in one workload.
+  - name: ray-dashboard-default
+    namespace: grafana
+    files:
+      - dashboards/ray-default.json
+    options:
+      annotations:
+        k8s-sidecar-target-directory: /tmp/dashboards/Workloads
+  - name: ray-dashboard-serve
+    namespace: grafana
+    files:
+      - dashboards/ray-serve.json
+    options:
+      annotations:
+        k8s-sidecar-target-directory: /tmp/dashboards/Workloads
+  - name: ray-dashboard-serve-deployment
+    namespace: grafana
+    files:
+      - dashboards/ray-serve-deployment.json
+    options:
+      annotations:
+        k8s-sidecar-target-directory: /tmp/dashboards/Workloads

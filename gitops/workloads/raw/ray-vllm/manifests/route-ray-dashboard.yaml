@@ -1,0 +1,17 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ray-dashboard
+  namespace: ray-vllm
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+      sectionName: https
+  hostnames:
+    - "ray-dashboard.homelab.xiehang.com"
+  rules:
+    - backendRefs:
+        - name: ray-vllm-head-svc
+          namespace: ray-vllm
+          port: 8265
