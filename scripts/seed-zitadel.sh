@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Apply scripts/zitadel.template.yaml to Zitadel through its API: rename the
 # break-glass admin, ensure the GitHub/Google login providers, the app project
-# with its roles and OIDC clients, and reconcile the allowed users (missing ones
-# created, unlisted humans deleted, IAM_OWNER and project roles granted or
-# revoked). Idempotent: re-running converges on the template.
+# with its roles and OIDC clients, and reconcile the listed users (missing ones
+# created; profile, IAM_OWNER and project roles set). Users not listed are left
+# alone. Idempotent: re-running converges on the template.
 #
 # Zitadel generates OIDC client secrets itself and returns them only once, so
 # each client's id/secret is written to Vault oidc/<name> when the client is
@@ -107,8 +107,8 @@ ensure_admin_grant() {
   ensure_user_grant "${id}" "${admin}"
 }
 
-# Instance-level provider, so it applies to every org. Linking by verified
-# email onto a pre-created user is allowed; creating accounts is not.
+# Instance-level provider, so it applies to every org. A first login links by
+# verified email to a listed user, or else creates an account with no role grant.
 ensure_idp() {
   local name="$1" type="$2" vault_path="$3" scopes="$4" id client_id client_secret body
   client_id="$(vault kv get -field=client-id "${KV_MOUNT}/${vault_path}")"
@@ -117,8 +117,8 @@ ensure_idp() {
     --argjson scopes "${scopes}" '{
       name: $n, clientId: $id, clientSecret: $s, scopes: $scopes,
       providerOptions: {
-        isLinkingAllowed: true, isCreationAllowed: false,
-        isAutoCreation: false, isAutoUpdate: true,
+        isLinkingAllowed: true, isCreationAllowed: true,
+        isAutoCreation: true, isAutoUpdate: true,
         autoLinking: "AUTO_LINKING_OPTION_EMAIL"
       }
     }')"
@@ -464,46 +464,6 @@ ensure_user() {
   ensure_user_grant "${id}" "${user}"
 }
 
-# The template is the allowlist: delete every other human except the
-# break-glass admin, which also drops its provider links and memberships.
-# Machine users (iam-admin) are left alone.
-# Every human user, all pages, as one JSON array. Fetched completely before
-# anything is deleted so a deletion never shifts the pages being read.
-# Callers run this inside $(...), where set -e is off, so every step returns
-# on failure explicitly.
-list_humans() {
-  local limit=100 offset=0 total page all='[]'
-  while :; do
-    # `.result` must be an array: a response without one fails here rather
-    # than reading as "no users". The admin always exists.
-    page="$(api POST /v2/users "$(jq -nc --argjson o "${offset}" --argjson l "${limit}" \
-      '{query: {offset: $o, limit: $l}, queries: [{typeQuery: {type: "TYPE_HUMAN"}}]}')")" || return 1
-    all="$(jq -ce --argjson page "${page}" '. + ($page.result | arrays)' <<<"${all}")" \
-      || { echo "Error: user list response at offset ${offset} has no result array" >&2; return 1; }
-    total="$(jq -re '.details.totalResult | tonumber' <<<"${page}")" || return 1
-    offset=$((offset + limit))
-    (( offset < total )) || break
-  done
-  if [[ "$(jq length <<<"${all}")" != "${total}" ]]; then
-    echo "Error: listed $(jq length <<<"${all}") human users, Zitadel reports ${total}" >&2
-    return 1
-  fi
-  echo "${all}"
-}
-
-remove_unlisted_users() {
-  local allowed humans unlisted username id
-  allowed="$(yq -c '[.users[].username] + [.admin.username]' "${TEMPLATE}")"
-  humans="$(list_humans)"
-  unlisted="$(jq -r --argjson allowed "${allowed}" \
-    '.[] | select(.username as $u | $allowed | index($u) | not) | "\(.userId) \(.username)"' <<<"${humans}")"
-  while read -r id username; do
-    [[ -n "${id}" ]] || continue
-    echo ">>> Removing user ${username} (not in ${TEMPLATE##*/})"
-    api DELETE "/v2/users/${id}" >/dev/null
-  done <<<"${unlisted}"
-}
-
 ensure_users() {
   local users user
   users="$(yq -c '.users[]' "${TEMPLATE}")"
@@ -511,7 +471,6 @@ ensure_users() {
     [[ -n "${user}" ]] || continue
     ensure_user "${user}"
   done <<<"${users}"
-  remove_unlisted_users
 }
 
 main() {
