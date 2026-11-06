@@ -1444,6 +1444,51 @@ alloy:
         forward_to   = [prometheus.remote_write.mimir.receiver]
       }
 
+      // ── Authorino ─────────────────────────────────────────────────────────────
+      // /server-metrics holds the auth decisions (auth_server_*) plus gRPC, Go
+      // and process metrics. /metrics is controller-runtime and repeats the
+      // go_/process_ series, so it is not scraped.
+
+      discovery.kubernetes "authorino" {
+        role = "endpoints"
+        namespaces {
+          names = ["authorino"]
+        }
+        selectors {
+          role  = "endpoints"
+          label = "app.kubernetes.io/part-of=authorino,app.kubernetes.io/component=metrics"
+        }
+      }
+
+      discovery.relabel "authorino" {
+        targets = discovery.kubernetes.authorino.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+      }
+
+      prometheus.scrape "authorino" {
+        clustering {
+          enabled = true
+        }
+        targets      = discovery.relabel.authorino.output
+        job_name     = "authorino"
+        metrics_path = "/server-metrics"
+        forward_to   = [prometheus.relabel.authorino.receiver]
+      }
+
+      // Keep only the ext_authz Check RPC: the health and reflection services
+      // add ~90 series that stay at 0.
+      prometheus.relabel "authorino" {
+        rule {
+          source_labels = ["__name__", "grpc_service"]
+          regex         = "grpc_server_.+;grpc\\.(health|reflection)\\..+"
+          action        = "drop"
+        }
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
       // ── External hosts ────────────────────────────────────────────────────────
       // node_exporter runs on the hosts themselves (pi 192.168.0.200, media
       // 192.168.0.201), plus the macOS AI host, and Alloy pulls them over the LAN.
