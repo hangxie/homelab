@@ -92,7 +92,7 @@
     {
       "id": 2,
       "title": "Loaded models being scraped",
-      "description": "llama.cpp models on media and AI. Only loaded models are targets; unloaded models disappear after discovery refresh.",
+      "description": "llama.cpp models on media and AI. Every configured model is scraped with autoload disabled; idle models answer HTTP 400 and are hidden, so only successfully scraped (loaded) models appear.",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -107,7 +107,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "up{job=\"external/llama-cpp\",model=~\"$model\"}",
+          "expr": "up{job=\"external/llama-cpp\",model=~\"$model\"} == 1",
           "legendFormat": "{{model}}",
           "datasource": {
             "type": "prometheus",
