@@ -147,7 +147,7 @@ while IFS=$'\t' read -r ns name hostname; do
             print_secret_row "$url" openwebui openwebui-admin password admin@homelab.xiehang.com
             ;;
         ray-vllm/litellm)
-            print_secret_row "${url}/v1" ray-vllm litellm-master-key master-key "(bearer)"
+            print_row "${url}/v1" "(bearer)" "(PAT of a machine user with vllm-user, Zitadel console)"
             ;;
         rook-ceph/ceph)
             # rook's own secret, with the Vault value merged into it by

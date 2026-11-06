@@ -395,7 +395,89 @@ ensure_api_client() {
     write_client_secret "${name}" "${client_id}" "$(api POST \
       "/management/v1/projects/${PROJECT_ID}/apps/${app_id}/api_config/_generate_client_secret" '{}' \
       | jq -r '.clientSecret')"
+    # Authorino reads introspection credentials only when an AuthConfig
+    # reconciles, never on a Secret change; until then every token gets 401.
+    echo ">>> Reload the consumer now, e.g. for authorino:"
+    echo "    kubectl -n authorino annotate externalsecret zitadel-introspection force-sync=\$(date +%s) --overwrite"
+    echo "    kubectl -n authorino annotate authconfig --all homelab/reload=\$(date +%s) --overwrite"
   fi
+}
+
+# True if the PAT is live in Zitadel and belongs to the given user. Exits on
+# anything but 200/401, so an outage never passes for a revoked token.
+pat_valid() {
+  local token="$1" id="$2" out code
+  out="$(mktemp)"
+  # Header through stdin, so the token never shows up in a process listing.
+  code="$(curl -sS -o "${out}" -w '%{http_code}' -H @- "${ZITADEL_URL}/auth/v1/users/me" \
+    <<<"Authorization: Bearer ${token}")"
+  case "${code}" in
+    200) if [[ "$(jq -r '.user.id' "${out}")" == "${id}" ]]; then code=0; else code=1; fi ;;
+    401) code=1 ;;
+    *) echo "Error: checking a PAT returned HTTP ${code}" >&2; rm -f "${out}"; exit 1 ;;
+  esac
+  rm -f "${out}"
+  return "${code}"
+}
+
+# Machine user for an in-cluster bearer-token client: exactly the template's
+# roles and a PAT in Vault. A PAT is shown only once, so a new one is issued
+# when the Vault one is missing or no longer valid, or with --regenerate.
+# Older PATs are kept: consumers hold the token in env until they restart, so
+# the operator revokes them once the consumer runs on the new one.
+ensure_machine() {
+  local machine="$1" name vault_path id token pats created ns es secret workload
+  name="$(jq -r '.name' <<<"${machine}")"
+  vault_path="$(jq -r '.vault' <<<"${machine}")"
+  id="$(api POST /v2/users "$(jq -nc --arg u "${name}" \
+    '{queries: [{userNameQuery: {userName: $u, method: "TEXT_QUERY_METHOD_EQUALS"}}]}')" \
+    | jq -r '.result[0].userId // empty')"
+  if [[ -z "${id}" ]]; then
+    echo ">>> Creating machine user ${name}"
+    id="$(api POST /management/v1/users/machine "$(jq -nc --arg n "${name}" \
+      '{userName: $n, name: $n, accessTokenType: "ACCESS_TOKEN_TYPE_BEARER"}')" | jq -r '.userId')"
+  else
+    echo ">>> Machine user ${name} exists"
+  fi
+  ensure_user_grant "${id}" "$(jq -c '{username: .name, roles}' <<<"${machine}")"
+  token="$(vault kv get -field=token "${KV_MOUNT}/${vault_path}" 2>/dev/null || true)"
+  if [[ "${REGENERATE}" != "true" && -n "${token}" ]] && pat_valid "${token}" "${id}"; then
+    echo ">>> Machine user ${name} PAT in Vault is valid"
+    return
+  fi
+  pats="$(api POST "/management/v1/users/${id}/pats/_search" '{}' | jq -r '[.result[]?.id] | join(" ")')"
+  echo ">>> Issuing a PAT for ${name} into ${KV_MOUNT}/${vault_path}"
+  created="$(api POST "/management/v1/users/${id}/pats" '{}')"
+  # Through stdin, so the token never shows up in a process listing.
+  jq -c '{token}' <<<"${created}" | vault kv put "${KV_MOUNT}/${vault_path}" - >/dev/null
+  echo ">>> Move the consumer to the new PAT: force-sync, then restart the workloads reading the Secret:"
+  while read -r ns es secret; do
+    [[ -n "${ns}" ]] || continue
+    echo "    kubectl -n ${ns} annotate externalsecret ${es} force-sync=\$(date +%s) --overwrite"
+    # The token sits in env or a mounted file, so only a restart picks it up.
+    for workload in $(kubectl -n "${ns}" get deploy,sts -o json | jq -r --arg s "${secret}" '.items[]
+        | select([.spec.template.spec | ((.containers[]?, .initContainers[]?)
+            | (.env[]?.valueFrom.secretKeyRef.name, .envFrom[]?.secretRef.name)), .volumes[]?.secret.secretName]
+          | index($s))
+        | "\(.kind | ascii_downcase)/\(.metadata.name)"'); do
+      echo "    kubectl -n ${ns} rollout restart ${workload}"
+    done
+  done < <(kubectl get externalsecret -A -o json | jq -r --arg k "${vault_path}" \
+    '.items[] | select([.spec.data[]?.remoteRef.key] | index($k))
+      | "\(.metadata.namespace) \(.metadata.name) \(.spec.target.name // .metadata.name)"')
+  if [[ -n "${pats}" ]]; then
+    echo ">>> Once it works on the new PAT, delete the old ones (${pats}) in the Zitadel console:"
+    echo "    Users > Service Accounts > ${name} > Personal Access Tokens"
+  fi
+}
+
+ensure_machines() {
+  local machines machine
+  machines="$(yq -c '(.machines // [])[]' "${TEMPLATE}")"
+  while read -r machine; do
+    [[ -n "${machine}" ]] || continue
+    ensure_machine "${machine}"
+  done <<<"${machines}"
 }
 
 # The template is the client list: unlisted apps in the project are deleted.
@@ -523,6 +605,7 @@ main() {
   ensure_clients
   ensure_admin_grant
   ensure_users
+  ensure_machines
   echo
   echo "Zitadel seeding complete."
 }

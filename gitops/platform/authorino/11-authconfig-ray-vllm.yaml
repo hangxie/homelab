@@ -1,0 +1,41 @@
+# vLLM OpenAI-compatible API (LiteLLM). The whole host carries the ExternalAuth
+# filter: it has no browser page, and LiteLLM has no key of its own.
+apiVersion: authorino.kuadrant.io/v1beta3
+kind: AuthConfig
+metadata:
+  name: ray-vllm
+  namespace: authorino
+spec:
+  hosts:
+    - vllm.homelab.xiehang.com
+  authentication:
+    # Opaque Zitadel tokens (machine-user PATs), checked by introspection.
+    zitadel:
+      oauth2Introspection:
+        endpoint: https://zitadel.homelab.xiehang.com/oauth/v2/introspect
+        credentialsRef:
+          name: zitadel-introspection
+      credentials:
+        authorizationHeader:
+          prefix: Bearer
+      # Bounds both Zitadel load and how long a revoked token keeps working.
+      cache:
+        key:
+          expression: request.headers.authorization
+        ttl: 60
+  authorization:
+    # Roles granted on the homelab project, the project of the introspecting
+    # client. Never use `scope`: it lists every role in the project.
+    role:
+      patternMatching:
+        patterns:
+          - predicate: >-
+              'urn:zitadel:iam:org:project:roles' in auth.identity &&
+              ['admin', 'vllm-user'].exists(r,
+                r in auth.identity['urn:zitadel:iam:org:project:roles'])
+  response:
+    success:
+      headers:
+        x-consumer:
+          plain:
+            expression: auth.identity.username

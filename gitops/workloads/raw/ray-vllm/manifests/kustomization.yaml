@@ -11,6 +11,7 @@ resources:
   - ray.yaml
   - litellm.yaml
   - route-ray-dashboard.yaml
+  - networkpolicy.yaml
 
 components:
   - ../../../components/ray-model-pull
