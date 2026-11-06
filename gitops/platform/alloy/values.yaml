@@ -317,6 +317,17 @@ alloy:
         }
         targets    = discovery.relabel.istio.output
         job_name   = "istio"
+        forward_to = [prometheus.relabel.istio.receiver]
+      }
+
+      // Flow counters otherwise have 35 labels after target labels, above
+      // Mimir's limit of 30. Keep workload identities, services and versions;
+      // drop duplicate revision and unused topology labels (29 remain).
+      prometheus.relabel "istio" {
+        rule {
+          regex  = "(source|destination)_(canonical_revision|region|zone)"
+          action = "labeldrop"
+        }
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
