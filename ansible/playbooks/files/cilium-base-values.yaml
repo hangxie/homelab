@@ -4,6 +4,15 @@
 # one source of truth - datapath/IPAM/encryption/API endpoint settings
 # would be disruptive to flip after the cluster is running.
 kubeProxyReplacement: true
+# Istio ambient chains its CNI after Cilium and intercepts Service traffic in
+# pod netns. Keep host netfilter hooks for ambient probes/redirection.
+cni:
+  exclusive: false
+socketLB:
+  hostNamespaceOnly: true
+bpf:
+  hostLegacyRouting: true
+  masquerade: false
 k8sServicePort: 6443
 ipam:
   mode: kubernetes

@@ -1,0 +1,4 @@
+defaultRevision: default
+base:
+  # Istiod patches its webhook CA bundle; keep failurePolicy stable under SSA.
+  validationFailurePolicy: Fail

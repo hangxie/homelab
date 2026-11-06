@@ -1,0 +1,10 @@
+# Trial baseline: enrolled peers use mTLS automatically. Non-mesh callers
+# remain allowed until gateway/webhook exceptions have been validated.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  mtls:
+    mode: PERMISSIVE

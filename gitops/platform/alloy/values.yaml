@@ -271,6 +271,55 @@ alloy:
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
+      // ── Istio ambient control plane and node proxies ────────────────────────
+
+      discovery.kubernetes "istio" {
+        role = "pod"
+        namespaces {
+          names = ["istio-system"]
+        }
+      }
+
+      discovery.relabel "istio" {
+        targets = discovery.kubernetes.istio.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_phase"]
+          regex         = "Running"
+          action        = "keep"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name", "__meta_kubernetes_pod_container_port_name"]
+          separator     = ";"
+          regex         = "discovery;http-monitoring|istio-proxy;ztunnel-stats|install-cni;metrics"
+          action        = "keep"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_node_name"]
+          target_label  = "node"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app"]
+          target_label  = "app"
+        }
+      }
+
+      prometheus.scrape "istio" {
+        clustering {
+          enabled = true
+        }
+        targets    = discovery.relabel.istio.output
+        job_name   = "istio"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
       // ── Cilium agent, operator, Hubble ────────────────────────────────────────
 
       discovery.kubernetes "cilium_agent" {
