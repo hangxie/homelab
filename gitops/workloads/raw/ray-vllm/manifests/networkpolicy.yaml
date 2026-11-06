@@ -1,0 +1,37 @@
+# Ingress allowlist for ray-vllm, built from Hubble flows. LiteLLM runs without
+# a master key, so this policy plus the Gateway's bearer-token check (#254) is
+# all that stands between a caller and the model: outside callers must come
+# through the Gateway, never straight to litellm or ray-vllm-serve-svc.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ray-vllm-ingress
+  namespace: ray-vllm
+spec:
+  endpointSelector: {}
+  ingress:
+    # Ray head <-> workers (GCS, object manager, Serve) and LiteLLM -> Ray Serve.
+    - fromEndpoints:
+        - {}
+    # Gateway Envoy: LiteLLM (vllm route) and the Ray dashboard route.
+    - fromEntities: [ingress]
+      toPorts:
+        - ports:
+            - { port: "4000", protocol: TCP }
+            - { port: "8265", protocol: TCP }
+    # No `host` rule: no pod here has a network probe (Ray's are exec, LiteLLM
+    # has none), and Cilium's allow-localhost=always admits the local node
+    # regardless. Other nodes (remote-node) are not admitted.
+    # Metrics scrape.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: alloy
+            app.kubernetes.io/name: alloy
+      toPorts:
+        - ports:
+            - { port: "8080", protocol: TCP }
+    # RayService controller: dashboard API and Serve health checks.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kuberay-operator
+            app.kubernetes.io/name: kuberay-operator

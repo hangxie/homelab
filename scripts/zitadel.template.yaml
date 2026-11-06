@@ -60,7 +60,7 @@ project:
   # admin/viewer for UIs; *-user roles for bearer-token API access (#254).
   # Grant *-user roles to machine users only: any role passes the project's
   # login check, and Argo CD gives every logged-in user read-only access.
-  roles: [admin, viewer, tts-user]
+  roles: [admin, viewer, tts-user, vllm-user]
 
 # The script writes each client's generated id/secret to Vault oidc/<name>
 # (fields client-id, client-secret); the app reads it through an ExternalSecret.
@@ -91,3 +91,12 @@ clients:
 apiClients:
   # Gateway bearer-token authorizer (gitops/platform/authorino).
   - name: authorino
+
+# Machine users that must survive a rebuild: bearer-token API clients that run
+# in the cluster. The script grants exactly these roles and keeps one PAT, at
+# Vault <vault> (field token); --regenerate issues a new one. Console-made
+# machine users are left alone (and lost on a rebuild).
+machines:
+  - name: openwebui
+    roles: [vllm-user]
+    vault: api-keys/openwebui

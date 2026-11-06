@@ -136,7 +136,7 @@ AI also runs a Darwin-compatible node_exporter on port 9100, reachable from clus
 
 ### Network policy
 
-Cilium runs with `enable-policy: default`, so an endpoint is firewalled only once some policy selects it, and only in the directions that policy covers. The cluster is otherwise default-allow. Targeted, ingress-only `CiliumNetworkPolicy` objects protect the services that have no authentication of their own: `open-webui-redis` (no password), the Hive metastore (Thrift, unauthenticated), HDFS (Hadoop simple auth — no Kerberos), and Ray TTS (its API is checked at the Gateway, so only the Gateway and known callers may reach it). Egress stays unrestricted everywhere.
+Cilium runs with `enable-policy: default`, so an endpoint is firewalled only once some policy selects it, and only in the directions that policy covers. The cluster is otherwise default-allow. Targeted, ingress-only `CiliumNetworkPolicy` objects protect the services that have no authentication of their own: `open-webui-redis` (no password), the Hive metastore (Thrift, unauthenticated), HDFS (Hadoop simple auth — no Kerberos), and Ray TTS and vLLM (their APIs are checked at the Gateway, so only the Gateway and known callers may reach them). Egress stays unrestricted everywhere.
 
 Ansible owns the Cilium install; Argo CD owns the policy objects, which live beside the component they protect — a workload's `manifests/`/`extras/` or `gitops/platform/<component>/`. Two Cilium behaviours to respect when adding one:
 
@@ -271,7 +271,13 @@ The operator wait matters for `postgres-cnpg/superuser`: CNPG copies that Secret
 
 Six paths are held back from a bare run because nothing in the cluster re-applies them, or because re-applying them destroys data: `mysql/root`, `cassandra/admin`, `dbeaver/admin`, `openwebui/admin`, `airflow/fernet-key` and `superset/secret`. `scripts/rotate-cred.sh --help` prints the reason for each. Naming one on the command line rotates it anyway and prints the manual step that is now outstanding.
 
-The vLLM `/v1` endpoint (LiteLLM in the `ray` namespace) requires `Authorization: Bearer sk-<ray/litellm master-key>`; `kubectl homelab list dashboards` prints the full key. Rotating it restarts LiteLLM, but Open WebUI keeps connection keys in its database once an admin has saved the connection settings, so update the key there too.
+vLLM (`https://vllm.homelab.xiehang.com/v1`, LiteLLM in front of Ray Serve in `ray-vllm`) access:
+
+- **API:** `/v1/*` needs `Authorization: Bearer <PAT>` from a machine user with the `vllm-user` or `admin` role (see API bearer tokens below).
+- **Public:** `GET /v1/models` needs no auth: it lists model IDs only.
+- **Not exposed:** everything outside `/v1`, including LiteLLM's admin UI and API (`/ui`, `/key`, `/model`, `/config`), has no route.
+- **No LiteLLM key:** LiteLLM runs without a master key (`LITELLM_DANGEROUSLY_PERMIT_WEAK_OR_UNSET_MASTER_KEY`, since LiteLLM refuses to boot without one otherwise). The Gateway check and the `ray-vllm` network policy are the only protection, so keep both.
+- **Open WebUI:** connects through the Gateway as the `openwebui` machine user (`machines:` in `scripts/zitadel.template.yaml`); its PAT is in Vault `api-keys/openwebui`.
 
 TTS (`https://tts.homelab.xiehang.com/`) access:
 
@@ -285,10 +291,12 @@ API bearer tokens (#254):
 
 - **How it works:** an HTTPRoute rule with an `ExternalAuth` filter asks Authorino (`gitops/platform/authorino`) about each request. Authorino introspects the opaque token at Zitadel, using the `authorino` API client from `apiClients:` in `scripts/zitadel.template.yaml`, and checks the project roles against that API's `AuthConfig`. Results are cached for 60s, so a deleted token or role stops working within a minute.
 - **Responses:** an invalid or expired bearer token gets 401 with `WWW-Authenticate: Bearer`, and a valid token without an allowed role gets 403. A request with no `Authorization: Bearer` header never reaches Authorino: it falls through to the page's OAuth2 Proxy, which redirects to the Zitadel login (302). Headless clients that see a 302 forgot the token.
-- **Issuing a token:** in the Zitadel console, create a machine user, grant it a `homelab` role (e.g. `tts-user`), and add a personal access token. Hand the PAT to the client, or put it in Vault for in-cluster clients. Console-made machine users are lost on a rebuild.
+- **Issuing a token:** in the Zitadel console, create a service account (machine user), grant it a `homelab` role (e.g. `tts-user`), and add a personal access token. Hand the PAT to the client. If the account shows as inactive, reactivate it, or its tokens get 401. Console-made machine users are lost on a rebuild; for in-cluster clients, list the account under `machines:` in `scripts/zitadel.template.yaml` instead. `seed-zitadel.sh` then creates it, grants its roles, and keeps a PAT in Vault. Each run checks that PAT against Zitadel and issues a new one when it is missing or revoked, or with `--regenerate`.
+- **Rotating a machine PAT:** the script never revokes the old PAT, because consumers hold the token in an env var until they restart. After a new one, run the commands it prints: a force-sync of each ExternalSecret reading the Vault path, and a `rollout restart` of each Deployment/StatefulSet using its Secret (for Open WebUI, `kubectl -n openwebui rollout restart deployment/open-webui`). Check that the consumer works, then delete the old PATs in the Zitadel console.
 - **Roles:** grant `*-user` roles to machine users only. Any role passes the project's login check, and Argo CD gives every logged-in user read-only access.
-- **Network policy:** a protected backend also needs a `CiliumNetworkPolicy` that only admits the Gateway (`fromEntities: [ingress]`) and its known in-cluster callers, else a pod could call it directly and skip the check (`ray-tts/manifests/networkpolicy.yaml`).
+- **Network policy:** a protected backend also needs a `CiliumNetworkPolicy` that only admits the Gateway (`fromEntities: [ingress]`) and its known in-cluster callers, else a pod could call it directly and skip the check (`ray-tts/manifests/networkpolicy.yaml`, `ray-vllm/manifests/networkpolicy.yaml`).
 - **Adding an API:** add an `AuthConfig` in `gitops/platform/authorino/`, a `from` entry for its namespace in `03-referencegrant.yaml`, the `ExternalAuth` filter on its route, the network policy, and a `*-user` role in the template.
+- **Rotating Authorino's client secret** (`oidc/authorino`, via `seed-zitadel.sh --regenerate`): Authorino reads it only when an AuthConfig reconciles, not when the Secret changes, so every token gets 401 until you run the two commands the script prints. They force-sync the `zitadel-introspection` ExternalSecret, then touch the AuthConfigs (`kubectl -n authorino annotate authconfig --all homelab/reload=$(date +%s) --overwrite`).
 
 DBeaver/CloudBeaver is intentionally not Vault-seeded. It is an internal
 admin-only tool, and the first browser login creates the CloudBeaver admin in

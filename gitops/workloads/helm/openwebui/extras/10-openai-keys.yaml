@@ -15,10 +15,11 @@ spec:
     creationPolicy: Owner
     template:
       data:
-        # Order matches openaiBaseApiUrls.
-        api-keys: "sk-{{ .vllm }}"
+        # Order matches openaiBaseApiUrls. The vLLM entry is the PAT of the
+        # openwebui machine user (machines: in scripts/zitadel.template.yaml).
+        api-keys: "{{ .vllm }}"
   data:
     - secretKey: vllm
       remoteRef:
-        key: ray/litellm
-        property: master-key
+        key: api-keys/openwebui
+        property: token

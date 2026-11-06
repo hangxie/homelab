@@ -1,26 +1,3 @@
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: litellm-master-key
-  namespace: ray-vllm
-spec:
-  refreshInterval: 1h
-  secretStoreRef:
-    name: vault-homelab
-    kind: ClusterSecretStore
-  target:
-    name: litellm-master-key
-    creationPolicy: Owner
-    template:
-      data:
-        # LiteLLM rejects master keys without the `sk-` prefix.
-        master-key: "sk-{{ .key }}"
-  data:
-    - secretKey: key
-      remoteRef:
-        key: ray/litellm
-        property: master-key
----
 # model_list mirrors MODELS in ray.yaml's serveConfigV2; keep the two in step.
 apiVersion: v1
 kind: ConfigMap
@@ -68,16 +45,16 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
         - name: litellm
-          image: ghcr.io/berriai/litellm:main-stable
+          # Pinned: main-stable moved under us and started refusing to boot without a master key.
+          image: ghcr.io/berriai/litellm:v1.108.0
           args: [--config, /app/config.yaml, --port, "4000"]
           ports:
             - { containerPort: 4000 }
           env:
-            - name: LITELLM_MASTER_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: litellm-master-key
-                  key: master-key
+            # No master key on purpose: the Gateway checks bearer tokens (#254), the
+            # route exposes only /v1, and ray-vllm's network policy admits only the Gateway.
+            - name: LITELLM_DANGEROUSLY_PERMIT_WEAK_OR_UNSET_MASTER_KEY
+              value: "true"
           volumeMounts:
             - { name: config, mountPath: /app/config.yaml, subPath: config.yaml }
       volumes:
@@ -119,7 +96,33 @@ spec:
       sectionName: https
   hostnames:
     - "vllm.homelab.xiehang.com"
+  # Only the OpenAI API is exposed; the admin UI and API (/ui, /key, /model,
+  # /config, ...) have no route. LiteLLM runs without a master key, and
+  # ray-vllm's network policy keeps it reachable only through here.
   rules:
-    - backendRefs:
+    # Model list is public: no prompts, keys, or GPU work.
+    - matches:
+        - path:
+            type: Exact
+            value: /v1/models
+          method: GET
+      backendRefs:
+        - name: litellm
+          port: 4000
+    # Bearer token checked by Authorino (AuthConfig authorino/ray-vllm, #254).
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1
+      filters:
+        - type: ExternalAuth
+          externalAuth:
+            protocol: GRPC
+            backendRef:
+              name: authorino-authorino-authorization
+              namespace: authorino
+              port: 50051
+            grpc: {}
+      backendRefs:
         - name: litellm
           port: 4000
