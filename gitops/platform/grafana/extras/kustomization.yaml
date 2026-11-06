@@ -34,6 +34,10 @@ configMapGenerator:
     namespace: grafana
     files:
       - dashboards/zitadel.json
+  - name: grafana-dashboard-authorino
+    namespace: grafana
+    files:
+      - dashboards/authorino.json
 
   # Ray's own dashboards, vendored from the Ray source tree (no gnetId/url) and
   # shared by every RayService, so they live here rather than in one workload.
