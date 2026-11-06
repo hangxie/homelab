@@ -3,16 +3,18 @@
 # answering is either the workload being down or its metrics path breaking,
 # and both are worth knowing about.
 #
-# external/node is the one exclusion: external.yaml pages on those two hosts
-# at critical after 10m, so leaving them in the broad net would only add a
-# second, weaker notification five minutes behind it.
+# external/node is excluded because external.yaml pages on those hosts at
+# critical after 10m, so the broad net would only add a second, weaker
+# notification five minutes behind it. external/llama-cpp is excluded because
+# Alloy scrapes every listed model and an idle one answers 400, so up=0 there
+# means "not loaded", not "down".
 
 groups:
   - name: targets
     interval: 1m
     rules:
       - alert: TargetDown
-        expr: up{job!="external/node"} == 0
+        expr: up{job!~"external/(node|llama-cpp)"} == 0
         for: 15m
         labels:
           severity: warning

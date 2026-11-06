@@ -1518,95 +1518,33 @@ alloy:
       }
 
       // ── External llama.cpp routers ────────────────────────────────────────────
-      // Media and AI both run llama.cpp in router mode. Refresh the loaded model
-      // set rather than scraping idle models. The router otherwise auto-loads a
-      // model on GET /metrics; autoload=false also protects the race where a
-      // model unloads between discovery and scraping.
-      remote.http "media_models" {
-        url            = "https://media.xiehang.com:8443/v1/models"
-        poll_frequency = "60s"
-        poll_timeout   = "10s"
-      }
-
-      remote.http "ai_models" {
-        url            = "http://ai.xiehang.com:8080/v1/models"
-        poll_frequency = "60s"
-        poll_timeout   = "10s"
-      }
-
-      discovery.relabel "media_llama" {
-        targets = [
-          {
-            "__address__" = "media.xiehang.com:8443",
-            "instance" = "media",
-            "model" = "deepseek-r1-1.5b-q8",
-            "__param_model" = "deepseek-r1-1.5b-q8",
-            "__param_autoload" = "false",
-            "__tmp_state" = string.join(json_path(remote.http.media_models.content, "$.data[?(@.id == 'deepseek-r1-1.5b-q8')].status.value"), ""),
-          },
-          {
-            "__address__" = "media.xiehang.com:8443",
-            "instance" = "media",
-            "model" = "qwen3-1.7b-q8",
-            "__param_model" = "qwen3-1.7b-q8",
-            "__param_autoload" = "false",
-            "__tmp_state" = string.join(json_path(remote.http.media_models.content, "$.data[?(@.id == 'qwen3-1.7b-q8')].status.value"), ""),
-          },
-        ]
-        rule {
-          source_labels = ["__tmp_state"]
-          regex         = "loaded"
-          action        = "keep"
-        }
-      }
-
-      discovery.relabel "ai_llama" {
-        targets = [
-          {
-            "__address__" = "ai.xiehang.com:8080",
-            "instance" = "ai",
-            "model" = "qwen3.8-27b-q8",
-            "__param_model" = "qwen3.8-27b-q8",
-            "__param_autoload" = "false",
-            "__tmp_state" = string.join(json_path(remote.http.ai_models.content, "$.data[?(@.id == 'qwen3.8-27b-q8')].status.value"), ""),
-          },
-          {
-            "__address__" = "ai.xiehang.com:8080",
-            "instance" = "ai",
-            "model" = "qwen3-1.7b-q8",
-            "__param_model" = "qwen3-1.7b-q8",
-            "__param_autoload" = "false",
-            "__tmp_state" = string.join(json_path(remote.http.ai_models.content, "$.data[?(@.id == 'qwen3-1.7b-q8')].status.value"), ""),
-          },
-          {
-            "__address__" = "ai.xiehang.com:8080",
-            "instance" = "ai",
-            "model" = "deepseek-r1-1.5b-q8",
-            "__param_model" = "deepseek-r1-1.5b-q8",
-            "__param_autoload" = "false",
-            "__tmp_state" = string.join(json_path(remote.http.ai_models.content, "$.data[?(@.id == 'deepseek-r1-1.5b-q8')].status.value"), ""),
-          },
-          {
-            "__address__" = "ai.xiehang.com:8080",
-            "instance" = "ai",
-            "model" = "qwen3-30b-a3b-q4",
-            "__param_model" = "qwen3-30b-a3b-q4",
-            "__param_autoload" = "false",
-            "__tmp_state" = string.join(json_path(remote.http.ai_models.content, "$.data[?(@.id == 'qwen3-30b-a3b-q4')].status.value"), ""),
-          },
-        ]
-        rule {
-          source_labels = ["__tmp_state"]
-          regex         = "loaded"
-          action        = "keep"
-        }
-      }
-
+      // Media and AI both run llama.cpp in router mode. Every listed model is
+      // scraped with autoload=false, so an idle model answers 400 (up=0) instead
+      // of being loaded by the scrape. TargetDown skips this job for that reason;
+      // a dead host still pages via external/node and the blackbox probes.
+      //
+      // No remote.http gate on /v1/models: its first poll is fatal to Alloy's
+      // initial load, so one unreachable host stopped every pod in the cluster.
       prometheus.scrape "media_llama" {
         clustering {
           enabled = true
         }
-        targets         = discovery.relabel.media_llama.output
+        targets = [
+          {
+            "__address__" = "media.xiehang.com:8443",
+            "instance" = "media",
+            "model" = "deepseek-r1-1.5b-q8",
+            "__param_model" = "deepseek-r1-1.5b-q8",
+            "__param_autoload" = "false",
+          },
+          {
+            "__address__" = "media.xiehang.com:8443",
+            "instance" = "media",
+            "model" = "qwen3.5-4b-q4",
+            "__param_model" = "qwen3.5-4b-q4",
+            "__param_autoload" = "false",
+          },
+        ]
         job_name        = "external/llama-cpp"
         scrape_interval = "60s"
         scheme          = "https"
@@ -1618,7 +1556,22 @@ alloy:
         clustering {
           enabled = true
         }
-        targets         = discovery.relabel.ai_llama.output
+        targets = [
+          {
+            "__address__" = "ai.xiehang.com:8080",
+            "instance" = "ai",
+            "model" = "qwen3.5-4b-q4",
+            "__param_model" = "qwen3.5-4b-q4",
+            "__param_autoload" = "false",
+          },
+          {
+            "__address__" = "ai.xiehang.com:8080",
+            "instance" = "ai",
+            "model" = "qwen3.8-27b-q8",
+            "__param_model" = "qwen3.8-27b-q8",
+            "__param_autoload" = "false",
+          },
+        ]
         job_name        = "external/llama-cpp"
         scrape_interval = "60s"
         metrics_path    = "/metrics"
