@@ -29,16 +29,34 @@ vm = {
   cloud_image_id    = "local:iso/debian-13-genericcloud-amd64.img"
   gateway           = "192.168.0.1"
   machine           = "q35"
+  network_queues    = 4
   scsi_hardware     = "virtio-scsi-single"
 }
 
+# node2: two 24-core sockets with SMT, and at least 94 GiB usable RAM per node.
+# All IDs must be rechecked against lscpu and /sys/devices/system/node on a new host.
+# Reserve 6 GiB per node for Proxmox, QEMU overhead, and I/O.
+# Reserved for Proxmox host tasks and I/O: do not assign these CPUs to VMs.
+# Node 0: 20-23,68-71 (four physical cores with SMT).
+# Node 1: 46-47,94-95 (two physical cores with SMT).
+# Reservations exclude these CPUs from VM masks; host tasks can still use all CPUs.
+# Physical cores use their matching SMT siblings at CPU ID +48. Allocate VM masks sequentially within each node.
+host_numa_nodes = {
+  node2 = {
+    "0" = { cpu_affinity = "0-23,48-71", memory_mb = 96256, reserved_memory_mb = 6144 }
+    "1" = { cpu_affinity = "24-47,72-95", memory_mb = 96256, reserved_memory_mb = 6144 }
+  }
+}
+
+# Node 0: worker-1/3/4, 88 GiB; both GPUs are attached to this physical node.
+# Node 1: worker-0/2 and all masters, 88 GiB. VM CPU masks do not overlap; SMT siblings stay within the same VM.
 nodes = {
-  "master-0" = { hypervisor = "node2", ip = "192.168.0.210", cores = 4, memory = 8192, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { "local-lvm" = "10" }] }
-  "master-1" = { hypervisor = "node2", ip = "192.168.0.211", cores = 4, memory = 8192, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { "local-lvm" = "10" }] }
-  "master-2" = { hypervisor = "node2", ip = "192.168.0.212", cores = 4, memory = 8192, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { "local-lvm" = "10" }] }
-  "worker-0" = { hypervisor = "node2", ip = "192.168.0.220", cores = 16, memory = 32768, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { nvme = "320" }] }
-  "worker-1" = { hypervisor = "node2", ip = "192.168.0.221", cores = 16, memory = 32768, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { nvme = "320" }] }
-  "worker-2" = { hypervisor = "node2", ip = "192.168.0.222", cores = 16, memory = 32768, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { nvme = "320" }] }
-  "worker-3" = { hypervisor = "node2", ip = "192.168.0.223", cores = 16, memory = 32768, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { nvme = "320" }] }
-  "worker-4" = { hypervisor = "node2", ip = "192.168.0.224", cores = 8, memory = 24576, disks = [{ "local-lvm" = "40" }, { nvme = "100" }], gpu_pci_ids = ["gpu0", "gpu1"] }
+  "master-0" = { hypervisor = "node2", ip = "192.168.0.210", numa_node = 1, cpu_affinity = "24-25,72-73", cores = 4, memory = 8192, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { "local-lvm" = "10" }] }
+  "master-1" = { hypervisor = "node2", ip = "192.168.0.211", numa_node = 1, cpu_affinity = "26-27,74-75", cores = 4, memory = 8192, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { "local-lvm" = "10" }] }
+  "master-2" = { hypervisor = "node2", ip = "192.168.0.212", numa_node = 1, cpu_affinity = "28-29,76-77", cores = 4, memory = 8192, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { "local-lvm" = "10" }] }
+  "worker-0" = { hypervisor = "node2", ip = "192.168.0.220", numa_node = 1, cpu_affinity = "30-37,78-85", cores = 16, memory = 32768, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { nvme = "320" }] }
+  "worker-1" = { hypervisor = "node2", ip = "192.168.0.221", numa_node = 0, cpu_affinity = "0-7,48-55", cores = 16, memory = 32768, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { nvme = "320" }] }
+  "worker-2" = { hypervisor = "node2", ip = "192.168.0.222", numa_node = 1, cpu_affinity = "38-45,86-93", cores = 16, memory = 32768, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { nvme = "320" }] }
+  "worker-3" = { hypervisor = "node2", ip = "192.168.0.223", numa_node = 0, cpu_affinity = "8-15,56-63", cores = 16, memory = 32768, disks = [{ "local-lvm" = "40" }, { nvme = "100" }, { nvme = "320" }] }
+  "worker-4" = { hypervisor = "node2", ip = "192.168.0.224", numa_node = 0, cpu_affinity = "16-19,64-67", cores = 8, memory = 24576, disks = [{ "local-lvm" = "40" }, { nvme = "100" }], gpu_pci_ids = ["gpu0", "gpu1"] }
 }
