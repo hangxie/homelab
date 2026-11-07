@@ -4,6 +4,38 @@ locals {
   workers         = { for k, v in var.nodes : k => v if !startswith(k, "master-") }
   gpu_workers     = { for k, v in local.workers : k => v if length(v.gpu_pci_ids) > 0 }
   non_gpu_workers = { for k, v in local.workers : k => v if length(v.gpu_pci_ids) == 0 }
+  # CPU IDs are host IDs; the numa block below uses guest vCPU IDs.
+  numa_cpu_ids = {
+    for host, domains in var.host_numa_nodes : host => {
+      for id, domain in domains : id => flatten([
+        for segment in split(",", domain.cpu_affinity) : try(range(
+          tonumber(split("-", segment)[0]),
+          tonumber(reverse(split("-", segment))[0]) + 1,
+        ), [])
+      ])
+    }
+  }
+  vm_cpu_ids = {
+    for name, node in var.nodes : name => flatten([
+      for segment in split(",", node.cpu_affinity) : try(range(
+        tonumber(split("-", segment)[0]),
+        tonumber(reverse(split("-", segment))[0]) + 1,
+      ), [])
+    ])
+  }
+  allocated_cpu_ids = {
+    for host, domains in var.host_numa_nodes : host => flatten([
+      for name, node in var.nodes : local.vm_cpu_ids[name] if node.hypervisor == host
+    ])
+  }
+  numa_memory_mb = {
+    for host, domains in var.host_numa_nodes : host => {
+      for id, domain in domains : id => sum(concat([0], [
+        for node in var.nodes : node.memory
+        if node.hypervisor == host && tostring(node.numa_node) == id
+      ]))
+    }
+  }
 }
 
 resource "proxmox_virtual_environment_vm" "node2" {
@@ -36,12 +68,30 @@ resource "proxmox_virtual_environment_vm" "node2" {
   }
 
   cpu {
-    cores = each.value.cores
-    type  = "host"
+    affinity = each.value.cpu_affinity
+    cores    = each.value.cores
+    numa     = true
+    sockets  = 1
+    type     = "host"
+  }
+
+  # Each VM fits within one physical NUMA node. Bind memory as well as CPU
+  # execution; exposing guest NUMA alone does not guarantee host locality.
+  numa {
+    device    = "numa0"
+    cpus      = "0-${each.value.cores - 1}"
+    hostnodes = tostring(each.value.numa_node)
+    memory    = each.value.memory
+    policy    = "bind"
   }
 
   memory {
     dedicated = each.value.memory
+    floating  = 0
+  }
+
+  operating_system {
+    type = "l26"
   }
 
   dynamic "disk" {
@@ -80,6 +130,8 @@ resource "proxmox_virtual_environment_vm" "node2" {
 
   network_device {
     bridge = var.vm.bridge
+    model  = "virtio"
+    queues = min(each.value.cores, var.vm.network_queues)
   }
 
   serial_device {}
@@ -104,6 +156,42 @@ resource "proxmox_virtual_environment_vm" "node2" {
   }
 
   lifecycle {
+    precondition {
+      condition     = try(length(local.numa_cpu_ids[each.value.hypervisor][tostring(each.value.numa_node)]) >= each.value.cores, false)
+      error_message = "Every VM must select a configured host NUMA node with at least as many logical CPUs as its vCPUs."
+    }
+    precondition {
+      condition = try(
+        length(local.vm_cpu_ids[each.key]) == each.value.cores &&
+        length(setsubtract(toset(local.vm_cpu_ids[each.key]), toset(local.numa_cpu_ids[each.value.hypervisor][tostring(each.value.numa_node)]))) == 0,
+        false,
+      )
+      error_message = "Each VM CPU mask must contain exactly its vCPU count, entirely within its selected host NUMA node."
+    }
+    precondition {
+      condition = try(
+        length(local.allocated_cpu_ids[each.value.hypervisor]) == length(distinct(local.allocated_cpu_ids[each.value.hypervisor])),
+        false,
+      )
+      error_message = "VM CPU masks on the same hypervisor must not overlap."
+    }
+    precondition {
+      condition = try(
+        local.numa_memory_mb[each.value.hypervisor][tostring(each.value.numa_node)] <=
+        var.host_numa_nodes[each.value.hypervisor][tostring(each.value.numa_node)].memory_mb -
+        var.host_numa_nodes[each.value.hypervisor][tostring(each.value.numa_node)].reserved_memory_mb,
+        false,
+      )
+      error_message = "VM memory assigned to a host NUMA node must leave its configured host-memory reserve free."
+    }
+    precondition {
+      condition = try(
+        length(flatten(values(local.numa_cpu_ids[each.value.hypervisor]))) ==
+        length(distinct(flatten(values(local.numa_cpu_ids[each.value.hypervisor])))),
+        false,
+      )
+      error_message = "Host NUMA CPU lists must not contain duplicate or overlapping CPU IDs."
+    }
     ignore_changes = [
       disk[0].file_id,
     ]

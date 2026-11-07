@@ -24,3 +24,16 @@ resource "local_file" "ansible_inventory" {
   })
   filename = "${path.module}/../ansible/inventory.ini"
 }
+
+output "vm_placement" {
+  description = "Reviewed host CPU masks, NUMA binding, and virtio queues; CPU masks are not host-kernel isolation."
+  value = {
+    for name, node in var.nodes : name => {
+      hypervisor   = node.hypervisor
+      numa_node    = node.numa_node
+      cpu_affinity = node.cpu_affinity
+      memory_mb    = node.memory
+      queues       = min(node.cores, var.vm.network_queues)
+    }
+  }
+}

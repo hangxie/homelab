@@ -10,6 +10,9 @@ provider "proxmox" {
   ssh {
     agent    = true
     username = "root"
+    # CPU affinity is root@pam-only, even for an administrator API token.
+    # Mint short-lived node tickets with the root SSH access already in use.
+    root_ticket = true
     node {
       name    = var.proxmox_nodes.node1.name
       address = var.proxmox_nodes.node1.ipv4
@@ -25,6 +28,9 @@ provider "proxmox" {
   ssh {
     agent    = true
     username = "root"
+    # CPU affinity is root@pam-only, even for an administrator API token.
+    # Mint short-lived node tickets with the root SSH access already in use.
+    root_ticket = true
     node {
       name    = var.proxmox_nodes.node2.name
       address = var.proxmox_nodes.node2.ipv4
