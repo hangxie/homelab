@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istiod
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "152"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    # The Helm repository index omits stable 1.31 charts. Render the upstream
+    # chart at the matching release tag instead; do not vendor chart copies.
+    - repoURL: https://github.com/istio/istio.git
+      targetRevision: 1.31.3
+      path: manifests/charts/istio-control/istio-discovery
+      helm:
+        releaseName: istiod
+        valueFiles:
+          - $values/gitops/platform/istio/istiod/values.yaml
+    - repoURL: https://github.com/hangxie/homelab.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
