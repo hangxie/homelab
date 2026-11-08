@@ -164,6 +164,8 @@ End-to-end provisioning of a fresh homelab cluster from this repo plus an extern
 
 ### Steps
 
+Step 3 also creates the Istio private CA when absent and validates/preserves it on rebuilds. See the [CA rotation commands](#rotate-the-istio-ca) for explicit intermediate renewal and root replacement.
+
 ```bash
 export VAULT_ADDR=https://media.xiehang.com:8200
 export VAULT_TOKEN=...   # operator token with admin perms
@@ -253,7 +255,27 @@ with the same `VAULT_TOKEN` used for seeding. Current entries:
 - `idp/github`, `idp/google` — OAuth clients for Zitadel's GitHub and Google login providers, fields `client-id` and `client-secret`. Both register the callback URL `https://zitadel.homelab.xiehang.com/idps/callback`. Read by the operator only, through `scripts/seed-zitadel.sh`; see "Single sign-on" below.
 - `oidc/<app>` — Zitadel OIDC client for each app in `scripts/zitadel.template.yaml`, fields `client-id` and `client-secret`. Not in `vault-secrets.template.yaml`: Zitadel generates them, and `scripts/seed-zitadel.sh` writes them here.
 
+`seed-vault.sh` generates a private root and signing intermediate. The cluster-readable `istio/ca` entry contains only `ca-cert.pem`, `ca-key.pem`, `root-cert.pem` and `cert-chain.pem`, matching `istio-system/cacerts`. Root material is stored separately at `operator/istio-roots/<SHA-256 root-certificate fingerprint>`; the shared cluster AppRole is explicitly denied data and metadata access under `operator/`. Ordinary seeding validates and preserves it, including with a bare `--regenerate`. Intermediate renewal requires explicitly selecting `istio/ca`; see the [CA rotation commands](#rotate-the-istio-ca).
+
 Re-running `scripts/seed-vault.sh` is idempotent: existing Vault values are kept. `--regenerate` mints fresh values even where Vault already has one, and `--only <path>` narrows the write to named template paths. Template-pinned defaults (usernames) and the `generate: false` credentials above are never touched.
+
+#### Rotate the Istio CA
+
+`seed-vault.sh` creates a missing CA automatically and preserves existing root trust. Routine CA renewal is opt-in and must run alone:
+
+```bash
+scripts/rotate-cred.sh --dry-run istio/ca
+scripts/rotate-cred.sh istio/ca                 # renew intermediate/key; preserve root
+scripts/rotate-cred.sh --rotate-istio-root istio/ca  # replace root too; unenrolled cluster only
+```
+
+Renew the one-year intermediate at least 30 days before expiry. Rotation validates the bundle, atomically updates the four-field signing entry with a version guard, verifies all four fields in `cacerts`, then rolls istiod. Default credential rotations skip the CA. The ten-year root lives in an immutable operator-only record addressed by its public certificate fingerprint; use an operator token with access to that record, not the cluster AppRole or a token carrying its deny policy. New roots are stored before publishing their signing bundle, so a failed publication leaves only an unused protected root, not a broken reference. Back up both the signing entry and protected root records.
+
+Previously seeded combined bundles containing `root-key.pem` are refused, not migrated automatically. Before adoption, an operator must preserve the existing root/trust while reseeding the split layout and remove every retained cluster-readable KV version containing the root key; dropping it from the latest version does not remove access to history. Destruction of old versions requires explicit approval and a verified protected backup. If cluster credentials may already have been compromised, treat the root as exposed and plan replacement. Updating Git alone does not change the live Vault policy; rerun seeding with an operator token to install the deny rules.
+
+Root replacement requires typed confirmation, refuses `--yes` and enrolled meshes, and rolls ztunnel after istiod. Confirm no external consumer trusts the old root. An enrolled mesh needs a separately reviewed downtime/trust-distribution plan; do not bypass the gate with the Vault-only seeding option.
+
+On failure, the script prints the previous Vault version. Inspect intervening versions and Secret delivery before retrying; if recovery requires restoring that version, restore the previous four-field signing bundle only while its CA remains valid and uncompromised and its fingerprint-addressed operator root record is retained, force-sync `istio-ca`, verify `cacerts` matches, then roll istiod. Root replacement recovery must restore trust consistently across all consumers. After any rotation, verify fresh workload issuance and representative mesh traffic; Secret delivery and rollout readiness alone do not prove every connection works. `seed-vault.sh --help` and `rotate-cred.sh --help` describe the options.
 
 #### Rotate the auto-generated credentials
 
