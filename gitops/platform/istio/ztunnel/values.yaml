@@ -1,7 +1,11 @@
 hub: docker.io/istio
 tag: "1.31.3"
-# CPU is intentionally uncapped for the throughput trial. Worker concurrency
-# and CPU consumption must be recorded with each benchmark.
+# Pinned from #299: more workers gained nothing; the stream limit is per connection
+# lifetime, so lowering it forces TLS handshakes (and at 1, cold streams can hang).
+env:
+  ZTUNNEL_WORKER_THREADS: "2"
+  POOL_MAX_STREAMS_PER_CONNECTION: "100"
+# CPU is intentionally uncapped; record worker CPU with each benchmark.
 resources:
   requests:
     cpu: 200m
