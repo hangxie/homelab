@@ -1,0 +1,27 @@
+profile: ambient
+# Git-source charts retain development image defaults; pin release images.
+global:
+  hub: docker.io/istio
+  tag: "1.31.3"
+  variant: distroless
+chained: true
+cniConfFileName: 05-cilium.conflist
+excludeNamespaces:
+  - kube-system
+  - istio-system
+  - rook-ceph
+ambient:
+  # Keep the initial trial focused on TCP; DNS capture is not encryption.
+  dnsCapture: false
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+# Include control-plane nodes and the gpu=true:NoSchedule worker.
+tolerations:
+  - operator: Exists
+    effect: NoSchedule
+  - operator: Exists
+    effect: NoExecute

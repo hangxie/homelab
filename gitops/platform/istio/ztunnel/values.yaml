@@ -1,0 +1,16 @@
+hub: docker.io/istio
+tag: "1.31.3"
+# CPU is intentionally uncapped for the throughput trial. Worker concurrency
+# and CPU consumption must be recorded with each benchmark.
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+# Include control-plane nodes and the gpu=true:NoSchedule worker.
+tolerations:
+  - operator: Exists
+    effect: NoSchedule
+  - operator: Exists
+    effect: NoExecute

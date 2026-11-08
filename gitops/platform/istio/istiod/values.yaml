@@ -1,0 +1,47 @@
+profile: ambient
+# Git-source charts retain development image defaults; pin release images.
+global:
+  hub: docker.io/istio
+  tag: "1.31.3"
+  variant: distroless
+# Fixed replicas for this small cluster; keep signing/discovery available
+# during an ordinary rollout or a single worker failure.
+autoscaleEnabled: false
+replicaCount: 2
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    memory: 2Gi
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app: istiod
+          topologyKey: kubernetes.io/hostname
+base:
+  validationFailurePolicy: Fail
+# The chart's /etc/cacerts mount is optional. A second, required mount of
+# the same Secret prevents startup with a generated CA while ESO catches up.
+volumes:
+  - name: vault-ca-required
+    secret:
+      secretName: cacerts
+      optional: false
+      items:
+        - key: ca-cert.pem
+          path: ca-cert.pem
+        - key: ca-key.pem
+          path: ca-key.pem
+        - key: root-cert.pem
+          path: root-cert.pem
+        - key: cert-chain.pem
+          path: cert-chain.pem
+volumeMounts:
+  - name: vault-ca-required
+    mountPath: /var/run/istio-vault-ca
+    readOnly: true
