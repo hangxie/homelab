@@ -1,19 +1,17 @@
 #!/usr/bin/env bash
 # One-time Vault seeding: enable KV v2 at homelab/, enable AppRole auth,
-# create role `homelab`, write the read policy, and populate KV paths from
-# either an operator-supplied secrets file or interactive prompts.
-# Idempotent: re-running with an unchanged source file is a no-op.
+# create role `homelab`, write the read policy, and populate template KV paths.
+# Existing credentials are preserved; the CA bundle is validated without writes.
 #
 # Prereqs:
-#   - vault CLI on PATH
+#   - vault, jq, yq and openssl on PATH
 #   - VAULT_ADDR and VAULT_TOKEN exported (token must be able to enable
 #     auth methods and write KV)
 #
 # Value resolution order per (path, field):
 #   1. Existing value already in Vault (keeps re-runs idempotent)
 #   2. Default in scripts/vault-secrets.template.yaml `values:` block
-#   3. Auto-generated random secret (32 random bytes, url-safe base64 with
-#      padding — 44 chars, valid input for cryptography.fernet.Fernet); set
+#   3. Auto-generated random secret; set
 #      `format: hex` in the template for consumers that require a hex string
 #      (e.g. JupyterHub's cookie_secret / CryptKeeper.keys)
 #
@@ -30,10 +28,20 @@
 # The mount/AppRole/policy setup still runs -- it is idempotent. Used by
 # scripts/rotate-cred.sh so credential rotation reuses this generator rather
 # than growing a second one.
+# Istio CA bundles use a path-level generator instead of per-field randomness.
+# Only explicit --regenerate --only istio/ca renews the intermediate; the root
+# is preserved unless --rotate-istio-root is also explicitly selected.
 
 set -euo pipefail
 
+# Private keys must never be expanded into a shell trace.
+if [[ "$-" == *x* ]]; then
+  echo 'Error: disable shell tracing before seeding credentials.' >&2
+  exit 1
+fi
+
 REGENERATE=false
+ROTATE_ISTIO_ROOT=false
 ONLY_PATHS=()
 
 usage() {
@@ -51,6 +59,13 @@ Usage: ${0##*/} [--regenerate] [--only <path>]...
 
   --only <path>  Only write this template path (repeatable). Everything else in
                  the template is left alone.
+
+Istio CA: ordinary runs create a missing bundle or validate/preserve it.
+--regenerate preserves it unless --only istio/ca is explicitly selected; that
+renews the intermediate/key under the existing root. --rotate-istio-root also
+replaces the root, and requires --regenerate --only istio/ca (alone). This only
+updates Vault; use rotate-cred.sh for live delivery. Root replacement requires
+a separate maintenance plan for enrolled meshes; see README.md.
 EOF
 }
 
@@ -58,6 +73,7 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --regenerate) REGENERATE=true ;;
+      --rotate-istio-root) ROTATE_ISTIO_ROOT=true ;;
       --only)
         [[ $# -ge 2 ]] || { echo "Error: --only needs a path" >&2; usage; exit 1; }
         ONLY_PATHS+=("$2"); shift ;;
@@ -70,6 +86,12 @@ parse_args() {
 
 # Fail loudly on a typo rather than silently writing nothing.
 validate_only_paths() {
+  if [[ "${ROTATE_ISTIO_ROOT}" == true ]]; then
+    if [[ "${REGENERATE}" != true || ${#ONLY_PATHS[@]} -ne 1 || "${ONLY_PATHS[0]:-}" != istio/ca ]]; then
+      echo 'Error: --rotate-istio-root requires --regenerate --only istio/ca, alone.' >&2
+      exit 1
+    fi
+  fi
   (( ${#ONLY_PATHS[@]} )) || return 0
   local p
   for p in "${ONLY_PATHS[@]}"; do
@@ -114,6 +136,11 @@ write_policy() {
   vault policy write "${POLICY_NAME}" - <<EOF
 path "${KV_MOUNT}/data/*"     { capabilities = ["read"] }
 path "${KV_MOUNT}/metadata/*" { capabilities = ["list"] }
+# Operator-only material must never be readable by the cluster AppRole.
+path "${KV_MOUNT}/data/operator"       { capabilities = ["deny"] }
+path "${KV_MOUNT}/data/operator/*"     { capabilities = ["deny"] }
+path "${KV_MOUNT}/metadata/operator"   { capabilities = ["deny"] }
+path "${KV_MOUNT}/metadata/operator/*" { capabilities = ["deny"] }
 EOF
 }
 
@@ -142,6 +169,7 @@ extract_template_entries() {
   yq -r --argjson only "${only_json}" '
     .secrets[] as $s
     | select(($only | length) == 0 or ($only | index($s.path)))
+    | select($s.generator != "istio-ca")
     | (if $s.generate == false then "false" else "true" end) as $g
     | ($s.format // "password") as $fmt
     | $s.fields[]? as $f
@@ -186,6 +214,164 @@ generate_hex() {
 # for consumers that need a 32-character key (e.g. Zitadel's masterkey).
 generate_key32() {
   openssl rand -base64 24 | tr -d '\n' | tr '/+' '_-'
+}
+
+# CA fields are interdependent. Read one KV version, validate the complete
+# signing bundle, then create/replace atomically with CAS. Root keys are stored
+# in immutable, operator-only records addressed by the public root fingerprint.
+# Publishing that record first means a failed signing-bundle write leaves the
+# active root unchanged; it can only leave an unused protected root record.
+# A subshell contains the
+# private temporary directory and its cleanup trap, including on failure.
+write_istio_ca() (
+  set -euo pipefail
+  umask 077
+  local ca_dir version=0 exists=false renew=false field kind cert root_id root_path new_root=false
+  ca_dir="$(mktemp -d "${TMPDIR:-/tmp}/homelab-istio-ca.XXXXXX")"
+  trap 'rm -rf -- "${ca_dir}"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  if vault kv metadata get -mount="${KV_MOUNT}" -format=json istio/ca > "${ca_dir}/metadata.json" 2> "${ca_dir}/error"; then
+    exists=true
+    # A deleted/destroyed version is not permission to invent a new identity.
+    vault kv get -mount="${KV_MOUNT}" -format=json istio/ca > "${ca_dir}/before.json"
+    version="$(jq -er '.data.metadata.version | numbers' "${ca_dir}/before.json")"
+    if jq -e '.data.data | has("root-key.pem")' "${ca_dir}/before.json" >/dev/null; then
+      echo 'Error: legacy istio/ca contains a root private key; operator remediation and historical-version cleanup are required (see README.md).' >&2
+      exit 1
+    fi
+    for field in ca-cert.pem ca-key.pem root-cert.pem cert-chain.pem; do
+      jq -ej --arg field "${field}" '.data.data[$field] | select(type == "string" and length > 0)' \
+        "${ca_dir}/before.json" > "${ca_dir}/${field}" \
+        || { echo "Error: istio/ca has a missing/invalid ${field}; refusing partial repair." >&2; exit 1; }
+    done
+    root_id="$(openssl x509 -in "${ca_dir}/root-cert.pem" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+    root_path="operator/istio-roots/${root_id}"
+    vault kv get -mount="${KV_MOUNT}" -format=json "${root_path}" > "${ca_dir}/root.json"
+    jq -ej '.data.data["root-key.pem"] | select(type == "string" and length > 0)' \
+      "${ca_dir}/root.json" > "${ca_dir}/root-key.pem"
+    jq -ej '.data.data["root-cert.pem"] | select(type == "string" and length > 0)' \
+      "${ca_dir}/root.json" > "${ca_dir}/stored-root-cert.pem"
+    openssl x509 -in "${ca_dir}/root-cert.pem" -outform DER > "${ca_dir}/public-root.der"
+    openssl x509 -in "${ca_dir}/stored-root-cert.pem" -outform DER > "${ca_dir}/stored-root.der"
+    cmp -s "${ca_dir}/public-root.der" "${ca_dir}/stored-root.der" \
+      || { echo 'Error: operator root record does not match the signing bundle.' >&2; exit 1; }
+  elif ! grep -q '^No value found at ' "${ca_dir}/error"; then
+    echo 'Error: cannot read istio/ca metadata; refusing to treat a Vault error as an absent CA.' >&2
+    cat "${ca_dir}/error" >&2
+    exit 1
+  fi
+
+  if [[ "${REGENERATE}" == true ]] && (( ${#ONLY_PATHS[@]} )) && printf '%s\n' "${ONLY_PATHS[@]}" | grep -qxF istio/ca; then
+    renew=true
+  fi
+
+  validate_bundle() {
+    local stem
+    for stem in root ca; do
+      [[ "$(grep -c '^-----BEGIN CERTIFICATE-----' "${ca_dir}/${stem}-cert.pem")" == 1 ]] || return 1
+      openssl pkey -in "${ca_dir}/${stem}-key.pem" -check -noout >/dev/null || return 1
+      openssl pkey -in "${ca_dir}/${stem}-key.pem" -pubout -outform DER > "${ca_dir}/key.der" || return 1
+      openssl x509 -in "${ca_dir}/${stem}-cert.pem" -pubkey -noout \
+        | openssl pkey -pubin -outform DER > "${ca_dir}/cert.der" || return 1
+      cmp -s "${ca_dir}/key.der" "${ca_dir}/cert.der" \
+        || { echo "Error: istio/ca ${stem} key/certificate mismatch." >&2; return 1; }
+      openssl x509 -in "${ca_dir}/${stem}-cert.pem" -noout -text > "${ca_dir}/cert.txt" || return 1
+      grep -q 'CA:TRUE' "${ca_dir}/cert.txt" || return 1
+      grep -q 'Certificate Sign' "${ca_dir}/cert.txt" || return 1
+    done
+    openssl verify -no_check_time -CAfile "${ca_dir}/root-cert.pem" "${ca_dir}/root-cert.pem" >/dev/null || return 1
+    openssl verify -no_check_time -CAfile "${ca_dir}/root-cert.pem" "${ca_dir}/ca-cert.pem" >/dev/null || return 1
+    # Check both entries of the delivered chain, not just the signing cert.
+    awk -v dir="${ca_dir}" '/-----BEGIN CERTIFICATE-----/ {n++} n {print > (dir "/chain-" n ".pem")} END {if (n != 2) exit 1}' \
+      "${ca_dir}/cert-chain.pem" || return 1
+    for kind in '1 ca' '2 root'; do
+      read -r field cert <<< "${kind}"
+      openssl x509 -in "${ca_dir}/chain-${field}.pem" -outform DER > "${ca_dir}/chain.der" || return 1
+      openssl x509 -in "${ca_dir}/${cert}-cert.pem" -outform DER > "${ca_dir}/cert.der" || return 1
+      cmp -s "${ca_dir}/chain.der" "${ca_dir}/cert.der" || return 1
+    done
+  }
+
+  if [[ "${exists}" == true ]]; then
+    validate_bundle || { echo 'Error: invalid istio/ca bundle; refusing replacement.' >&2; exit 1; }
+    if [[ "${renew}" != true ]]; then
+      openssl verify -CAfile "${ca_dir}/root-cert.pem" "${ca_dir}/ca-cert.pem" >/dev/null
+      echo '>>> Validated existing Istio CA; preserving its Vault version'
+      return 0
+    fi
+  elif [[ "${renew}" == true ]]; then
+    echo 'Error: cannot rotate a missing Istio CA; seed it without --regenerate first.' >&2
+    exit 1
+  fi
+
+  cat > "${ca_dir}/ca.cnf" <<'EOF'
+[req]
+distinguished_name = dn
+prompt = no
+[dn]
+O = Homelab
+[root_ca]
+basicConstraints = critical,CA:true,pathlen:1
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+[intermediate_ca]
+basicConstraints = critical,CA:true,pathlen:0
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+EOF
+  if [[ "${exists}" != true || "${ROTATE_ISTIO_ROOT}" == true ]]; then
+    new_root=true
+    openssl genrsa -out "${ca_dir}/root-key.pem" 4096
+    openssl req -new -x509 -sha256 -days 3650 \
+      -key "${ca_dir}/root-key.pem" -out "${ca_dir}/root-cert.pem" \
+      -config "${ca_dir}/ca.cnf" -extensions root_ca \
+      -subj '/O=Homelab/CN=Homelab Root CA'
+  fi
+  openssl x509 -in "${ca_dir}/root-cert.pem" -checkend 31622400 -noout >/dev/null \
+    || { echo 'Error: root must outlive the next one-year intermediate; plan root replacement.' >&2; exit 1; }
+  openssl genrsa -out "${ca_dir}/ca-key.pem" 4096
+  openssl req -new -sha256 -key "${ca_dir}/ca-key.pem" -out "${ca_dir}/ca.csr" \
+    -subj '/O=Homelab/CN=Homelab Istio Intermediate CA'
+  openssl x509 -req -sha256 -days 365 -in "${ca_dir}/ca.csr" \
+    -CA "${ca_dir}/root-cert.pem" -CAkey "${ca_dir}/root-key.pem" \
+    -set_serial "0x$(openssl rand -hex 16)" \
+    -extfile "${ca_dir}/ca.cnf" -extensions intermediate_ca -out "${ca_dir}/ca-cert.pem"
+  cat "${ca_dir}/ca-cert.pem" "${ca_dir}/root-cert.pem" > "${ca_dir}/cert-chain.pem"
+  validate_bundle
+  openssl verify -CAfile "${ca_dir}/root-cert.pem" "${ca_dir}/ca-cert.pem" >/dev/null
+  if [[ "${new_root}" == true ]]; then
+    root_id="$(openssl x509 -in "${ca_dir}/root-cert.pem" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+    root_path="operator/istio-roots/${root_id}"
+    echo ">>> Creating protected root record ${root_path}"
+    vault kv put -mount="${KV_MOUNT}" -cas=0 "${root_path}" \
+      root-cert.pem=@"${ca_dir}/root-cert.pem" root-key.pem=@"${ca_dir}/root-key.pem"
+  fi
+  echo ">>> Writing Istio CA bundle (expected KV version ${version})"
+  vault kv put -mount="${KV_MOUNT}" -cas="${version}" istio/ca \
+    ca-cert.pem=@"${ca_dir}/ca-cert.pem" ca-key.pem=@"${ca_dir}/ca-key.pem" \
+    root-cert.pem=@"${ca_dir}/root-cert.pem" \
+    cert-chain.pem=@"${ca_dir}/cert-chain.pem"
+  openssl x509 -in "${ca_dir}/ca-cert.pem" -noout -fingerprint -sha256 -dates
+)
+
+write_bundle_entries() {
+  local path generator selected
+  while read -r path generator; do
+    selected=true
+    if (( ${#ONLY_PATHS[@]} )) && ! printf '%s\n' "${ONLY_PATHS[@]}" | grep -qxF "${path}"; then
+      selected=false
+    fi
+    [[ "${selected}" == true ]] || continue
+    if [[ "${generator}" != istio-ca || "${path}" != istio/ca ]]; then
+      echo "Error: unsupported bundle generator ${generator} for ${path}." >&2
+      return 1
+    fi
+    write_istio_ca
+  done < <(yq -r '.secrets[] | select(.generator != null) | "\(.path) \(.generator)"' "${TEMPLATE}")
 }
 
 resolve_value() {
@@ -254,6 +440,7 @@ main() {
   ensure_approle_mount
   write_policy
   ensure_role
+  write_bundle_entries
   write_kv_entries
   echo
   echo "Seeding complete."

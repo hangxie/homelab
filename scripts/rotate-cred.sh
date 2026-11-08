@@ -25,8 +25,16 @@
 # Vault writes are delegated to `seed-vault.sh --regenerate --only`, so the
 # value formats (url-safe base64 / fernet / hex) and the `generate: false`
 # exclusion stay defined in exactly one place.
+# istio/ca is opt-in and rotates as a complete bundle. Its dedicated delivery
+# gate aborts on stale Secret data before any istiod rollout; it is never mixed
+# with password rotations. Explicit root replacement refuses enrolled meshes.
 
 set -euo pipefail
+
+if [[ "$-" == *x* ]]; then
+  echo 'Error: disable shell tracing before rotating credentials.' >&2
+  exit 1
+fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd)"
 REPO_DIR="$(cd -- "${SCRIPT_DIR}/.." >/dev/null && pwd)"
@@ -34,7 +42,8 @@ TEMPLATE="${SCRIPT_DIR}/vault-secrets.template.yaml"
 
 DRY_RUN=false
 ASSUME_YES=false
-SYNC_TIMEOUT=120     # seconds to wait for one ExternalSecret to re-read Vault
+ROTATE_ISTIO_ROOT=false
+SYNC_TIMEOUT="${SYNC_TIMEOUT:-120}" # seconds to wait for Secret delivery
 JOB_TIMEOUT=600      # seconds to wait for one bootstrap Job to complete
 ROLLOUT_TIMEOUT=600  # seconds to wait for one workload rollout
 
@@ -64,6 +73,8 @@ external_paths() {
 # ALTER USER for it, so it rotates cleanly even though mysql/root does not.
 hold_reason() {
   case "$1" in
+    istio/ca)
+      echo "CA intermediate/key renewal is opt-in; the root is preserved unless --rotate-istio-root is selected" ;;
     mysql/root)
       echo "the MySQL operator authenticates with this account and no in-cluster Job resets it; ALTER USER 'root' in MySQL first" ;;
     cassandra/admin)
@@ -102,11 +113,17 @@ Usage: ${0##*/} [--dry-run] [--yes] [path]...
   --dry-run   Print the plan -- including the live ExternalSecrets, Jobs and
               workloads it would touch -- without changing anything.
   --yes       Skip the confirmation prompt.
+  --rotate-istio-root
+              Replace the root too; requires istio/ca alone, no --yes, and no
+              enrolled workloads. Enrolled-mesh root changes need the separate
+              maintenance plan; see README.md for root replacement limits.
 
 With no paths, every auto-generated credential is rotated except the ones held
 back below, which need a step this script cannot take safely on its own. Name a
 held path explicitly to rotate it anyway; its manual follow-up is printed at the
 end. Externally minted credentials (generate: false) are always refused.
+istio/ca must be selected alone; its dedicated flow preserves the root unless
+--rotate-istio-root is explicitly requested.
 
 Held back by default:
 $(list_held)
@@ -118,6 +135,7 @@ parse_args() {
     case "$1" in
       --dry-run) DRY_RUN=true ;;
       --yes|-y)  ASSUME_YES=true ;;
+      --rotate-istio-root) ROTATE_ISTIO_ROOT=true ;;
       -h|--help) usage; exit 0 ;;
       -*)        die "unknown flag '$1'" ;;
       *)         ROTATE_PATHS+=("$1") ;;
@@ -151,8 +169,16 @@ select_paths() {
       grep -qxF "${path}" <<<"${generatable}" \
         || die "${path} is not a path in ${TEMPLATE##*/}"
     done
+    if has_path istio/ca && (( ${#ROTATE_PATHS[@]} != 1 )); then
+      die "rotate istio/ca alone so CA delivery failures stop the operation"
+    fi
+    if [[ "${ROTATE_ISTIO_ROOT}" == true ]] && { ! has_path istio/ca || [[ "${ASSUME_YES}" == true ]]; }; then
+      die "--rotate-istio-root requires istio/ca alone and cannot use --yes"
+    fi
     return
   fi
+
+  [[ "${ROTATE_ISTIO_ROOT}" != true ]] || die "--rotate-istio-root requires explicit istio/ca"
 
   while read -r path; do
     [[ -n "${path}" ]] || continue
@@ -178,7 +204,82 @@ confirm() {
   echo "This rotates live credentials on $(kubectl config current-context)."
   read -r -p "Continue? [y/N] " reply
   [[ "${reply}" == "y" || "${reply}" == "Y" ]] || die "aborted"
+  if [[ "${ROTATE_ISTIO_ROOT}" == true ]]; then
+    echo 'This replaces mesh trust. Confirm there are no external consumers of the old root.'
+    read -r -p 'Type REPLACE ISTIO ROOT to continue: ' reply
+    [[ "${reply}" == 'REPLACE ISTIO ROOT' ]] || die "aborted"
+  fi
 }
+
+# CA rotation has a stricter delivery gate than ordinary credentials: compare
+# all four delivered fields against the exact new Vault version before rolling
+# istiod. Never continue with just an old Ready=True condition or a sync hash.
+rotate_istio_ca() (
+  set -euo pipefail
+  umask 077
+  local ca_dir deadline args=(--regenerate --only istio/ca) before after
+  kubectl -n istio-system get externalsecret istio-ca >/dev/null
+  kubectl -n istio-system get deployment istiod >/dev/null
+  before="$(vault kv metadata get -mount=homelab -format=json istio/ca | jq -er '.data.current_version | numbers')"
+  if [[ "${ROTATE_ISTIO_ROOT}" == true ]]; then
+    # Fail closed even for namespace enrollment with no currently running pods.
+    kubectl get namespaces,pods -A -o json | jq -e '
+      [.items[] | select(
+        (.metadata.labels["istio.io/dataplane-mode"] == "ambient") or
+        (.kind == "Namespace" and (.metadata.labels["istio-injection"] == "enabled" or .metadata.labels["istio.io/rev"] != null)) or
+        (.kind == "Pod" and .metadata.namespace != "istio-system" and
+          any(((.spec.containers // []) + (.spec.initContainers // []))[]; .name == "istio-proxy"))
+      )] | length == 0' >/dev/null \
+      || die "root replacement refused: enrolled namespaces/pods or proxies exist; see README.md for root replacement limits"
+    args+=(--rotate-istio-root)
+  fi
+  if [[ "${ROTATE_ISTIO_ROOT}" == true ]]; then
+    log 'Replacing Istio root and intermediate on an unenrolled cluster'
+  else
+    log 'Renewing Istio intermediate/key under the existing root'
+  fi
+  if [[ "${DRY_RUN}" == true ]]; then
+    echo "    [dry-run] seed-vault.sh ${args[*]}"
+    echo '    [dry-run] force-sync istio-ca; verify exact cacerts payload; roll istiod'
+    [[ "${ROTATE_ISTIO_ROOT}" != true ]] || echo '    [dry-run] roll ztunnel after root replacement (no enrolled workloads)'
+    return 0
+  fi
+  ca_dir="$(mktemp -d "${TMPDIR:-/tmp}/homelab-istio-delivery.XXXXXX")"
+  trap 'rm -rf -- "${ca_dir}"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  # Record a recovery version before mutating anything. Never print private data.
+  echo "    Previous Vault version: ${before}; see README.md for recovery guidance."
+  "${SCRIPT_DIR}/seed-vault.sh" "${args[@]}"
+  vault kv get -mount=homelab -format=json istio/ca > "${ca_dir}/expected.json"
+  after="$(jq -er '.data.metadata.version | numbers' "${ca_dir}/expected.json")"
+  [[ "${after}" -eq $((before + 1)) ]] || die "unexpected CA version after rotation; stop and inspect concurrent writes"
+  kubectl -n istio-system annotate externalsecret istio-ca "force-sync=$(date +%s)" --overwrite >/dev/null
+  deadline=$(( $(date +%s) + SYNC_TIMEOUT ))
+  while :; do
+    if kubectl -n istio-system get secret cacerts -o json > "${ca_dir}/actual.json" && \
+      jq -e -n --slurpfile expected "${ca_dir}/expected.json" --slurpfile actual "${ca_dir}/actual.json" '
+        ["ca-cert.pem", "ca-key.pem", "root-cert.pem", "cert-chain.pem"] as $keys
+        | ($actual[0].data | keys | sort) == ($keys | sort)
+          and all($keys[]; . as $key |
+            ($actual[0].data[$key] | @base64d | rtrimstr("\n")) ==
+            ($expected[0].data.data[$key] | rtrimstr("\n")))' >/dev/null; then
+      break
+    fi
+    (( $(date +%s) < deadline )) || die "cacerts did not match the new CA within ${SYNC_TIMEOUT}s; istiod was not restarted; recover using Vault version ${before}"
+    sleep 2
+  done
+  # Re-check the KV version before restarting consumers.
+  [[ "$(vault kv metadata get -mount=homelab -format=json istio/ca | jq -er '.data.current_version')" == "${after}" ]] \
+    || die "CA changed concurrently during delivery; refusing restart"
+  kubectl -n istio-system rollout restart deployment/istiod
+  kubectl -n istio-system rollout status deployment/istiod --timeout="${ROLLOUT_TIMEOUT}s"
+  if [[ "${ROTATE_ISTIO_ROOT}" == true ]]; then
+    kubectl -n istio-system rollout restart daemonset/ztunnel
+    kubectl -n istio-system rollout status daemonset/ztunnel --timeout="${ROLLOUT_TIMEOUT}s"
+  fi
+  log "Istio CA version ${after} delivered; istiod rollout ready. Verify fresh issuance and mesh traffic as described in README.md."
+)
 
 # --- step 1: Vault ----------------------------------------------------------
 
@@ -557,6 +658,11 @@ main() {
   echo "Rotating:"
   printf '  %s\n' "${ROTATE_PATHS[@]}"
   confirm
+
+  if has_path istio/ca; then
+    rotate_istio_ca
+    return 0
+  fi
 
   regenerate_in_vault
   refresh_external_secrets
