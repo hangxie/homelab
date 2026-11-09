@@ -147,9 +147,9 @@ Gateway traffic arrives with the reserved `ingress` identity, not as a pod in `g
 
 ### Istio Ambient
 
-Istio 1.31.3 Ambient (`istio-base`, `istiod`, `istio-cni`, `ztunnel`) is installed with mesh-wide `PERMISSIVE` mTLS. A namespace joins with the label `istio.io/dataplane-mode: ambient`; removing the label unenrolls running pods without a restart. Qualification evidence is on #299, phased enrollment on #300.
+Istio 1.31.3 Ambient (`istio-base`, `istiod`, `istio-cni`, `ztunnel`) is installed with mesh-wide `PERMISSIVE` mTLS. A namespace joins with the label `istio.io/dataplane-mode: ambient` and leaves when it is removed. Qualification evidence is on #299, phased enrollment on #300.
 
-Adding or removing the label redirects running pods immediately, which breaks connections they already hold; only clients that reconnect recover on their own. Ray did not: in the ray-tts trial both Serve replicas crashed within a second, on enrollment and on removal. For Ray namespaces, flip the label and then restart the RayCluster (delete the head and worker pods); inside the mesh it runs normally.
+Always restart a namespace's workloads after adding or removing the label. The label redirects running pods immediately, but connections they already hold either keep bypassing the mesh in plaintext or break, and neither tested workload recovered cleanly on its own: Ray's Serve replicas crashed within a second (restart the RayCluster), and open-webui lost its Redis pub/sub subscriptions without failing any health check (restart its Deployment).
 
 `ztunnel` pins 2 worker threads and 100 streams per HBONE connection. The stream limit counts over a connection's lifetime: lowering it spreads bulk transfers over more connections but forces a TLS handshake every few new connections (5–10x fewer short-lived requests/s), and a limit of 1 can strand a stream that races a cold pool. Each HBONE connection carries about 0.6 GB/s; a single flow runs about 20% below native TLS and about 70% below plaintext. Keep bulk, many-connection paths on native security (#298).
 
@@ -160,7 +160,7 @@ sum by (source_workload_namespace, source_workload) (
   rate(istio_tcp_connections_opened_total{reporter="destination", destination_workload_namespace="<ns>", connection_security_policy!="mutual_tls"}[1h]))
 ```
 
-Rolling back is the reverse: delete the `STRICT` `PeerAuthentication`, then remove the namespace label. Both take effect on running pods.
+Rolling back is the reverse: delete the `STRICT` `PeerAuthentication`, then remove the namespace label and restart the workloads.
 
 Non-mesh callers of an enrolled workload — the Gateway, its `ExternalAuth` call to Authorino, and kube-apiserver calling a webhook — are rejected under `STRICT`. Give each a workload-selector `PeerAuthentication` with `portLevelMtls` set to `PERMISSIVE` on that one port. An excepted port accepts any plaintext caller, so pair it with a `CiliumNetworkPolicy` that admits only the intended entity (`ingress` or `kube-apiserver`). Every policy selecting an enrolled pod also needs:
 
