@@ -143,7 +143,35 @@ Ansible owns the Cilium install; Argo CD owns the policy objects, which live bes
 - Allow rules must use pod or namespace selectors. Cilium's CIDR selectors do not match Cilium-managed pod endpoints, so an `ipBlock` allow silently fails closed for in-cluster traffic.
 - Allow rules cannot be staged ahead of enforcement. The first ingress policy selecting a pod makes it default-deny for ingress immediately, so a partial allow set is an outage — build the complete set from Hubble first (`kubectl -n kube-system exec ds/cilium -c cilium-agent -- hubble observe --to-pod <ns>/<pod> --follow`), or stage with `enableDefaultDeny.ingress: false` and drop the field once every observed flow has a matching selector.
 
-Gateway traffic arrives with the reserved `ingress` identity, not as a pod in `gateway-system`; kubelet probes need no rule, since the default `allow-localhost: auto` keeps host-sourced traffic forwarded.
+Gateway traffic arrives with the reserved `ingress` identity, not as a pod in `gateway-system`; kubelet probes need no rule, since the default `allow-localhost: auto` keeps host-sourced traffic forwarded. Ambient-enrolled pods differ on both counts; see [Istio Ambient](#istio-ambient).
+
+### Istio Ambient
+
+Istio 1.31.3 Ambient (`istio-base`, `istiod`, `istio-cni`, `ztunnel`) is installed with mesh-wide `PERMISSIVE` mTLS. A namespace joins with the label `istio.io/dataplane-mode: ambient`; removing the label unenrolls running pods without a restart. Qualification evidence is on #299, phased enrollment on #300.
+
+`ztunnel` pins 2 worker threads and 100 streams per HBONE connection. The stream limit counts over a connection's lifetime: lowering it spreads bulk transfers over more connections but forces a TLS handshake every few new connections (5–10x fewer short-lived requests/s), and a limit of 1 can strand a stream that races a cold pool. Each HBONE connection carries about 0.6 GB/s; a single flow runs about 20% below native TLS and about 70% below plaintext. Keep bulk, many-connection paths on native security (#298).
+
+Before switching a namespace to `STRICT`, list its plaintext callers; under `PERMISSIVE` the destination reports them with `connection_security_policy="unknown"`:
+
+```promql
+sum by (source_workload_namespace, source_workload) (
+  rate(istio_tcp_connections_opened_total{reporter="destination", destination_workload_namespace="<ns>", connection_security_policy!="mutual_tls"}[1h]))
+```
+
+Rolling back is the reverse: delete the `STRICT` `PeerAuthentication`, then remove the namespace label. Both take effect on running pods.
+
+Non-mesh callers of an enrolled workload — the Gateway, its `ExternalAuth` call to Authorino, and kube-apiserver calling a webhook — are rejected under `STRICT`. Give each a workload-selector `PeerAuthentication` with `portLevelMtls` set to `PERMISSIVE` on that one port. An excepted port accepts any plaintext caller, so pair it with a `CiliumNetworkPolicy` that admits only the intended entity (`ingress` or `kube-apiserver`). Every policy selecting an enrolled pod also needs:
+
+- TCP 15008 from `cluster`. Mesh traffic arrives as HBONE on 15008, not on the application port, so a policy listing only application ports breaks every mesh caller.
+- `fromCIDR: 169.254.7.127/32` on probe ports and on Gateway-facing ports. Ambient SNATs same-node host-network traffic — kubelet probes, the Gateway's envoy when it runs on the pod's node, any `hostNetwork` pod — to that address. Cilium sees it as `world`, and it bypasses ztunnel and `STRICT` entirely. Limiting it to those ports is the only bound available; it cannot tell kubelet from other host processes.
+
+The mesh does not protect:
+
+- Pods in `kube-system`, `istio-system` and `rook-ceph` (excluded in `istio-cni`) and every `hostNetwork` pod (`kube-system`, `rook-ceph`, `cilium-spire`). Ceph keeps its own msgr2 secure mode.
+- UDP, and DNS (capture is off): `kube-dns:53`, Airflow statsd `9125`, and Tempo's chart-default Jaeger agent ports `6831`/`6832` stay plaintext. Nothing here sends to the Jaeger ports; new trace senders should use Tempo's OTLP TCP ports.
+- Anything outside the cluster — Vault and Harbor on the media server, HuggingFace, the llama.cpp hosts. Those connections need TLS at the application.
+
+All measurements so far ran between VMs on one physical Proxmox host; they say nothing about physical cross-host traffic.
 
 ## First-time bootstrap
 
