@@ -38,6 +38,14 @@ configMapGenerator:
     namespace: grafana
     files:
       - dashboards/authorino.json
+  # Beside the upstream Istio dashboards (values.yaml, Platform folder).
+  - name: grafana-dashboard-istio-strict-readiness
+    namespace: grafana
+    files:
+      - dashboards/istio-strict-readiness.json
+    options:
+      annotations:
+        k8s-sidecar-target-directory: /tmp/dashboards/Platform
 
   # Ray's own dashboards, vendored from the Ray source tree (no gnetId/url) and
   # shared by every RayService, so they live here rather than in one workload.
