@@ -206,6 +206,16 @@ dashboards:
     rook-ceph-pool:
       url: https://raw.githubusercontent.com/rook/rook/v1.20.0/deploy/examples/monitoring/grafana/Ceph%20Pools%20Dashboard.json
       datasource: Mimir
+    # Ambient has no sidecars or waypoints, so only these two Istio dashboards
+    # have data; Mesh/Service/Workload/Performance are built on L7 or sidecar metrics.
+    istio-ztunnel:
+      gnetId: 21306
+      revision: 114
+      datasource: Mimir
+    istio-control-plane:
+      gnetId: 7645
+      revision: 346
+      datasource: Mimir
   observability:
     # No Alloy dashboard here: gnetId 13659 used to be provisioned under that
     # name and is in fact "Blackbox Exporter (HTTP prober)" — the same mix-up
