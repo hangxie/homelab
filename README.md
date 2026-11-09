@@ -153,7 +153,7 @@ Always restart a namespace's workloads after adding or removing the label. The l
 
 `ztunnel` pins 2 worker threads and 100 streams per HBONE connection. The stream limit counts over a connection's lifetime: lowering it spreads bulk transfers over more connections but forces a TLS handshake every few new connections (5–10x fewer short-lived requests/s), and a limit of 1 can strand a stream that races a cold pool. Each HBONE connection carries about 0.6 GB/s; a single flow runs about 20% below native TLS and about 70% below plaintext. Keep bulk, many-connection paths on native security (#298).
 
-Before switching a namespace to `STRICT`, list its plaintext callers; under `PERMISSIVE` the destination reports them with `connection_security_policy="unknown"`:
+Before switching a namespace to `STRICT`, list its plaintext callers. The Grafana dashboard **Platform → Istio Ambient STRICT readiness** shows them per namespace, service and caller, and after the switch shows what ztunnel rejected (`istio_tcp_connections_failed_total{response_flags="DENY"}`); the Ztunnel and Istio Control Plane dashboards beside it cover mesh health. Under `PERMISSIVE` the destination reports plaintext callers with `connection_security_policy="unknown"`:
 
 ```promql
 sum by (source_workload_namespace, source_workload) (
