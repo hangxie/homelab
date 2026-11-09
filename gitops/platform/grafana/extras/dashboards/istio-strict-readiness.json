@@ -73,7 +73,7 @@
     {
       "type": "stat",
       "title": "Plaintext connections STRICT would reject",
-      "description": "Inbound connections to enrolled workloads that arrived without mTLS and were accepted (PERMISSIVE). Under STRICT each of these callers is rejected unless its port has a PERMISSIVE exception.",
+      "description": "Plaintext opened minus plaintext denied: inbound connections to enrolled workloads that arrived without mTLS and were accepted (PERMISSIVE). Under STRICT each of these callers is rejected unless its port has a PERMISSIVE exception.",
       "datasource": {
         "type": "prometheus",
         "uid": "mimir"
@@ -86,19 +86,42 @@
       },
       "targets": [
         {
-          "refId": "A",
+          "refId": "C",
           "datasource": {
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "sum(clamp_min(sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) * 0), 0)) or vector(0)",
+          "expr": "sum (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) or vector(0)",
           "instant": true,
-          "range": false
+          "range": false,
+          "hide": true
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "sum (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or vector(0)",
+          "instant": true,
+          "range": false,
+          "hide": true
+        },
+        {
+          "refId": "R",
+          "datasource": {
+            "type": "__expr__",
+            "uid": "__expr__"
+          },
+          "type": "math",
+          "expression": "$C - $D"
         }
       ],
+      "transformations": [],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
+          "noValue": "0",
           "color": {
             "mode": "thresholds"
           },
@@ -114,7 +137,8 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "decimals": 0
         },
         "overrides": []
       },
@@ -154,14 +178,16 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "sum(sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",response_flags=\"DENY\"}[$__range]))) or vector(0)",
+          "expr": "sum (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",response_flags=\"DENY\"}[$__range])) or vector(0)",
           "instant": true,
           "range": false
         }
       ],
+      "transformations": [],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
+          "noValue": "0",
           "color": {
             "mode": "thresholds"
           },
@@ -177,7 +203,8 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "decimals": 0
         },
         "overrides": []
       },
@@ -199,7 +226,7 @@
     {
       "type": "stat",
       "title": "mTLS share of accepted inbound connections",
-      "description": "100% means every accepted inbound connection used mTLS in the range. Denied connections are excluded on both sides; see Rejected.",
+      "description": "(mTLS opened - mTLS denied) / all accepted. 100% means every accepted inbound connection used mTLS in the range.",
       "datasource": {
         "type": "prometheus",
         "uid": "mimir"
@@ -217,14 +244,59 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "sum(clamp_min(sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) * 0), 0)) / (sum(clamp_min(sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) * 0), 0)) + (sum(clamp_min(sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) * 0), 0)) or vector(0)))",
+          "expr": "sum (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) or vector(0)",
           "instant": true,
-          "range": false
+          "range": false,
+          "hide": true
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "sum (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or vector(0)",
+          "instant": true,
+          "range": false,
+          "hide": true
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "sum (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) or vector(0)",
+          "instant": true,
+          "range": false,
+          "hide": true
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "sum (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or vector(0)",
+          "instant": true,
+          "range": false,
+          "hide": true
+        },
+        {
+          "refId": "R",
+          "datasource": {
+            "type": "__expr__",
+            "uid": "__expr__"
+          },
+          "type": "math",
+          "expression": "($A - $B) / ($A - $B + $C - $D)"
         }
       ],
+      "transformations": [],
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
+          "noValue": "0",
           "color": {
             "mode": "thresholds"
           },
@@ -263,7 +335,7 @@
     {
       "type": "stat",
       "title": "Namespaces with plaintext callers",
-      "description": "",
+      "description": "Namespaces whose Plaintext accepted is above 0, from the per-namespace table's calculation.",
       "datasource": {
         "type": "prometheus",
         "uid": "mimir"
@@ -276,19 +348,109 @@
       },
       "targets": [
         {
-          "refId": "A",
+          "refId": "C",
           "datasource": {
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "count(sum by (destination_workload_namespace) (clamp_min(sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) * 0), 0)) > 0) or vector(0)",
+          "expr": "sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range]))",
           "instant": true,
-          "range": false
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range]))",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "timeSeries": false,
+            "alias": "Plaintext opened",
+            "reduce": {
+              "include": [
+                "Value #C"
+              ],
+              "reducer": "sum",
+              "nullValueMode": "null as zero"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "timeSeries": false,
+            "alias": "Plaintext denied",
+            "reduce": {
+              "include": [
+                "Value #D"
+              ],
+              "reducer": "sum",
+              "nullValueMode": "null as zero"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "timeSeries": false,
+            "alias": "Plaintext accepted",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Plaintext opened"
+                }
+              },
+              "operator": "-",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Plaintext denied"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "type": "include",
+            "match": "any",
+            "filters": [
+              {
+                "fieldName": "Plaintext accepted",
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0
+                  }
+                }
+              }
+            ]
+          }
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
+          "noValue": "0",
           "color": {
             "mode": "thresholds"
           },
@@ -304,7 +466,8 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "decimals": 0
         },
         "overrides": []
       },
@@ -315,9 +478,9 @@
         "justifyMode": "center",
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "count"
           ],
-          "fields": "",
+          "fields": "/^Plaintext accepted$/",
           "values": false
         }
       },
@@ -339,7 +502,7 @@
     {
       "type": "table",
       "title": "Inbound connections by namespace",
-      "description": "A namespace is ready for STRICT when Plaintext is 0 over a representative range, or every remaining plaintext caller is covered by a port exception paired with a Cilium rule.",
+      "description": "Plaintext accepted is what STRICT would reject. A namespace is ready for STRICT when it is 0 over a representative range, or every remaining plaintext caller is covered by a port exception paired with a Cilium rule. The opened/denied columns are the raw counters the others are computed from.",
       "datasource": {
         "type": "prometheus",
         "uid": "mimir"
@@ -357,7 +520,7 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "clamp_min(sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) * 0), 0)",
+          "expr": "sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range]))",
           "instant": true,
           "range": false,
           "format": "table"
@@ -368,7 +531,7 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "clamp_min(sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) * 0), 0)",
+          "expr": "sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\",response_flags=\"DENY\"}[$__range]))",
           "instant": true,
           "range": false,
           "format": "table"
@@ -379,7 +542,7 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",response_flags=\"DENY\"}[$__range]))",
+          "expr": "sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range]))",
           "instant": true,
           "range": false,
           "format": "table"
@@ -390,7 +553,7 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "100 * (clamp_min(sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) * 0), 0) or clamp_min(sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) * 0), 0) * 0) / ((clamp_min(sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) * 0), 0) or clamp_min(sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) * 0), 0) * 0) + (clamp_min(sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) * 0), 0) or clamp_min(sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) * 0), 0) * 0))",
+          "expr": "sum by (destination_workload_namespace) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range]))",
           "instant": true,
           "range": false,
           "format": "table"
@@ -402,24 +565,204 @@
           "options": {}
         },
         {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "timeSeries": false,
+            "alias": "mTLS opened",
+            "reduce": {
+              "include": [
+                "Value #A"
+              ],
+              "reducer": "sum",
+              "nullValueMode": "null as zero"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "timeSeries": false,
+            "alias": "mTLS denied",
+            "reduce": {
+              "include": [
+                "Value #B"
+              ],
+              "reducer": "sum",
+              "nullValueMode": "null as zero"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "timeSeries": false,
+            "alias": "Plaintext opened",
+            "reduce": {
+              "include": [
+                "Value #C"
+              ],
+              "reducer": "sum",
+              "nullValueMode": "null as zero"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "timeSeries": false,
+            "alias": "Plaintext denied",
+            "reduce": {
+              "include": [
+                "Value #D"
+              ],
+              "reducer": "sum",
+              "nullValueMode": "null as zero"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "timeSeries": false,
+            "alias": "mTLS accepted",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "mTLS opened"
+                }
+              },
+              "operator": "-",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "mTLS denied"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "timeSeries": false,
+            "alias": "Plaintext accepted",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Plaintext opened"
+                }
+              },
+              "operator": "-",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Plaintext denied"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "timeSeries": false,
+            "alias": "Rejected",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "mTLS denied"
+                }
+              },
+              "operator": "+",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Plaintext denied"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "timeSeries": false,
+            "alias": "Accepted",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "mTLS accepted"
+                }
+              },
+              "operator": "+",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Plaintext accepted"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "timeSeries": false,
+            "alias": "mTLS %",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "mTLS accepted"
+                }
+              },
+              "operator": "/",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Accepted"
+                }
+              }
+            }
+          }
+        },
+        {
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true
+              "Time": true,
+              "Value #A": true,
+              "Value #B": true,
+              "Value #C": true,
+              "Value #D": true
             },
             "renameByName": {
-              "destination_workload_namespace": "Namespace",
-              "Value #A": "mTLS (accepted)",
-              "Value #B": "Plaintext (STRICT would reject)",
-              "Value #C": "Rejected",
-              "Value #D": "mTLS %"
+              "destination_workload_namespace": "Namespace"
             },
             "indexByName": {
               "destination_workload_namespace": 0,
-              "Value #A": 1,
-              "Value #B": 2,
-              "Value #C": 3,
-              "Value #D": 4
+              "mTLS accepted": 1,
+              "Plaintext accepted": 2,
+              "Rejected": 3,
+              "Accepted": 4,
+              "mTLS %": 5,
+              "mTLS opened": 6,
+              "mTLS denied": 7,
+              "Plaintext opened": 8,
+              "Plaintext denied": 9
             }
           }
         }
@@ -442,7 +785,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "percent"
+                "value": "percentunit"
               },
               {
                 "id": "decimals",
@@ -457,7 +800,7 @@
         "cellHeight": "sm",
         "sortBy": [
           {
-            "displayName": "Plaintext (STRICT would reject)",
+            "displayName": "Plaintext accepted",
             "desc": true
           }
         ]
@@ -498,7 +841,7 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "clamp_min(sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) * 0), 0)",
+          "expr": "sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range]))",
           "instant": true,
           "range": false,
           "format": "table"
@@ -509,7 +852,7 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "clamp_min(sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) * 0), 0)",
+          "expr": "sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\",response_flags=\"DENY\"}[$__range]))",
           "instant": true,
           "range": false,
           "format": "table"
@@ -520,7 +863,7 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",response_flags=\"DENY\"}[$__range]))",
+          "expr": "sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range]))",
           "instant": true,
           "range": false,
           "format": "table"
@@ -531,7 +874,7 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "100 * (clamp_min(sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) * 0), 0) or clamp_min(sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) * 0), 0) * 0) / ((clamp_min(sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) * 0), 0) or clamp_min(sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) * 0), 0) * 0) + (clamp_min(sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) * 0), 0) or clamp_min(sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) - (sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy=\"mutual_tls\"}[$__range])) * 0), 0) * 0))",
+          "expr": "sum by (destination_workload_namespace, destination_service_name, destination_workload) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range]))",
           "instant": true,
           "range": false,
           "format": "table"
@@ -543,28 +886,208 @@
           "options": {}
         },
         {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "timeSeries": false,
+            "alias": "mTLS opened",
+            "reduce": {
+              "include": [
+                "Value #A"
+              ],
+              "reducer": "sum",
+              "nullValueMode": "null as zero"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "timeSeries": false,
+            "alias": "mTLS denied",
+            "reduce": {
+              "include": [
+                "Value #B"
+              ],
+              "reducer": "sum",
+              "nullValueMode": "null as zero"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "timeSeries": false,
+            "alias": "Plaintext opened",
+            "reduce": {
+              "include": [
+                "Value #C"
+              ],
+              "reducer": "sum",
+              "nullValueMode": "null as zero"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "timeSeries": false,
+            "alias": "Plaintext denied",
+            "reduce": {
+              "include": [
+                "Value #D"
+              ],
+              "reducer": "sum",
+              "nullValueMode": "null as zero"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "timeSeries": false,
+            "alias": "mTLS accepted",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "mTLS opened"
+                }
+              },
+              "operator": "-",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "mTLS denied"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "timeSeries": false,
+            "alias": "Plaintext accepted",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Plaintext opened"
+                }
+              },
+              "operator": "-",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Plaintext denied"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "timeSeries": false,
+            "alias": "Rejected",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "mTLS denied"
+                }
+              },
+              "operator": "+",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Plaintext denied"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "timeSeries": false,
+            "alias": "Accepted",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "mTLS accepted"
+                }
+              },
+              "operator": "+",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Plaintext accepted"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "timeSeries": false,
+            "alias": "mTLS %",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "mTLS accepted"
+                }
+              },
+              "operator": "/",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Accepted"
+                }
+              }
+            }
+          }
+        },
+        {
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true
+              "Time": true,
+              "Value #A": true,
+              "Value #B": true,
+              "Value #C": true,
+              "Value #D": true
             },
             "renameByName": {
               "destination_workload_namespace": "Namespace",
               "destination_service_name": "Service",
-              "destination_workload": "Workload",
-              "Value #A": "mTLS (accepted)",
-              "Value #B": "Plaintext (STRICT would reject)",
-              "Value #C": "Rejected",
-              "Value #D": "mTLS %"
+              "destination_workload": "Workload"
             },
             "indexByName": {
               "destination_workload_namespace": 0,
               "destination_service_name": 1,
               "destination_workload": 2,
-              "Value #A": 3,
-              "Value #B": 4,
-              "Value #C": 5,
-              "Value #D": 6
+              "mTLS accepted": 3,
+              "Plaintext accepted": 4,
+              "Rejected": 5,
+              "Accepted": 6,
+              "mTLS %": 7,
+              "mTLS opened": 8,
+              "mTLS denied": 9,
+              "Plaintext opened": 10,
+              "Plaintext denied": 11
             }
           }
         }
@@ -587,7 +1110,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "percent"
+                "value": "percentunit"
               },
               {
                 "id": "decimals",
@@ -602,7 +1125,7 @@
         "cellHeight": "sm",
         "sortBy": [
           {
-            "displayName": "Plaintext (STRICT would reject)",
+            "displayName": "Plaintext accepted",
             "desc": true
           }
         ]
@@ -638,12 +1161,23 @@
       },
       "targets": [
         {
-          "refId": "A",
+          "refId": "C",
           "datasource": {
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "clamp_min(sum by (source_workload_namespace, source_workload, destination_workload_namespace, destination_service_name) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) - (sum by (source_workload_namespace, source_workload, destination_workload_namespace, destination_service_name) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range])) or sum by (source_workload_namespace, source_workload, destination_workload_namespace, destination_service_name) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range])) * 0), 0) > 0",
+          "expr": "sum by (source_workload_namespace, source_workload, destination_workload_namespace, destination_service_name) (increase(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[$__range]))",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "sum by (source_workload_namespace, source_workload, destination_workload_namespace, destination_service_name) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[$__range]))",
           "instant": true,
           "range": false,
           "format": "table"
@@ -655,24 +1189,98 @@
           "options": {}
         },
         {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "timeSeries": false,
+            "alias": "Plaintext opened",
+            "reduce": {
+              "include": [
+                "Value #C"
+              ],
+              "reducer": "sum",
+              "nullValueMode": "null as zero"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "timeSeries": false,
+            "alias": "Plaintext denied",
+            "reduce": {
+              "include": [
+                "Value #D"
+              ],
+              "reducer": "sum",
+              "nullValueMode": "null as zero"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "timeSeries": false,
+            "alias": "Plaintext accepted",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Plaintext opened"
+                }
+              },
+              "operator": "-",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Plaintext denied"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "type": "include",
+            "match": "any",
+            "filters": [
+              {
+                "fieldName": "Plaintext accepted",
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true
+              "Time": true,
+              "Value #C": true,
+              "Value #D": true
             },
             "renameByName": {
               "source_workload_namespace": "Source namespace",
               "source_workload": "Source workload",
               "destination_workload_namespace": "Namespace",
-              "destination_service_name": "Service",
-              "Value": "Connections"
+              "destination_service_name": "Service"
             },
             "indexByName": {
               "source_workload_namespace": 0,
               "source_workload": 1,
               "destination_workload_namespace": 2,
               "destination_service_name": 3,
-              "Value": 4
+              "Plaintext accepted": 4,
+              "Plaintext opened": 5,
+              "Plaintext denied": 6
             }
           }
         }
@@ -686,31 +1294,14 @@
             "filterable": true
           }
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "mTLS %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 1
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "options": {
         "showHeader": true,
         "cellHeight": "sm",
         "sortBy": [
           {
-            "displayName": "Connections",
+            "displayName": "Plaintext accepted",
             "desc": true
           }
         ]
@@ -738,17 +1329,13 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "sum by (source_workload_namespace, source_workload, destination_workload_namespace, destination_service_name) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",response_flags=\"DENY\"}[$__range])) > 0",
+          "expr": "sum by (source_workload_namespace, source_workload, destination_workload_namespace, destination_service_name, connection_security_policy) (increase(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",response_flags=\"DENY\"}[$__range])) > 0",
           "instant": true,
           "range": false,
           "format": "table"
         }
       ],
       "transformations": [
-        {
-          "id": "merge",
-          "options": {}
-        },
         {
           "id": "organize",
           "options": {
@@ -760,14 +1347,16 @@
               "source_workload": "Source workload",
               "destination_workload_namespace": "Namespace",
               "destination_service_name": "Service",
-              "Value": "Connections"
+              "connection_security_policy": "Security policy",
+              "Value": "Rejected"
             },
             "indexByName": {
               "source_workload_namespace": 0,
               "source_workload": 1,
               "destination_workload_namespace": 2,
               "destination_service_name": 3,
-              "Value": 4
+              "connection_security_policy": 4,
+              "Value": 5
             }
           }
         }
@@ -781,31 +1370,14 @@
             "filterable": true
           }
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "mTLS %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 1
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "options": {
         "showHeader": true,
         "cellHeight": "sm",
         "sortBy": [
           {
-            "displayName": "Connections",
+            "displayName": "Rejected",
             "desc": true
           }
         ]
@@ -828,7 +1400,7 @@
     {
       "type": "timeseries",
       "title": "Plaintext connection rate (top 8 services)",
-      "description": "",
+      "description": "Opened minus denied is what STRICT would reject; under STRICT the two lines meet. Click a legend entry to isolate it.",
       "datasource": {
         "type": "prometheus",
         "uid": "mimir"
@@ -841,13 +1413,23 @@
       },
       "targets": [
         {
-          "refId": "A",
+          "refId": "C",
           "datasource": {
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "topk(8, clamp_min(sum by (destination_workload_namespace, destination_service_name) (rate(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[5m])) - (sum by (destination_workload_namespace, destination_service_name) (rate(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[5m])) or sum by (destination_workload_namespace, destination_service_name) (rate(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[5m])) * 0), 0))",
-          "legendFormat": "{{destination_workload_namespace}}/{{destination_service_name}}",
+          "expr": "topk(8, sum by (destination_workload_namespace, destination_service_name) (rate(istio_tcp_connections_opened_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\"}[5m])))",
+          "legendFormat": "{{destination_workload_namespace}}/{{destination_service_name}} opened",
+          "range": true
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "topk(8, sum by (destination_workload_namespace, destination_service_name) (rate(istio_tcp_connections_failed_total{reporter=\"destination\",destination_workload_namespace=~\"$namespace\",connection_security_policy!=\"mutual_tls\",response_flags=\"DENY\"}[5m])))",
+          "legendFormat": "{{destination_workload_namespace}}/{{destination_service_name}} denied",
           "range": true
         }
       ],
