@@ -9,9 +9,17 @@
 #   - Enable/disable: the `ray-tts` line in workloads-raw.yaml. It shares the GPU
 #     node's two cards with ray-vllm, so enable only one of them until there are
 #     more GPUs. The model PVC survives a disable.
-#   - Change voices: `oras push media.xiehang.com/llm-models/tts-voices:latest
-#     <name>.wav <name>.txt ...` from the voices directory (every pair, not just the
-#     new one), then `kubectl -n ray-tts delete pod -l ray.io/group=tts-worker`.
+#   - Change voices: a push replaces the whole artifact, so start from what is
+#     there. <name>.txt is the exact transcript of <name>.wav.
+#       vault kv get -field=password homelab/harbor/llm-models | oras login \
+#         media.xiehang.com --password-stdin \
+#         -u "$(vault kv get -field=username homelab/harbor/llm-models)"
+#       oras manifest fetch media.xiehang.com/llm-models/tts-voices:latest | jq -r \
+#         '.layers[].annotations["org.opencontainers.image.title"]'  # list voices
+#       oras pull media.xiehang.com/llm-models/tts-voices:latest -o tts-voices
+#       # add/replace pairs in tts-voices/, then push every pair from there
+#       cd tts-voices && oras push media.xiehang.com/llm-models/tts-voices:latest *.wav *.txt
+#       kubectl -n ray-tts delete pod -l ray.io/group=tts-worker
 ---
 apiVersion: v1
 kind: ServiceAccount
