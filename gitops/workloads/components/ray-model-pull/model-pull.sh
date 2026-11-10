@@ -1,21 +1,32 @@
 #!/bin/bash
-# Init container for the Ray GPU worker groups: reads the model list of one Serve
-# application (RAYSERVE_APP, env var MODELS_VAR) from the live RayService and makes
-# sure each model is on the llm-models PVC, pulling from the Harbor cache first and
-# HuggingFace second, then pushing a fresh download back to Harbor.
+# Init container that makes sure each model is under /mnt/models, pulling from
+# the Harbor cache first and HuggingFace second, then pushing a fresh download
+# back to Harbor. The model list is MODEL_IDS (comma-separated) when set, else
+# the MODELS_VAR env var of Serve application RAYSERVE_APP in the live RayService
+# RAYSERVICE_NAME (the Ray GPU workers). HF_EXCLUDE adds space-separated globs to
+# skip on a HuggingFace download.
 set -eu
 export PATH="/shared:$PATH"
 mkdir -p /mnt/models
 
-MODELS=$(kubectl get rayservice "${RAYSERVICE_NAME}" \
-           -o jsonpath='{.spec.serveConfigV2}' \
-         | yq '.applications[] | select(.name == strenv(RAYSERVE_APP)) | .runtime_env.env_vars[strenv(MODELS_VAR)]' - \
-         | tr ',' '\n')
+if [ -n "${MODEL_IDS:-}" ]; then
+  MODELS=$(echo "${MODEL_IDS}" | tr ',' '\n')
+else
+  MODELS=$(kubectl get rayservice "${RAYSERVICE_NAME}" \
+             -o jsonpath='{.spec.serveConfigV2}' \
+           | yq '.applications[] | select(.name == strenv(RAYSERVE_APP)) | .runtime_env.env_vars[strenv(MODELS_VAR)]' - \
+           | tr ',' '\n')
+fi
 
 if [ -z "${MODELS}" ] || [ "${MODELS}" = "null" ]; then
-  echo "No ${MODELS_VAR} for app ${RAYSERVE_APP} in serveConfigV2; nothing to pull."
+  echo "No models configured; nothing to pull."
   exit 0
 fi
+
+# Mistral repos also ship a consolidated.safetensors copy of the weights in
+# Mistral format, which vLLM never reads here.
+read -ra EXTRA_EXCLUDES <<< "${HF_EXCLUDE:-}"
+EXCLUDES=('consolidated*' "${EXTRA_EXCLUDES[@]}")
 
 slug() {
   echo "$1" | tr '[:upper:]/.+_' '[:lower:]----' \
@@ -120,10 +131,15 @@ PY
     echo "Downloading from HuggingFace: ${MODEL_ID}"
     # errexit is off inside this ( ... ) || exit 1 subshell, so a failed
     # download has to stop the push explicitly.
-    # Mistral repos also ship a consolidated.safetensors copy of
-    # the weights in Mistral format, which vLLM never reads here.
-    hf download "${MODEL_ID}" --local-dir "${DEST}" --exclude 'consolidated*' \
+    # The library, not the `hf` CLI: the CLI in Open WebUI's huggingface_hub
+    # exits non-zero after a successful download. Reads HF_TOKEN from the env.
+    python - "${MODEL_ID}" "${DEST}" "${EXCLUDES[@]}" <<'PY' \
       || { echo "ERROR: HF download failed for ${MODEL_ID}" >&2; exit 1; }
+import sys
+from huggingface_hub import snapshot_download
+
+snapshot_download(repo_id=sys.argv[1], local_dir=sys.argv[2], ignore_patterns=sys.argv[3:])
+PY
     pvc_complete || { echo "ERROR: HF download incomplete" >&2; exit 1; }
 
     push_to_harbor || { echo "ERROR: Harbor push failed for ${HARBOR_REF}" >&2; exit 1; }
