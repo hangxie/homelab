@@ -222,18 +222,6 @@ alloy:
         tls_config {
           insecure_skip_verify = true
         }
-        forward_to = [prometheus.relabel.cadvisor.receiver]
-      }
-
-      // The Loki chart names its containers read/write/backend, but the chart's
-      // own resources dashboards select container="loki".
-      prometheus.relabel "cadvisor" {
-        rule {
-          source_labels = ["namespace", "container"]
-          regex         = "loki;(read|write|backend)"
-          target_label  = "container"
-          replacement   = "loki"
-        }
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
@@ -256,18 +244,6 @@ alloy:
         }
         targets    = discovery.kubernetes.ksm.targets
         job_name   = "kube-state-metrics"
-        forward_to = [prometheus.relabel.ksm.receiver]
-      }
-
-      // The Loki resources dashboards match PVCs on label_name=~"loki-write.*",
-      // the `name` label older Loki charts set. Rebuild it as <name>-<component>.
-      prometheus.relabel "ksm" {
-        rule {
-          source_labels = ["__name__", "label_app_kubernetes_io_name", "label_app_kubernetes_io_component"]
-          regex         = "kube_persistentvolumeclaim_labels;(.+);(.+)"
-          target_label  = "label_name"
-          replacement   = "${1}-${2}"
-        }
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
@@ -586,9 +562,9 @@ alloy:
         rule {
           source_labels = ["namespace", "component"]
           separator     = "/"
-          regex         = "(.+)/(read|write|backend)"
+          regex         = "(.+)/single-binary"
           target_label  = "job"
-          replacement   = "$1/loki-$2"
+          replacement   = "$1/loki"
         }
         forward_to = [prometheus.remote_write.mimir.receiver]
       }

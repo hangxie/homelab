@@ -1,4 +1,4 @@
-deploymentMode: SimpleScalable
+deploymentMode: Monolithic
 
 loki:
   auth_enabled: false
@@ -23,43 +23,36 @@ loki:
         object_store: s3
         schema: v13
         index: { prefix: index_, period: 24h }
-  # Delete logs older than 7 days. The compactor (runs in the backend target)
-  # applies retention; delete markers are written to the S3 chunk store.
+  # Delete logs older than 7 days. The compactor applies retention; delete
+  # markers are written to the S3 chunk store.
   limits_config:
     retention_period: 168h
   compactor:
     retention_enabled: true
     delete_request_store: s3
 
-# The write target holds only the ingester WAL and the active index buffer;
-# durable chunks and index land in the S3 chunk store.
+# Monolithic (#276): every pod runs all targets and they share one ring; Loki
+# 4.0 drops SimpleScalable. The PVC holds only the ingester WAL and the active
+# index buffer; durable chunks and index land in S3.
 #
 # replicas must be >= the chart's replication_factor (3) for a node loss to be
 # survivable: quorum is floor(3/2)+1 = 2, so two of three ingesters still hold
-# every stream. At 2 replicas a single write pod going down breaks quorum.
-write:
+# every stream. At 2 replicas a single pod going down breaks quorum.
+singleBinary:
   replicas: 3
   persistence:
     storageClass: rook-ceph-block
     size: 10Gi
   extraEnvFrom:
     - secretRef: { name: loki-s3 }
+  # The chart renders the PDB only with a limit set.
+  podDisruptionBudget:
+    maxUnavailable: 1
 
-read:
-  replicas: 2
-  persistence:
-    storageClass: rook-ceph-block
-    size: 10Gi
-  extraEnvFrom:
-    - secretRef: { name: loki-s3 }
-
-backend:
-  replicas: 2
-  persistence:
-    storageClass: rook-ceph-block
-    size: 10Gi
-  extraEnvFrom:
-    - secretRef: { name: loki-s3 }
+# The chart defaults these SimpleScalable targets to non-zero replicas.
+write: { replicas: 0 }
+read: { replicas: 0 }
+backend: { replicas: 0 }
 
 chunksCache:
   allocatedMemory: 1024
@@ -86,8 +79,9 @@ monitoring:
       grafana_dashboard: "1"
     annotations:
       k8s-sidecar-target-directory: /tmp/dashboards/Loki
-    # The mixin dropped SimpleScalable, so these only know Distributed
-    # components and match none of our read/write/backend pods.
+    # Their single-binary fallback matches only a pod named exactly `loki`
+    # (anchored `pod=~"...|loki"`) and has none for distributor/query-frontend,
+    # so loki-0..2 leave most panels empty. Relabeling pod would merge the three.
     loki-reads-resources:
       enabled: false
     loki-writes-resources:
