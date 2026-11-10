@@ -6,5 +6,6 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
+  - 00-namespace.yaml
   - loki-bucket-bootstrap.yaml
   - loki-s3-externalsecret.yaml

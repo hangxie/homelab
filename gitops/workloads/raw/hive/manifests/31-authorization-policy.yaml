@@ -1,0 +1,38 @@
+# HBONE (15008) carries any inner port, so the CNP's per-port rules can't tell a
+# mesh caller's 9083 from its 9084. ztunnel enforces the same split here. Each
+# rule requires a peer identity (principals "*"), so plaintext callers fall
+# through to the CNP unchanged.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: hive-metastore
+  namespace: hive
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hive-metastore
+  action: DENY
+  rules:
+    # Thrift, unauthenticated: Trino and Spark only.
+    - from:
+        - source:
+            principals: ["*"]
+            notNamespaces: [trino, spark]
+      to:
+        - operation:
+            ports: ["9083"]
+    # JMX metrics: Alloy only.
+    - from:
+        - source:
+            principals: ["*"]
+            notPrincipals: [cluster.local/ns/alloy/sa/alloy]
+      to:
+        - operation:
+            ports: ["9084"]
+    # Everything else, including the catalog servlet on 9001.
+    - from:
+        - source:
+            principals: ["*"]
+      to:
+        - operation:
+            notPorts: ["9083", "9084"]

@@ -12,6 +12,9 @@ spec:
     metadata:
       labels:
         app: spark-history-server
+        # Pod-level, not namespace-level: driver/executor pods here join with the
+        # dynamic-compute phase of #300.
+        istio.io/dataplane-mode: ambient
     spec:
       affinity:
         podAntiAffinity:
