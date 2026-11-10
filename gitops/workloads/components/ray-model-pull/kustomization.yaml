@@ -1,5 +1,6 @@
-# model-pull.sh for the GPU worker init containers of both Ray Serve workloads
-# (raw/ray-vllm, raw/ray-tts): one copy, rendered into each app's namespace.
+# model-pull.sh for the model init containers of the Ray Serve workloads
+# (raw/ray-vllm, raw/ray-tts) and Open WebUI's embedding model
+# (helm/openwebui/extras): one copy, rendered into each app's namespace.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 

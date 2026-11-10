@@ -1,0 +1,27 @@
+# kustomize renders this whole directory: Argo CD switches renderers the moment
+# a kustomization.yaml appears here and stops picking up loose files. A new
+# manifest dropped in this directory is silently ignored until it is listed
+# under `resources:`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: openwebui
+
+resources:
+  - 01-admin-credentials.yaml
+  - 02-route.yaml
+  - 03-bootstrap-admin.yaml
+  - 04-db-credentials.yaml
+  - 05-postgres-superuser-mirror.yaml
+  - 06-s3-obc.yaml
+  - 07-postgres-bootstrap-job.yaml
+  - 08-secret-key.yaml
+  - 09-network-policy.yaml
+  - 10-openai-keys.yaml
+  - 11-oidc-credentials.yaml
+  - 12-model-pull-secrets.yaml
+
+# ray-model-pull ConfigMap with model-pull.sh, mounted by the embedding-model
+# init container in values.yaml.
+components:
+  - ../../../components/ray-model-pull

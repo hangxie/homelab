@@ -106,6 +106,62 @@ extraEnvVars:
       secretKeyRef:
         name: openwebui-data
         key: AWS_SECRET_ACCESS_KEY
+  # RAG embedding model from the model-pull init container below, never the
+  # Hub: OFFLINE_MODE sets HF_HUB_OFFLINE, so any other Hub path (Whisper,
+  # reranker) fails instead of downloading anonymously. A path that exists is
+  # loaded as-is. Saving RAG settings in the admin UI persists them over this.
+  - name: RAG_EMBEDDING_MODEL
+    value: /mnt/models/sentence-transformers/all-MiniLM-L6-v2
+  - name: OFFLINE_MODE
+    value: "true"
+
+# Embedding model: Harbor cache first, HuggingFace (with the token) only to
+# seed Harbor, the same script as raw/ray-vllm and raw/ray-tts
+# (components/ray-model-pull, rendered by extras/kustomization.yaml). emptyDir
+# rather than a PVC: the trimmed model is ~91 MB and pulls in seconds.
+extraInitContainers:
+  - name: oras-installer
+    image: ghcr.io/oras-project/oras:v1.2.2
+    command: [sh, -ceu, "cp /bin/oras /shared/oras"]
+    volumeMounts:
+      - { name: shared-bin, mountPath: /shared }
+  - name: model-pull
+    image: ghcr.io/open-webui/open-webui:0.9.6
+    env:
+      - { name: HARBOR_REGISTRY,              value: media.xiehang.com }
+      - { name: HARBOR_PROJECT,               value: llm-models }
+      - { name: HF_HUB_DISABLE_PROGRESS_BARS, value: "1" }
+      - { name: MODEL_IDS,                    value: sentence-transformers/all-MiniLM-L6-v2 }
+      # The repo also ships ONNX, OpenVINO, TF, Rust and .bin copies (~750 MB)
+      # that sentence-transformers never loads here.
+      - { name: HF_EXCLUDE, value: "onnx/* openvino/* *.h5 *.ot pytorch_model.bin train_script.py data_config.json" }
+      - name: HF_TOKEN
+        valueFrom: { secretKeyRef: { name: hf-token, key: token } }
+      - name: HARBOR_USERNAME
+        valueFrom: { secretKeyRef: { name: harbor-credentials, key: username } }
+      - name: HARBOR_PASSWORD
+        valueFrom: { secretKeyRef: { name: harbor-credentials, key: password } }
+    command: [bash, /scripts/model-pull.sh]
+    volumeMounts:
+      - { name: model-pull, mountPath: /scripts/model-pull.sh, subPath: model-pull.sh }
+      - { name: models,     mountPath: /mnt/models }
+      - { name: shared-bin, mountPath: /shared }
+
+volumes:
+  - { name: model-pull, configMap: { name: ray-model-pull } }
+  - { name: models,     emptyDir: { sizeLimit: 1Gi } }
+  - { name: shared-bin, emptyDir: {} }
+
+volumeMounts:
+  container:
+    - { name: models, mountPath: /mnt/models, readOnly: true }
+
+# Without it pods are Ready ~1 min before the app serves.
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 5
 
 affinity:
   podAntiAffinity:
