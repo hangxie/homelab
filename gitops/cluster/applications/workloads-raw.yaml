@@ -22,8 +22,8 @@ spec:
           # Ray Serve on the GPU node; both want its two cards, so enable one
           # at a time. Their model and compile-cache PVCs are Delete=false and
           # survive a disable, so switching back starts warm.
-          # - name: ray-vllm
-          - name: ray-tts
+          - name: ray-vllm
+          # - name: ray-tts
   template:
     metadata:
       name: 'wl-{{ .name }}'
