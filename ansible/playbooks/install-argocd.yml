@@ -43,6 +43,11 @@
             replicas: 1
             ingress:
               enabled: false
+          # Same pin as gitops/platform/argocd/values.yaml, through the Harbor mirror.
+          redis:
+            image:
+              repository: docker.io/library/redis
+              tag: 8.2.3-alpine@sha256:08ad0b1d280850169a790dba1393ff7a90aef951fc19632cf4d3ce4f78e679ba
         wait: true
         timeout: 600s
       when: "'argocd' not in (argocd_release_check.stdout_lines | default([]))"
