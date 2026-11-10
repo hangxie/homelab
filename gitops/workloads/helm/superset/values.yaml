@@ -1,9 +1,9 @@
 # The chart default (apachesuperset.docker.scarf.sh, a download-tracking
-# redirect) is not a containerd mirror, so it bypassed the Harbor proxy cache.
-# Same index digest on docker.io; the digest pin keeps a retag from changing it.
+# redirect) is not a containerd mirror, so it bypassed the Harbor proxy cache;
+# docker.io serves the same image.
 image:
   repository: docker.io/apache/superset
-  tag: 5.0.0@sha256:09735adaae3945c5a8fabbeca31a7954c8c74de195702ba61622aee8604d5c55
+  tag: 5.0.0
 
 postgresql:
   enabled: false
