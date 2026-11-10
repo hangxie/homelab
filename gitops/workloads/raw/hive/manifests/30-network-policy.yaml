@@ -23,6 +23,27 @@ spec:
         - ports:
             - port: "9083"
               protocol: TCP
+    # Ambient: mesh callers arrive as HBONE on 15008, which carries any inner port,
+    # so admit only the callers above; 31-authorization-policy.yaml restores the
+    # per-port split for them. Kubelet's TCP probes on 9083 come from the
+    # same-node SNAT address (README "Istio Ambient").
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: trino
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: spark
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: alloy
+            app.kubernetes.io/name: alloy
+      toPorts:
+        - ports:
+            - port: "15008"
+              protocol: TCP
+    - fromCIDR: [169.254.7.127/32]
+      toPorts:
+        - ports:
+            - port: "9083"
+              protocol: TCP
     # 9084 JMX, scraped by Alloy off the hive-metastore-metrics Service.
     - fromEndpoints:
         - matchLabels:

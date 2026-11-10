@@ -1,0 +1,11 @@
+# Enrolled in Istio Ambient (#300 phase 1). Restart the StatefulSet after any
+# change to this label (README "Istio Ambient").
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hive
+  labels:
+    istio.io/dataplane-mode: ambient
+  annotations:
+    # Pruning this would delete the metastore with it.
+    argocd.argoproj.io/sync-options: Prune=confirm,Delete=confirm
