@@ -7,13 +7,12 @@ global:
   domain: argocd.homelab.xiehang.com
 
 # The chart default (ecr-public.aws.com) is not a containerd mirror, so it
-# bypassed the Harbor proxy cache. Same index digest on docker.io; the digest
-# pin keeps a retag in either registry from changing it. Keep in step with
-# ansible/playbooks/install-argocd.yml.
+# bypassed the Harbor proxy cache; docker.io serves the same image. Keep in
+# step with ansible/playbooks/install-argocd.yml.
 redis:
   image:
     repository: docker.io/library/redis
-    tag: 8.2.3-alpine@sha256:08ad0b1d280850169a790dba1393ff7a90aef951fc19632cf4d3ce4f78e679ba
+    tag: 8.2.3-alpine
 
 configs:
   params:
