@@ -39,12 +39,15 @@ if [[ -z "$PSQL_IMAGE" ]]; then
 fi
 
 CONTAINER=$(jq -nc --arg host "$PSQL_HOST" '{
+    volumeMounts: [{name: "postgres-ca", mountPath: "/etc/postgres-ca", readOnly: true}],
     env: [
         { name: "PGHOST", value: $host },
+        { name: "PGSSLMODE", value: "verify-full" },
+        { name: "PGSSLROOTCERT", value: "/etc/postgres-ca/ca.crt" },
         { name: "PGUSER", valueFrom: { secretKeyRef: { name: "postgres-cluster-superuser", key: "username" } } },
         { name: "PGPASSWORD", valueFrom: { secretKeyRef: { name: "postgres-cluster-superuser", key: "password" } } }
     ]
 }')
 
-oneshot_run "$PSQL_NAMESPACE" psql "$PSQL_IMAGE" 'exec psql "$@"' "$CONTAINER" '[]' "$@"
+oneshot_run "$PSQL_NAMESPACE" psql "$PSQL_IMAGE" 'exec psql "$@"' "$CONTAINER" '[{"name":"postgres-ca","configMap":{"name":"postgres-server-ca","items":[{"key":"ca.crt","path":"ca.crt"}]}}]' "$@"
 exit $?

@@ -26,12 +26,15 @@ coordinator:
       port: 9087
       protocol: TCP
   additionalVolumes:
+    - name: postgres-ca
+      configMap: { name: postgres-server-ca }
     - name: jmx-agent
       emptyDir: {}
     - name: jmx-config
       configMap:
         name: trino-jmx-config
   additionalVolumeMounts:
+    - { name: postgres-ca, mountPath: /etc/postgres-ca, readOnly: true }
     - name: jmx-agent
       mountPath: /jmx/agent
     - name: jmx-config
@@ -55,12 +58,15 @@ worker:
       port: 9087
       protocol: TCP
   additionalVolumes:
+    - name: postgres-ca
+      configMap: { name: postgres-server-ca }
     - name: jmx-agent
       emptyDir: {}
     - name: jmx-config
       configMap:
         name: trino-jmx-config
   additionalVolumeMounts:
+    - { name: postgres-ca, mountPath: /etc/postgres-ca, readOnly: true }
     - name: jmx-agent
       mountPath: /jmx/agent
     - name: jmx-config
@@ -133,32 +139,32 @@ additionalCatalogs:
     clickhouse.map-string-as-varchar=true
   postgres_airflow: |
     connector.name=postgresql
-    connection-url=jdbc:postgresql://postgres-cluster-pooler-ro.postgres-cluster.svc:5432/airflow
+    connection-url=jdbc:postgresql://postgres-cluster-pooler-ro.postgres-cluster.svc:5432/airflow?sslmode=verify-full&sslrootcert=/etc/postgres-ca/ca.crt
     connection-user=${ENV:POSTGRES_USER}
     connection-password=${ENV:POSTGRES_PASSWORD}
   postgres_grafana: |
     connector.name=postgresql
-    connection-url=jdbc:postgresql://postgres-cluster-pooler-ro.postgres-cluster.svc:5432/grafana
+    connection-url=jdbc:postgresql://postgres-cluster-pooler-ro.postgres-cluster.svc:5432/grafana?sslmode=verify-full&sslrootcert=/etc/postgres-ca/ca.crt
     connection-user=${ENV:POSTGRES_USER}
     connection-password=${ENV:POSTGRES_PASSWORD}
   postgres_hive: |
     connector.name=postgresql
-    connection-url=jdbc:postgresql://postgres-cluster-pooler-ro.postgres-cluster.svc:5432/hive
+    connection-url=jdbc:postgresql://postgres-cluster-pooler-ro.postgres-cluster.svc:5432/hive?sslmode=verify-full&sslrootcert=/etc/postgres-ca/ca.crt
     connection-user=${ENV:POSTGRES_USER}
     connection-password=${ENV:POSTGRES_PASSWORD}
   postgres_jupyterhub: |
     connector.name=postgresql
-    connection-url=jdbc:postgresql://postgres-cluster-pooler-ro.postgres-cluster.svc:5432/jupyterhub
+    connection-url=jdbc:postgresql://postgres-cluster-pooler-ro.postgres-cluster.svc:5432/jupyterhub?sslmode=verify-full&sslrootcert=/etc/postgres-ca/ca.crt
     connection-user=${ENV:POSTGRES_USER}
     connection-password=${ENV:POSTGRES_PASSWORD}
   postgres_openwebui: |
     connector.name=postgresql
-    connection-url=jdbc:postgresql://postgres-cluster-pooler-ro.postgres-cluster.svc:5432/openwebui
+    connection-url=jdbc:postgresql://postgres-cluster-pooler-ro.postgres-cluster.svc:5432/openwebui?sslmode=verify-full&sslrootcert=/etc/postgres-ca/ca.crt
     connection-user=${ENV:POSTGRES_USER}
     connection-password=${ENV:POSTGRES_PASSWORD}
   postgres_superset: |
     connector.name=postgresql
-    connection-url=jdbc:postgresql://postgres-cluster-pooler-ro.postgres-cluster.svc:5432/superset
+    connection-url=jdbc:postgresql://postgres-cluster-pooler-ro.postgres-cluster.svc:5432/superset?sslmode=verify-full&sslrootcert=/etc/postgres-ca/ca.crt
     connection-user=${ENV:POSTGRES_USER}
     connection-password=${ENV:POSTGRES_PASSWORD}
 

@@ -96,7 +96,7 @@ spec:
                 <property><name>metastore.catalog.servlet.port</name><value>9001</value></property>
                 <property><name>metastore.catalog.servlet.auth</name><value>none</value></property>
                 <property><name>javax.jdo.option.ConnectionDriverName</name><value>org.postgresql.Driver</value></property>
-                <property><name>javax.jdo.option.ConnectionURL</name><value>jdbc:postgresql://postgres-cluster-pooler-rw.postgres-cluster.svc:5432/hive</value></property>
+                <property><name>javax.jdo.option.ConnectionURL</name><value>jdbc:postgresql://postgres-cluster-pooler-rw.postgres-cluster.svc:5432/hive?sslmode=verify-full&amp;sslrootcert=/etc/postgres-ca/ca.crt</value></property>
                 <property><name>javax.jdo.option.ConnectionUserName</name><value>${DB_USERNAME}</value></property>
                 <property><name>javax.jdo.option.ConnectionPassword</name><value>${DB_PASSWORD}</value></property>
                 <property><name>datanucleus.connectionPool.maxPoolSize</name><value>10</value></property>
@@ -156,12 +156,15 @@ spec:
             requests: { cpu: 250m, memory: 1Gi }
             limits:   { cpu: "1",  memory: 2Gi }
           volumeMounts:
+            - { name: postgres-ca, mountPath: /etc/postgres-ca, readOnly: true }
             - { name: auxlib, mountPath: /opt/hive/auxlib }
             - { name: conf,   mountPath: /hive-custom-conf }
             - name: jmx-config
               mountPath: /jmx/config.yaml
               subPath: config.yaml
       volumes:
+        - name: postgres-ca
+          configMap: { name: postgres-server-ca }
         - name: auxlib
           emptyDir: {}
         - name: conf

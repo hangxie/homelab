@@ -21,11 +21,13 @@ zitadel:
         User:
           Username: zitadel
           SSL:
-            Mode: prefer
+            Mode: verify-full
+            RootCert: /etc/postgres-ca/ca.crt
         Admin:
           Username: zitadel
           SSL:
-            Mode: prefer
+            Mode: verify-full
+            RootCert: /etc/postgres-ca/ca.crt
     FirstInstance:
       Org:
         Name: homelab
@@ -127,3 +129,13 @@ gateway:
     paths:
       - path: /
         pathType: PathPrefix
+
+extraVolumes:
+  - name: postgres-ca
+    configMap:
+      name: postgres-server-ca
+
+extraVolumeMounts:
+  - name: postgres-ca
+    mountPath: /etc/postgres-ca
+    readOnly: true

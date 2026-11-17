@@ -12,10 +12,17 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
+      volumes:
+        - name: postgres-ca
+          configMap: { name: postgres-server-ca }
       containers:
         - name: psql
           image: postgres:18
+          volumeMounts:
+            - { name: postgres-ca, mountPath: /etc/postgres-ca, readOnly: true }
           env:
+            - { name: PGSSLMODE, value: verify-full }
+            - { name: PGSSLROOTCERT, value: /etc/postgres-ca/ca.crt }
             - name: PGPASSWORD
               valueFrom: { secretKeyRef: { name: postgres-superuser, key: password } }
             - name: SUPERSET_PASSWORD

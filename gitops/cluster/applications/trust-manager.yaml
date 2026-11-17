@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: trust-manager
+  namespace: argocd
+  annotations:
+    # The trust source namespace is created by postgres-cluster (620).
+    argocd.argoproj.io/sync-wave: "630"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://charts.jetstack.io
+      chart: trust-manager
+      targetRevision: v0.26.0
+      helm:
+        releaseName: trust-manager
+        valueFiles:
+          - $values/gitops/platform/trust-manager/values.yaml
+    - repoURL: https://github.com/hangxie/homelab.git
+      targetRevision: main
+      ref: values
+    - repoURL: https://github.com/hangxie/homelab.git
+      targetRevision: main
+      path: gitops/platform/trust-manager/config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

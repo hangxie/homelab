@@ -1,0 +1,50 @@
+# CNPG remains the CA owner. Only the certificate is distributed.
+replicaCount: 2
+
+crds:
+  enabled: true
+  keep: true
+
+# This bundle trusts only the private PostgreSQL CA, with no internet roots.
+defaultPackage:
+  enabled: false
+
+secretTargets:
+  enabled: false
+
+app:
+  trust:
+    namespace: postgres-cluster
+  # Scope target caches and ConfigMap permissions to database clients.
+  # Applications create these namespaces; Argo retries missing Role targets
+  # during a fresh bootstrap until those namespaces exist.
+  targetNamespaces:
+    - postgres-cluster
+    - grafana
+    - zitadel
+    - airflow
+    - jupyter
+    - openwebui
+    - superset
+    - trino
+    - hive
+    - dbeaver
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: trust-manager
+        topologyKey: kubernetes.io/hostname

@@ -148,12 +148,16 @@ extraInitContainers:
       - { name: shared-bin, mountPath: /shared }
 
 volumes:
+  - name: postgres-ca
+    configMap:
+      name: postgres-server-ca
   - { name: model-pull, configMap: { name: ray-model-pull } }
   - { name: models,     emptyDir: { sizeLimit: 1Gi } }
   - { name: shared-bin, emptyDir: {} }
 
 volumeMounts:
   container:
+    - { name: postgres-ca, mountPath: /etc/postgres-ca, readOnly: true }
     - { name: models, mountPath: /mnt/models, readOnly: true }
 
 # Without it pods are Ready ~1 min before the app serves.

@@ -68,12 +68,15 @@ spec:
               valueFrom:
                 secretKeyRef: { name: cloudbeaver-admin, key: password }
           volumeMounts:
+            - { name: postgres-ca, mountPath: /etc/postgres-ca, readOnly: true }
             - { name: data, mountPath: /opt/cloudbeaver/workspace }
             - name: data-sources
               mountPath: /opt/cloudbeaver/workspace/GlobalConfiguration/.dbeaver/data-sources-homelab.json
               subPath: data-sources-homelab.json
               readOnly: true
       volumes:
+        - name: postgres-ca
+          configMap: { name: postgres-server-ca }
         - name: data
           persistentVolumeClaim:
             claimName: cloudbeaver

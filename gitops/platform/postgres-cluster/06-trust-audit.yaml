@@ -1,0 +1,151 @@
+# Audit results use Job status and existing kube-state-metrics.
+# Only public CA data and replica inventory are readable through the API.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-trust-audit
+  namespace: postgres-cluster
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: postgres-trust-audit
+  namespace: postgres-cluster
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - list
+  - apiGroups:
+      - postgresql.cnpg.io
+    resources:
+      - clusters
+    resourceNames:
+      - postgres-cluster
+    verbs:
+      - get
+  - apiGroups:
+      - postgresql.cnpg.io
+    resources:
+      - poolers
+    resourceNames:
+      - postgres-cluster-pooler-rw
+      - postgres-cluster-pooler-ro
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: postgres-trust-audit
+  namespace: postgres-cluster
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: postgres-trust-audit
+subjects:
+  - kind: ServiceAccount
+    name: postgres-trust-audit
+    namespace: postgres-cluster
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: postgres-trust-audit
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - configmaps
+    resourceNames:
+      - postgres-server-ca
+    verbs:
+      - get
+  - apiGroups:
+      - trust.cert-manager.io
+    resources:
+      - bundles
+    resourceNames:
+      - postgres-server-ca
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: postgres-trust-audit
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: postgres-trust-audit
+subjects:
+  - kind: ServiceAccount
+    name: postgres-trust-audit
+    namespace: postgres-cluster
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-trust-audit
+  namespace: postgres-cluster
+spec:
+  schedule: '*/5 * * * *'
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 120
+      ttlSecondsAfterFinished: 600
+      template:
+        spec:
+          serviceAccountName: postgres-trust-audit
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: audit
+              image: python:3.13-alpine
+              command:
+                - python3
+                - /audit/trust-audit.py
+              env:
+                - name: PYTHONDONTWRITEBYTECODE
+                  value: '1'
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 64Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: script
+                  mountPath: /audit
+                  readOnly: true
+                - name: source
+                  mountPath: /source
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: postgres-trust-audit
+            - name: source
+              secret:
+                secretName: postgres-cluster-ca
+                items:
+                  - key: ca.crt
+                    path: ca.crt

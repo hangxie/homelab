@@ -1,0 +1,41 @@
+modules:
+  postgres_rw:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      starttls: postgres
+    tls_config:
+      ca_file: /ca/ca.crt
+      server_name: postgres-cluster-rw.postgres-cluster.svc
+  postgres_ro:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      starttls: postgres
+    tls_config:
+      ca_file: /ca/ca.crt
+      server_name: postgres-cluster-ro.postgres-cluster.svc
+  pooler_rw:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      starttls: postgres
+    tls_config:
+      ca_file: /ca/ca.crt
+      server_name: postgres-cluster-pooler-rw.postgres-cluster.svc
+  pooler_ro:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      starttls: postgres
+    tls_config:
+      ca_file: /ca/ca.crt
+      server_name: postgres-cluster-pooler-ro.postgres-cluster.svc
+  source:
+    prober: file
+    target: /source/tls.crt
+    timeout: 5s
+  ca:
+    prober: file
+    target: /ca/ca.crt
+    timeout: 5s

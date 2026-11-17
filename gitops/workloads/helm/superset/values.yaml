@@ -65,6 +65,20 @@ supersetWebsockets:
   config:
     jwtSecret: "6hJgm-mULfdzcq1T-1Vl-3R-jPe194jb"
 
+extraEnv:
+  PGSSLMODE: verify-full
+  PGSSLROOTCERT: /etc/postgres-ca/ca.crt
+
+extraVolumes:
+  - name: postgres-ca
+    configMap:
+      name: postgres-server-ca
+
+extraVolumeMounts:
+  - name: postgres-ca
+    mountPath: /etc/postgres-ca
+    readOnly: true
+
 extraEnvRaw:
   - name: SUPERSET_SECRET_KEY
     valueFrom:

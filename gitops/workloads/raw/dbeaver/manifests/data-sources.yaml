@@ -1,6 +1,7 @@
 # Shared CloudBeaver connections, mounted next to the workspace's own
 # data-sources.json: DBeaver loads every data-sources*.json in that directory,
 # so these appear for every user while UI-made connections stay in the PVC.
+# PostgreSQL stays direct for administrative session semantics.
 # No credentials here; CloudBeaver prompts on connect. Read-only mount, so
 # change these in Git (and restart the pod), not in the UI.
 apiVersion: v1
@@ -25,7 +26,7 @@ data:
             "host": "postgres-cluster-rw.postgres-cluster.svc",
             "port": "5432",
             "database": "postgres",
-            "url": "jdbc:postgresql://postgres-cluster-rw.postgres-cluster.svc:5432/postgres",
+            "url": "jdbc:postgresql://postgres-cluster-rw.postgres-cluster.svc:5432/postgres?sslmode=verify-full&sslrootcert=/etc/postgres-ca/ca.crt",
             "configurationType": "MANUAL",
             "type": "dev",
             "auth-model": "native",
