@@ -46,6 +46,8 @@ spec:
             - --http-address=0.0.0.0:4180
             # Envoy HTTP ext_authz allows only 200; 202 is returned to the browser.
             - --upstream=static://200
+            # X-Auth-Request-Email on the 200; routes pass only it (allowedResponseHeaders) to the app.
+            - --set-xauthrequest=true
             - --cookie-name=__Host-oauth2-proxy
             - --cookie-secure=true
             - --cookie-httponly=true

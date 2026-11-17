@@ -1,0 +1,17 @@
+# Only the Gateway may reach CloudBeaver; otherwise any pod could skip the
+# shared login by calling the Service directly.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cloudbeaver-ingress
+  namespace: dbeaver
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudbeaver
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - { port: "8978", protocol: TCP }

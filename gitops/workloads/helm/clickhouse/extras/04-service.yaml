@@ -41,6 +41,19 @@ spec:
   hostnames:
     - "clickhouse.homelab.xiehang.com"
   rules:
-    - backendRefs:
+    # Shared login (gitops/platform/oauth2-proxy): every request is checked first.
+    - filters:
+        - type: ExternalAuth
+          externalAuth:
+            protocol: HTTP
+            backendRef:
+              name: oauth2-proxy
+              namespace: oauth2-proxy
+              port: 4180
+            http:
+              allowedHeaders: [cookie, x-forwarded-proto, x-forwarded-host]
+              # Unset means every auth-reply header (Content-Type too) overwrites the request.
+              allowedResponseHeaders: [x-auth-request-email]
+      backendRefs:
         - name: clickhouse
           port: 8123
