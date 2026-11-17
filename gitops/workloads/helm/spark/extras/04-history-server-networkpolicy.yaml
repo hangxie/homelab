@@ -1,0 +1,17 @@
+# Only the Gateway may reach the history server; otherwise any pod could skip
+# the shared login by calling the Service directly.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: spark-history-server-ingress
+  namespace: spark
+spec:
+  endpointSelector:
+    matchLabels:
+      app: spark-history-server
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - { port: "18080", protocol: TCP }

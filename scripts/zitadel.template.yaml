@@ -88,7 +88,15 @@ clients:
   # Shared login for apps without OIDC (gitops/platform/oauth2-proxy): one
   # callback per host behind it.
   - name: oauth2-proxy
-    redirectUris: [https://hubble.homelab.xiehang.com/oauth2/callback]
+    redirectUris:
+      - https://hubble.homelab.xiehang.com/oauth2/callback
+      - https://alloy.homelab.xiehang.com/oauth2/callback
+      - https://hdfs.homelab.xiehang.com/oauth2/callback
+      - https://spark-history.homelab.xiehang.com/oauth2/callback
+      - https://ray-dashboard.homelab.xiehang.com/oauth2/callback
+      - https://ray-tts-dashboard.homelab.xiehang.com/oauth2/callback
+      - https://clickhouse.homelab.xiehang.com/oauth2/callback
+      - https://dbeaver.homelab.xiehang.com/oauth2/callback
 
 # API clients: no login, only token introspection with client id/secret (basic
 # auth, no JWT key). Written to Vault oidc/<name> like the clients above.

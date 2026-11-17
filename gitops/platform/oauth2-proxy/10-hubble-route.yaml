@@ -26,6 +26,8 @@ spec:
             # Content-Length and Authorization unless told otherwise.
             http:
               allowedHeaders: [cookie, x-forwarded-proto, x-forwarded-host]
+              # Unset means every auth-reply header (Content-Type too) overwrites the request.
+              allowedResponseHeaders: [x-auth-request-email]
       backendRefs:
         - name: hubble-ui
           port: 80

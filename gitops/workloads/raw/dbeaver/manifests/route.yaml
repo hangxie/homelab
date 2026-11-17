@@ -11,6 +11,27 @@ spec:
   hostnames:
     - "dbeaver.homelab.xiehang.com"
   rules:
-    - backendRefs:
+    # Shared login (gitops/platform/oauth2-proxy): every request is checked first.
+    - filters:
+        - type: ExternalAuth
+          externalAuth:
+            protocol: HTTP
+            backendRef:
+              name: oauth2-proxy
+              namespace: oauth2-proxy
+              port: 4180
+            http:
+              allowedHeaders: [cookie, x-forwarded-proto, x-forwarded-host]
+              # Unset means every auth-reply header (Content-Type too) overwrites the request.
+              allowedResponseHeaders: [x-auth-request-email]
+        # CloudBeaver signs in X-Auth-Request-Email (see dbeaver.yaml) into the
+        # teams in X-Team. The proxy admits only the Zitadel admin role, so
+        # everyone here is admin; `set` also drops a client-sent X-Team.
+        # Zitadel's own groups cannot be passed: an unknown team fails the login.
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            set:
+              - { name: X-Team, value: admin }
+      backendRefs:
         - name: cloudbeaver
           port: 80

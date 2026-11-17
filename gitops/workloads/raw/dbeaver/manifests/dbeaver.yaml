@@ -18,6 +18,38 @@ spec:
       labels:
         app.kubernetes.io/name: cloudbeaver
     spec:
+      # SSO: trust the user from the shared OAuth2 Proxy (X-Auth-Request-Email,
+      # set by the Gateway, which overwrites any client copy). The setting lives
+      # in the runtime config on the PVC, which CloudBeaver rewrites itself, so
+      # patch it on every start. A fresh workspace gets it on the second start.
+      initContainers:
+        - name: enable-sso
+          image: python:3.13-alpine
+          command: [python3, -c]
+          args:
+            - |
+              import json, os, sys
+              p = "/workspace/.data/.cloudbeaver.runtime.conf"
+              if not os.path.exists(p):
+                  print("no runtime config yet; SSO applies after the next restart")
+                  sys.exit(0)
+              conf = json.load(open(p))
+              app = conf.setdefault("app", {})
+              app["enableReverseProxyAuth"] = True
+              app["enabledAuthProviders"] = ["local", "reverseProxy"]
+              app["authConfigurations"] = [{
+                  "id": "zitadel",
+                  "provider": "reverseProxy",
+                  "displayName": "Zitadel",
+                  "disabled": False,
+                  "parameters": {
+                      "user-header": "X-Auth-Request-Email",
+                      "logout-url": "https://dbeaver.homelab.xiehang.com/oauth2/sign_out",
+                  },
+              }]
+              json.dump(conf, open(p, "w"), indent=2)
+          volumeMounts:
+            - { name: data, mountPath: /workspace }
       containers:
         - name: cloudbeaver
           image: dbeaver/cloudbeaver:24.3.0
