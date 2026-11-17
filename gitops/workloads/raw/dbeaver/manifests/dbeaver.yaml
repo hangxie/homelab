@@ -21,19 +21,19 @@ spec:
       # SSO: trust the user from the shared OAuth2 Proxy (X-Auth-Request-Email,
       # set by the Gateway, which overwrites any client copy). The setting lives
       # in the runtime config on the PVC, which CloudBeaver rewrites itself, so
-      # patch it on every start. A fresh workspace gets it on the second start.
+      # patch it on every start. On a fresh workspace, write just these keys:
+      # CloudBeaver merges the file over conf/cloudbeaver.conf, and CB_SERVER_NAME
+      # keeps it out of the setup wizard.
       initContainers:
         - name: enable-sso
           image: python:3.13-alpine
           command: [python3, -c]
           args:
             - |
-              import json, os, sys
+              import json, os
               p = "/workspace/.data/.cloudbeaver.runtime.conf"
-              if not os.path.exists(p):
-                  print("no runtime config yet; SSO applies after the next restart")
-                  sys.exit(0)
-              conf = json.load(open(p))
+              os.makedirs(os.path.dirname(p), exist_ok=True)
+              conf = json.load(open(p)) if os.path.exists(p) else {}
               app = conf.setdefault("app", {})
               app["enableReverseProxyAuth"] = True
               app["enabledAuthProviders"] = ["local", "reverseProxy"]
