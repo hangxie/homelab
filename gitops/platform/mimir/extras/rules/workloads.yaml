@@ -921,3 +921,98 @@ groups:
         annotations:
           summary: "Ray worker processes are failing to start"
           description: "Ray recorded {{ printf \"%.0f\" $value }} failed worker startups in the last 15 minutes."
+
+  - name: postgres-tls
+    interval: 1m
+    rules:
+      - record: postgres_tls:served_source_mismatch
+        expr: |
+          (ssl_cert_not_after{job="postgres-tls"}
+          unless on (serial_no, issuer_cn) ssl_file_cert_not_after{job="postgres-tls-files",tls_source="server"}) > bool 0
+      - record: postgres_tls:ca_not_after
+        expr: min(ssl_file_cert_not_after{job="postgres-tls-files",tls_source="ca"})
+      - alert: PostgresTLSProbeFailed
+        expr: ssl_probe_success{job=~"postgres-tls(-files)?"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: PostgreSQL certificate verification failed
+          description: '{{ $labels.instance }} failed its TLS or certificate-file probe. Check CA distribution, hostname, expiry and endpoint health.'
+      - alert: PostgresTLSMonitoringUnavailable
+        expr: up{job=~"postgres-tls(-files)?"} == 0 or absent(up{job="postgres-tls"}) or absent(up{job="postgres-tls-files"})
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: PostgreSQL TLS monitoring is unavailable
+          description: The exporter or Alloy scrape is missing or failing. Restore monitoring before relying on certificate health.
+      - alert: PostgresTLSServiceCoverageMissing
+        expr: |
+          (count(ssl_probe_success{job="postgres-tls",target_kind="service"})
+          or vector(0)) < 4
+          or (count(ssl_probe_success{job="postgres-tls-files"})
+          or vector(0)) < 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: PostgreSQL TLS probes are missing
+          description: Expected all four database/pooler Services and both public certificate-file probes.
+      - alert: PostgresTLSPodCoverageMissing
+        expr: |
+          label_replace(max by (pod) (kube_pod_owner{namespace="postgres-cluster",owner_kind="Cluster",owner_name="postgres-cluster"}
+          or kube_pod_owner{namespace="postgres-cluster",owner_kind="ReplicaSet",owner_name=~"postgres-cluster-pooler-(rw|ro)-.*"}), "instance", "pod/$1", "pod", "(.+)")
+          unless on (instance) ssl_probe_success{job="postgres-tls",target_kind="pod"}
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: A PostgreSQL TLS pod probe is missing
+          description: '{{ $labels.pod }} exists but has no served-certificate probe. Check pod readiness and Alloy discovery; the trust audit also checks desired replica counts.'
+      - alert: PostgresTLSCertificateExpiring
+        expr: |
+          (min by (job, instance, tls_source, tls_module, target_kind) (
+            ssl_cert_not_after{job="postgres-tls"}
+            or ssl_verified_cert_not_after{job="postgres-tls"}
+            or ssl_file_cert_not_after{job="postgres-tls-files"}
+          ) - time()) < 5 * 86400
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: PostgreSQL certificate is approaching expiry
+          description: '{{ $labels.instance }} has a certificate with under 5 day(s) remaining. Inspect actual listeners; reconcile both Poolers if CNPG renewed their source certificate.'
+      - alert: PostgresTLSCertificateExpiring
+        expr: |
+          (min by (job, instance, tls_source, tls_module, target_kind) (
+            ssl_cert_not_after{job="postgres-tls"}
+            or ssl_verified_cert_not_after{job="postgres-tls"}
+            or ssl_file_cert_not_after{job="postgres-tls-files"}
+          ) - time()) < 1 * 86400
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: PostgreSQL certificate is approaching expiry
+          description: '{{ $labels.instance }} has a certificate with under 1 day(s) remaining. Inspect actual listeners; reconcile both Poolers if CNPG renewed their source certificate.'
+      - alert: PostgresTLSCARenewed
+        expr: changes(postgres_tls:ca_not_after[24h]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: PostgreSQL CA certificate changed
+          description: Confirm the trust audit succeeds, mounted CA files update and cached-trust clients restart before the previous CA certificate expires. This reminder clears after 24 hours.
+      - alert: PostgresTrustAuditStale
+        expr: |
+          (time() - max by (namespace, cronjob) (kube_cronjob_status_last_successful_time{namespace="postgres-cluster",cronjob="postgres-trust-audit"}) > 900)
+          or (max by (namespace, cronjob) (kube_cronjob_info{namespace="postgres-cluster",cronjob="postgres-trust-audit"})
+          unless on (namespace, cronjob) kube_cronjob_status_last_successful_time{namespace="postgres-cluster",cronjob="postgres-trust-audit"})
+          or absent(kube_cronjob_info{namespace="postgres-cluster",cronjob="postgres-trust-audit"})
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: PostgreSQL trust audit has no recent success
+          description: No successful trust/replica audit within 15 minutes, or the CronJob is missing/has never succeeded. Inspect postgres-trust-audit Job logs for namespace fingerprints and replica counts; check scheduling and kube-state-metrics.

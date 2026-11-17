@@ -44,7 +44,8 @@ grafana.ini:
     # Behind the transaction-mode pooler, lib/pq must send Parse/Bind/Execute
     # in one sync, or the unnamed statement lands on another server conn.
     url: postgres://$__env{GF_DATABASE_USER}:$__env{GF_DATABASE_PASSWORD}@postgres-cluster-pooler-rw.postgres-cluster.svc:5432/grafana?binary_parameters=yes
-    ssl_mode: disable
+    ssl_mode: verify-full
+    ca_cert_path: /etc/postgres-ca/ca.crt
   # Cap annotation history (incl. alert state-change annotations) at 7 days.
   # Grafana keeps annotations forever by default; its periodic cleanup job
   # deletes anything older than max_age.
@@ -257,3 +258,13 @@ dashboards:
     trino:
       gnetId: 14845
       datasource: Mimir
+
+extraVolumes:
+  - name: postgres-ca
+    configMap:
+      name: postgres-server-ca
+
+extraVolumeMounts:
+  - name: postgres-ca
+    mountPath: /etc/postgres-ca
+    readOnly: true

@@ -1,0 +1,144 @@
+rule_files:
+- ../../gitops/platform/mimir/extras/rules/workloads.yaml
+evaluation_interval: 1m
+tests:
+- name: older valid leaf is informational, not an expiry or verification alert
+  interval: 1m
+  input_series:
+  - series: ssl_cert_not_after{job="postgres-tls",instance="pod/pooler-1",serial_no="old",issuer_cn="CA"}
+    values: 7776000+0x25
+  - series: ssl_file_cert_not_after{job="postgres-tls-files",tls_source="server",serial_no="new",issuer_cn="CA"}
+    values: 15552000+0x25
+  promql_expr_test:
+  - expr: count(postgres_tls:served_source_mismatch) or vector(0)
+    eval_time: 11m
+    exp_samples:
+    - labels: '{}'
+      value: 1
+  - expr: count(ALERTS{alertname="PostgresTLSCertificateExpiring",alertstate="firing"}) or vector(0)
+    eval_time: 11m
+    exp_samples:
+    - labels: '{}'
+      value: 0
+  - expr: count(ALERTS{alertname="PostgresTLSProbeFailed",alertstate="firing"}) or vector(0)
+    eval_time: 11m
+    exp_samples:
+    - labels: '{}'
+      value: 0
+- name: served expiry matters even when the source Secret has renewed
+  interval: 1m
+  input_series:
+  - series: ssl_cert_not_after{job="postgres-tls",instance="pod/pooler-1",serial_no="old"}
+    values: 259200+0x25
+  - series: ssl_cert_not_after{job="postgres-tls",instance="pod/pooler-2",serial_no="old"}
+    values: 43200+0x25
+  - series: ssl_file_cert_not_after{job="postgres-tls-files",tls_source="server",serial_no="new"}
+    values: 15552000+0x25
+  promql_expr_test:
+  - expr: count(ALERTS{alertname="PostgresTLSCertificateExpiring",alertstate="firing",severity="warning"}) or vector(0)
+    eval_time: 11m
+    exp_samples:
+    - labels: '{}'
+      value: 2
+  - expr: count(ALERTS{alertname="PostgresTLSCertificateExpiring",alertstate="firing",severity="critical"}) or vector(0)
+    eval_time: 11m
+    exp_samples:
+    - labels: '{}'
+      value: 1
+- name: probe failure is independent from successful exporter scraping
+  interval: 1m
+  input_series:
+  - series: up{job="postgres-tls",instance="pod/pooler-1"}
+    values: 1+0x25
+  - series: ssl_probe_success{job="postgres-tls",instance="pod/pooler-1"}
+    values: 0+0x25
+  promql_expr_test:
+  - expr: count(ALERTS{alertname="PostgresTLSProbeFailed",alertstate="firing"}) or vector(0)
+    eval_time: 11m
+    exp_samples:
+    - labels: '{}'
+      value: 1
+- name: a missing pod target cannot hide behind its healthy peer
+  interval: 1m
+  input_series:
+  - series: kube_pod_owner{namespace="postgres-cluster",pod="pooler-1",owner_kind="ReplicaSet",owner_name="postgres-cluster-pooler-rw-abc"}
+    values: 1+0x25
+  - series: kube_pod_owner{namespace="postgres-cluster",pod="pooler-2",owner_kind="ReplicaSet",owner_name="postgres-cluster-pooler-rw-abc"}
+    values: 1+0x25
+  - series: ssl_probe_success{job="postgres-tls",target_kind="pod",instance="pod/pooler-1"}
+    values: 1+0x25
+  promql_expr_test:
+  - expr: count(ALERTS{alertname="PostgresTLSPodCoverageMissing",alertstate="firing"}) or vector(0)
+    eval_time: 11m
+    exp_samples:
+    - labels: '{}'
+      value: 1
+- name: stopped audit eventually alerts
+  interval: 1m
+  input_series:
+  - series: kube_cronjob_info{namespace="postgres-cluster",cronjob="postgres-trust-audit"}
+    values: 1+0x25
+  - series: kube_cronjob_status_last_successful_time{namespace="postgres-cluster",cronjob="postgres-trust-audit"}
+    values: 0+0x25
+  promql_expr_test:
+  - expr: count(ALERTS{alertname="PostgresTrustAuditStale",alertstate="firing"}) or vector(0)
+    eval_time: 22m
+    exp_samples:
+    - labels: '{}'
+      value: 1
+- name: never successful audit alerts without a timestamp
+  interval: 1m
+  input_series:
+  - series: kube_cronjob_info{namespace="postgres-cluster",cronjob="postgres-trust-audit"}
+    values: 1+0x25
+  promql_expr_test:
+  - expr: count(ALERTS{alertname="PostgresTrustAuditStale",alertstate="firing"}) or vector(0)
+    eval_time: 11m
+    exp_samples:
+    - labels: '{}'
+      value: 1
+- name: absent monitoring and audit alert
+  interval: 1m
+  input_series: []
+  promql_expr_test:
+  - expr: count(ALERTS{alertname="PostgresTrustAuditStale",alertstate="firing"}) or vector(0)
+    eval_time: 11m
+    exp_samples:
+    - labels: '{}'
+      value: 1
+  - expr: count(ALERTS{alertname="PostgresTLSMonitoringUnavailable",alertstate="firing"}) or vector(0)
+    eval_time: 11m
+    exp_samples:
+    - labels: '{}'
+      value: 2
+  - expr: count(ALERTS{alertname="PostgresTLSServiceCoverageMissing",alertstate="firing"}) or vector(0)
+    eval_time: 11m
+    exp_samples:
+    - labels: '{}'
+      value: 1
+- name: recent audit success does not alert
+  interval: 1m
+  input_series:
+  - series: kube_cronjob_info{namespace="postgres-cluster",cronjob="postgres-trust-audit"}
+    values: 1+0x25
+  - series: kube_cronjob_status_last_successful_time{namespace="postgres-cluster",cronjob="postgres-trust-audit"}
+    values: 0+60x25
+  promql_expr_test:
+  - expr: count(ALERTS{alertname="PostgresTrustAuditStale",alertstate="firing"}) or vector(0)
+    eval_time: 11m
+    exp_samples:
+    - labels: '{}'
+      value: 0
+- name: CA renewal is detected despite certificate serial label changes
+  interval: 1m
+  input_series:
+  - series: ssl_file_cert_not_after{job="postgres-tls-files",tls_source="ca",serial_no="old"}
+    values: 7776000+0x4 stale
+  - series: ssl_file_cert_not_after{job="postgres-tls-files",tls_source="ca",serial_no="new"}
+    values: _ _ _ _ _ 15552000+0x20
+  promql_expr_test:
+  - expr: count(ALERTS{alertname="PostgresTLSCARenewed",alertstate="firing"}) or vector(0)
+    eval_time: 11m
+    exp_samples:
+    - labels: '{}'
+      value: 1

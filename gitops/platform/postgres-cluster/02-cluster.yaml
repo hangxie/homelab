@@ -41,7 +41,24 @@ spec:
       parameters:
         barmanObjectName: postgres-cluster-backup
 
+  certificates:
+    serverAltDNSNames:
+      - postgres-cluster-pooler-rw
+      - postgres-cluster-pooler-rw.postgres-cluster
+      - postgres-cluster-pooler-rw.postgres-cluster.svc
+      - postgres-cluster-pooler-rw.postgres-cluster.svc.cluster.local
+      - postgres-cluster-pooler-ro
+      - postgres-cluster-pooler-ro.postgres-cluster
+      - postgres-cluster-pooler-ro.postgres-cluster.svc
+      - postgres-cluster-pooler-ro.postgres-cluster.svc.cluster.local
+
   postgresql:
+    # CNPG's certificate-authenticated replication/pooler rules precede this.
+    # Reject every other TCP connection that did not negotiate TLS before
+    # the operator's final password-authentication fallback can accept it.
+    pg_hba:
+      - hostnossl all all all reject
+      - hostnossl replication all all reject
     parameters:
       max_connections: "500"
       shared_buffers: "256MB"

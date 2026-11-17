@@ -639,6 +639,97 @@ alloy:
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
+      // Native PostgreSQL STARTTLS. A Service probe alone could hide a stale
+      // pooler replica, so discover every database/pooler pod as well.
+      discovery.kubernetes "postgres_tls" {
+        role = "pod"
+        namespaces {
+          names = ["postgres-cluster"]
+        }
+      }
+
+      discovery.relabel "postgres_tls" {
+        targets = discovery.kubernetes.postgres_tls.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_port_number"]
+          regex = "5432"
+          action = "keep"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_phase"]
+          regex = "Running"
+          action = "keep"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_cnpg_io_cluster", "__meta_kubernetes_pod_label_cnpg_io_poolerName"]
+          regex = "postgres-cluster;.*|.*;postgres-cluster-pooler-(rw|ro)"
+          action = "keep"
+        }
+        rule {
+          target_label = "__param_module"
+          replacement = "postgres_rw"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_cnpg_io_poolerName"]
+          regex = "postgres-cluster-pooler-(rw|ro)"
+          target_label = "__param_module"
+          replacement = "pooler_${1}"
+        }
+        rule {
+          source_labels = ["__param_module"]
+          target_label = "tls_module"
+        }
+        rule {
+          source_labels = ["__address__"]
+          target_label = "__param_target"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label = "instance"
+          replacement = "pod/${1}"
+        }
+        rule {
+          target_label = "target_kind"
+          replacement = "pod"
+        }
+        rule {
+          target_label = "__address__"
+          replacement = "postgres-tls-exporter.postgres-cluster.svc:9219"
+        }
+      }
+
+      prometheus.scrape "postgres_tls" {
+        clustering {
+          enabled = true
+        }
+        targets = array.concat(discovery.relabel.postgres_tls.output, [
+          {"__address__" = "postgres-tls-exporter.postgres-cluster.svc:9219", "__param_module" = "postgres_rw", "__param_target" = "postgres-cluster-rw.postgres-cluster.svc:5432", "instance" = "service/postgres-cluster-rw", "target_kind" = "service", "tls_module" = "postgres_rw"},
+          {"__address__" = "postgres-tls-exporter.postgres-cluster.svc:9219", "__param_module" = "postgres_ro", "__param_target" = "postgres-cluster-ro.postgres-cluster.svc:5432", "instance" = "service/postgres-cluster-ro", "target_kind" = "service", "tls_module" = "postgres_ro"},
+          {"__address__" = "postgres-tls-exporter.postgres-cluster.svc:9219", "__param_module" = "pooler_rw", "__param_target" = "postgres-cluster-pooler-rw.postgres-cluster.svc:5432", "instance" = "service/postgres-cluster-pooler-rw", "target_kind" = "service", "tls_module" = "pooler_rw"},
+          {"__address__" = "postgres-tls-exporter.postgres-cluster.svc:9219", "__param_module" = "pooler_ro", "__param_target" = "postgres-cluster-pooler-ro.postgres-cluster.svc:5432", "instance" = "service/postgres-cluster-pooler-ro", "target_kind" = "service", "tls_module" = "pooler_ro"},
+        ])
+        metrics_path = "/probe"
+        scrape_interval = "60s"
+        scrape_timeout = "10s"
+        job_name = "postgres-tls"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      prometheus.scrape "postgres_tls_files" {
+        clustering {
+          enabled = true
+        }
+        targets = [
+          {"__address__" = "postgres-tls-exporter.postgres-cluster.svc:9219", "__param_module" = "source", "instance" = "source/server", "tls_source" = "server"},
+          {"__address__" = "postgres-tls-exporter.postgres-cluster.svc:9219", "__param_module" = "ca", "instance" = "source/ca", "tls_source" = "ca"},
+        ]
+        metrics_path = "/probe"
+        scrape_interval = "60s"
+        scrape_timeout = "10s"
+        job_name = "postgres-tls-files"
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
       // ── CNPG postgres-cluster pods ────────────────────────────────────────────
 
       discovery.kubernetes "cnpg_cluster" {

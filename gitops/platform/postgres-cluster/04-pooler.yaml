@@ -25,6 +25,8 @@ spec:
   pgbouncer:
     poolMode: transaction
     parameters:
+      client_tls_sslmode: require
+      server_tls_sslmode: verify-full
       default_pool_size: "10"
       max_db_connections: "10"
       max_client_conn: "500"
@@ -59,6 +61,8 @@ spec:
   pgbouncer:
     poolMode: transaction
     parameters:
+      client_tls_sslmode: require
+      server_tls_sslmode: verify-full
       default_pool_size: "10"
       max_db_connections: "10"
       max_client_conn: "500"

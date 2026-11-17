@@ -69,6 +69,7 @@ flowchart TD
 
     subgraph platform-svcs["600s — platform services"]
         cnpg["postgres-cnpg (610)"] --> pg-cluster["postgres-cluster (620)"]
+        pg-cluster --> trust-manager["trust-manager (630)"]
     end
 
     subgraph workloads["700s — workloads"]
@@ -133,6 +134,57 @@ AI also runs a Darwin-compatible node_exporter on port 9100, reachable from clus
 ### TLS
 
 `cert-manager-config` provisions Let's Encrypt `ClusterIssuer`s (`letsencrypt-prod` + `letsencrypt-staging`) using a Cloudflare DNS-01 solver, then issues `homelab-wildcard-tls` in `gateway-system` for `*.homelab.xiehang.com`. The Gateway terminates TLS on 443; upstream services speak plain HTTP. Every application `HTTPRoute` pins `sectionName: https`, so the port-80 listener serves nothing but the `http-to-https` route in `gateway-system`, which answers every host with a 301 to the same URL over HTTPS. The Cloudflare API token comes from Vault (`cloudflare/api-token`) via an `ExternalSecret`. Browsers trust LE out of the box — no operator-side CA import.
+
+### PostgreSQL transport security
+
+PostgreSQL and both PgBouncer listeners reject plaintext TCP connections. Application clients use `verify-full` with the CNPG server CA, checking both certificate trust and the Service DNS name. This encrypts traffic and authenticates the server; existing passwords authenticate application clients. It is not application mutual TLS. PgBouncer's backend connections also use `verify-full`; transaction pooling, prepared-statement support and Grafana's `binary_parameters=yes` remain unchanged. CNPG's operator and streaming replication retain their operator-managed certificate authentication and `verify-ca` behavior, which validates the dedicated cluster CA but does not check a DNS name. Local Unix sockets retain peer authentication. These are explicit native-security decisions for #298, not blanket mesh exclusions; metrics, instance-manager and backup-to-RGW traffic require separate decisions.
+
+CNPG owns PostgreSQL's private CA, server keys, replication certificates and renewal. These database connections are internal; no public certificate authority or Let's Encrypt is involved. The server certificate includes the rw/ro pooler Service names as SANs. [trust-manager](https://cert-manager.io/docs/trust/trust-manager/) selects only `ca.crt` from the operator's `postgres-cluster-ca` Secret for distribution as `postgres-server-ca` ConfigMaps in the ten database-client namespaces, including `postgres-cluster` for administrative CLI pods. Applications mount that certificate to verify the database. The signing key stays in CNPG's Secret. Passwords continue to arrive from Vault through ExternalSecrets; the Vault policy and seeding process are unchanged.
+
+The trust-manager chart is pinned to v0.26.0. Its source Secret reads are confined to `postgres-cluster`, and its ConfigMap permissions/caches are scoped to the listed client namespaces plus its own `cert-manager` namespace. Secret targets and the default internet CA package are disabled. The Bundle's namespace selector names only database clients. This distributes non-secret trust data and does not introduce another persistent credential source. On a fresh bootstrap, the existing Applications create their namespaces; trust-manager's cross-namespace Roles and the Bundle reconcile once those namespaces and CNPG's CA exist. Database bootstrap Jobs wait for the generated ConfigMap mount. Root Application waves stagger creation but do not gate child-app health, so Argo retries missing dependencies until they converge.
+
+| Client | Native TLS and trust |
+|---|---|
+| Grafana | lib/pq `ssl_mode=verify-full`, mounted CA; rw pooler |
+| Airflow, including migration/check containers and KubernetesExecutor task pods | metadata connection URI with `sslmode=verify-full` and `sslrootcert`; rw pooler |
+| JupyterHub | psycopg2 URI with verified TLS; rw pooler |
+| Superset web, Celery and init Jobs | libpq `PGSSLMODE=verify-full`, `PGSSLROOTCERT`; rw pooler |
+| Open WebUI | database URI with verified TLS; rw pooler |
+| Hive, including schema initialization | JDBC URL with verified TLS and PEM CA; rw pooler |
+| Trino's six Postgres catalogs | JDBC URLs with verified TLS and PEM CA on coordinator and workers; ro pooler |
+| CloudBeaver shared Postgres connection | JDBC URL with verified TLS and PEM CA; direct rw Service for administration; credentials remain interactive |
+| Zitadel runtime, init and setup | user/admin `SSL.Mode=verify-full` and CA path; direct rw Service with capped pools |
+| All eight Postgres bootstrap Jobs | libpq verified TLS; direct rw Service for administrative DDL |
+| `kubectl homelab psql` | libpq verified TLS; direct rw Service for administration; mounts the generated CA ConfigMap |
+
+CA ConfigMap volumes mount a directory rather than a `subPath`, so Kubernetes can project updates. CNPG normally renews certificates during its expiry window and reloads its own listeners without a database restart ([certificate lifecycle](https://cloudnative-pg.io/docs/current/certificates/)). trust-manager watches the source and updates client ConfigMaps when the CA certificate changes. Application TLS libraries may cache trust, and Hive renders its JDBC configuration at startup: verify certificate fingerprints at the source and in every client ConfigMap, allow projected volumes to update, then roll database clients before the old CA expires. Jobs and CLI pods read the current CA on creation. Supported automatic operations are leaf renewal and CA certificate renewal retaining the same CA key. Automatic CA-key replacement is out of scope; a replacement requires a separately approved maintenance design covering supported CNPG operations, old/new trust overlap and rollback. A trust-manager outage can delay trust delivery even while existing database sessions continue working.
+
+On installed CNPG 1.29.1, both SAN changes and expiry-triggered server certificate renewal with unchanged SANs left the poolers serving the previous certificate. Reconcile both Pooler resources after reissue, then verify new TLS handshakes against every pooler pod and both Services; do not infer a reload from the source Secret alone. This was tested without pod restarts. After confirming the source certificate contains the intended SANs, request reconciliation with:
+
+```bash
+kubectl -n postgres-cluster annotate pooler postgres-cluster-pooler-rw postgres-cluster-pooler-ro \
+  homelab.xiehang.com/certificate-reload="$(date -u +%Y%m%dT%H%M%SZ)" --overwrite
+```
+
+`ssl_exporter` 2.4.3 performs PostgreSQL STARTTLS probes with the mounted CA and Service hostname verification. Alloy discovers every database/pooler pod and probes its IP using the appropriate Service name for verification, plus all four direct/pooler Services. The exporter has no API token, password or private-key mount. Public source-leaf and CA file probes expose certificate expiry. Mimir alerts on verification failures, missing probes and certificate expiry below five days (warning) or one day (critical), after CNPG's seven-day renewal window begins. `postgres_tls:served_source_mismatch` is informational: an older valid leaf is not itself an alert. `PostgresTLSCARenewed` reminds operators to verify cached-trust clients after a CA certificate changes.
+
+The five-minute `postgres-trust-audit` CronJob checks the Bundle's current-generation readiness, compares SHA-256 certificate sets in every selected ConfigMap with CNPG's projected public CA and any explicitly configured inline overlap roots, and checks running TLS pod inventory against Cluster/Pooler specifications. Inventory includes Running pods with an IP and port 5432, including pods that are not Ready, matching Alloy discovery. This does not assert availability: independent TLS probes validate each listener, including unready pods. It reads only the named public ConfigMaps/Bundle, Cluster/Pooler specifications and PostgreSQL namespace pod inventory; no Secret API reads or writes. Failures appear in Job logs. `PostgresTrustAuditStale` alerts when success is over 15 minutes old or the audit is missing/has never succeeded (five-minute alert delay). Existing kube-state-metrics supplies these signals. Inspect with:
+
+```bash
+kubectl -n postgres-cluster get cronjob postgres-trust-audit
+kubectl -n postgres-cluster get jobs --sort-by=.metadata.creationTimestamp
+kubectl -n postgres-cluster logs job/<latest-postgres-trust-audit-job>
+```
+
+Before rollout, use operator credentials to retain a protected, versioned recovery backup under `operator/postgres-certificates/` in Vault: the CNPG-generated server/client CA, server and replication certificate Secrets, the Cluster's certificate configuration references and the Bundle definition. Read `status.certificates` to inventory actual Secret names; validate key/certificate matches, certificate expiry and the CA public-key fingerprint before recording the backup. Do not print private material or commit it. The cluster AppRole already denies `operator/*`; no new cluster Vault permission or ExternalSecret is added. Back up again after certificate renewal. The backup and recovery drill are deployment gates, not actions performed by a normal GitOps sync.
+
+Emergency recovery preserves the trusted CA key. First stop reconciliation for root and the affected Applications/ApplicationSets during the approved maintenance window and inspect source certificates, the Bundle, audit logs and actual served certificates. If only distribution broke, restore the last-known-good Bundle configuration and verify its ConfigMaps. If a pooler retained a leaf, confirm CNPG's intended leaf is valid and reconcile both Poolers with the annotation above. For lost source material, restore a trusted matching Secret backup to the recorded names without changing certificate ownership or references; let CNPG reconcile and verify that renewal still works. Allow volume projection, recreate cached-trust clients, run fresh verified queries through every endpoint and resume reconciliation only after all gates pass. Drill loss/restoration in an isolated environment before deployment. A compromised/untrusted CA requires separately approved replacement or a controlled outage; disabling client verification is not a recovery step.
+
+Before merging this change into an existing installation, verify that automated sync is disabled on root and every affected Application, no sync operation is queued or running, and ApplicationSet reconciliation cannot restore child sync policies. Disabling only `selfHeal` does not disable automated sync. Keep this as a hard pre-merge gate: the final manifests change clients and enforce TLS together, so an uncontrolled sync can disconnect clients before trust is ready. Keep reconciliation suspended throughout staged validation and record the live suspension check in the PR before merge.
+
+For an existing installation, stage the approved rollout: install trust-manager and its Bundle, confirm the client CA ConfigMaps, add pooler SANs and confirm the new certificate has reached every listener, then install/verify monitoring and roll and validate every client before enforcing plaintext rejection. Completed bootstrap Jobs have immutable pod templates: use full Argo CD application syncs so their existing Sync/`BeforeHookCreation` hooks replace them; selective resource syncs do not run hooks. Verify administrative SQL remains safe to re-execute, and test concurrent trust/client/bootstrap reconciliation in a scoped disposable environment. Require tests using the actual application drivers against direct and pooled endpoints, as applicable: a successful query using `verify-full`; prove `sslmode=disable`, invalid passwords, an unrelated CA and a mismatched hostname fail. Verify a fresh pooler backend session uses TLS and hostname verification; repeat after a primary switchover, pooler replacement and certificate reissue. Inject a failed probe, missing target ConfigMap and stopped audit to verify monitoring before enforcement. Check application health and representative reads/writes, an Airflow task, Trino queries against all six catalogs and the bootstrap Jobs; `pg_stat_ssl` alone shows only PgBouncer's backend encryption. Use PgBouncer `SHOW CLIENTS` to inspect its frontend TLS. Complete these gates before treating #298's Postgres phase as validated or removing any mesh protection.
+
+CloudBeaver connections saved separately in its workspace, notebook code, user-created Airflow connections and external clients are not rewritten by the shared defaults. Inventory and update them before enforcement; non-verifying clients may still negotiate TLS, so a successful connection alone does not prove their identity checks. Keep the previous manifests and per-app snapshots for rollback. If enforcement exposes a missed client, restore the prior listener configuration while retaining the CA and already-verified clients, then correct the missed client before retrying.
 
 ### Network policy
 

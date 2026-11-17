@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: postgres-cluster
+
+resources:
+  - 00-image-catalog.yaml
+  - 01-superuser-externalsecret.yaml
+  - 02-cluster.yaml
+  - 03-backup.yaml
+  - 04-pooler.yaml
+  - 05-tls-exporter.yaml
+  - 06-trust-audit.yaml
+
+configMapGenerator:
+  - name: postgres-tls-exporter
+    files:
+      - config.yaml=tls-exporter.yaml
+  - name: postgres-trust-audit
+    files:
+      - trust-audit.py

@@ -1,0 +1,31 @@
+# The source stays in CNPG's namespace; targets contain only its public
+# certificate, never ca.key. Bundle targets are named after the Bundle.
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: postgres-server-ca
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  sources:
+    - secret:
+        name: postgres-cluster-ca
+        key: ca.crt
+  target:
+    configMap:
+      key: ca.crt
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - postgres-cluster
+            - grafana
+            - zitadel
+            - airflow
+            - jupyter
+            - openwebui
+            - superset
+            - trino
+            - hive
+            - dbeaver

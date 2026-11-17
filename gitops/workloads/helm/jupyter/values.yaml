@@ -1,8 +1,16 @@
 hub:
   db:
     type: postgres
-    url: postgresql+psycopg2://jupyterhub@postgres-cluster-pooler-rw.postgres-cluster.svc:5432/jupyterhub
+    url: postgresql+psycopg2://jupyterhub@postgres-cluster-pooler-rw.postgres-cluster.svc:5432/jupyterhub?sslmode=verify-full&sslrootcert=/etc/postgres-ca/ca.crt
     upgrade: true
+  extraVolumes:
+    - name: postgres-ca
+      configMap:
+        name: postgres-server-ca
+  extraVolumeMounts:
+    - name: postgres-ca
+      mountPath: /etc/postgres-ca
+      readOnly: true
   existingSecret: jupyterhub-db
   config:
     # Zitadel SSO. A notebook server runs arbitrary code, so only the admin

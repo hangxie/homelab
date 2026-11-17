@@ -58,7 +58,7 @@ data:
     host: postgres-cluster-pooler-rw.postgres-cluster.svc
     port: 5432
     db: airflow
-    sslmode: disable
+    sslmode: verify-full
   metadataSecretName: airflow-db-credentials
 
 postgresql:
@@ -195,3 +195,14 @@ statsd:
 
 flower:
   enabled: false
+
+# Includes migration/check containers and KubernetesExecutor task pods.
+volumes:
+  - name: postgres-ca
+    configMap:
+      name: postgres-server-ca
+
+volumeMounts:
+  - name: postgres-ca
+    mountPath: /etc/postgres-ca
+    readOnly: true

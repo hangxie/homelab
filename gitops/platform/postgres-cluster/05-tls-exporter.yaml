@@ -1,0 +1,128 @@
+# The standard STARTTLS exporter mounts public certificate files only.
+# Alloy is its only in-cluster caller; it needs no Kubernetes API access.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-tls-exporter
+  namespace: postgres-cluster
+  annotations:
+    argocd.argoproj.io/sync-wave: '1'
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-tls-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres-tls-exporter
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: postgres-tls-exporter
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: exporter
+          image: ribbybibby/ssl-exporter:2.4.3
+          args:
+            - --config.file=/config/config.yaml
+            - --web.listen-address=:9219
+          ports:
+            - name: metrics
+              containerPort: 9219
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 15
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: ca
+              mountPath: /ca
+              readOnly: true
+            - name: source
+              mountPath: /source
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: postgres-tls-exporter
+        - name: ca
+          configMap:
+            name: postgres-server-ca
+        - name: source
+          secret:
+            secretName: postgres-cluster-server
+            items:
+              - key: tls.crt
+                path: tls.crt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-tls-exporter
+  namespace: postgres-cluster
+spec:
+  selector:
+    app.kubernetes.io/name: postgres-tls-exporter
+  ports:
+    - name: metrics
+      port: 9219
+      targetPort: metrics
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgres-tls-exporter
+  namespace: postgres-cluster
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-tls-exporter
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: postgres-tls-exporter
+  namespace: postgres-cluster
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-tls-exporter
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: alloy
+      toPorts:
+        - ports:
+            - port: '9219'
+              protocol: TCP
