@@ -295,28 +295,6 @@
       vars:
         repo_root: "{{ playbook_dir }}/../.."
 
-    - name: Apply Hubble UI HTTPRoute
-      kubernetes.core.k8s:
-        kubeconfig: "{{ bootstrap_kubeconfig }}"
-        state: present
-        definition:
-          apiVersion: gateway.networking.k8s.io/v1
-          kind: HTTPRoute
-          metadata:
-            name: hubble
-            namespace: kube-system
-          spec:
-            parentRefs:
-              - name: default-gateway
-                namespace: gateway-system
-                sectionName: https
-            hostnames:
-              - "hubble.{{ domain_suffix }}"
-            rules:
-              - backendRefs:
-                  - name: hubble-ui
-                    port: 80
-
     - name: Verify dashboard ConfigMaps are present
       kubernetes.core.k8s_info:
         kubeconfig: "{{ bootstrap_kubeconfig }}"

@@ -1,0 +1,31 @@
+# Hubble UI has no login of its own; every request is checked by oauth2-proxy
+# first, including /oauth2/* (its redirects pass through). Lives here because
+# Cilium itself is installed by Ansible, outside Argo CD.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hubble
+  namespace: kube-system
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+      sectionName: https
+  hostnames:
+    - "hubble.homelab.xiehang.com"
+  rules:
+    - filters:
+        - type: ExternalAuth
+          externalAuth:
+            protocol: HTTP
+            backendRef:
+              name: oauth2-proxy
+              namespace: oauth2-proxy
+              port: 4180
+            # Envoy's HTTP ext_authz sends only Host, Method, Path,
+            # Content-Length and Authorization unless told otherwise.
+            http:
+              allowedHeaders: [cookie, x-forwarded-proto, x-forwarded-host]
+      backendRefs:
+        - name: hubble-ui
+          port: 80
