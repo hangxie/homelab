@@ -1,0 +1,17 @@
+# Only the Gateway may reach Hubble UI; otherwise any pod could skip the login
+# by calling hubble-ui directly.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hubble-ui-ingress
+  namespace: kube-system
+spec:
+  endpointSelector:
+    matchLabels:
+      k8s-app: hubble-ui
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - { port: "8081", protocol: TCP }
