@@ -179,6 +179,29 @@ groups:
           summary: "Tempo compaction is erroring"
           description: "Tempo has been failing block compaction for 30 minutes; trace storage will keep growing."
 
+      # Thresholds from the tempo-mixin. Block-builders commit offsets only after
+      # a block is in S3, so lag that outgrows the tempo-traces retention (24h,
+      # or 1Gi per partition if that fills first) loses traces.
+      - alert: TempoBlockBuilderPartitionLag
+        expr: |
+          max by (partition) (avg_over_time(tempo_ingest_group_partition_lag_seconds{namespace="tempo", container="block-builder"}[6m])) > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tempo block-builder is behind Kafka"
+          description: "Partition {{ $labels.partition }} is {{ $value | humanizeDuration }} behind; traces are lost if lag outgrows the tempo-traces topic retention."
+
+      - alert: TempoLiveStorePartitionLag
+        expr: |
+          max by (partition) (avg_over_time(tempo_ingest_group_partition_lag_seconds{namespace="tempo", container="live-store"}[6m])) > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tempo live-store is behind Kafka"
+          description: "Partition {{ $labels.partition }} is {{ $value | humanizeDuration }} behind; recent traces on it are missing from queries."
+
   # loki-mixin recording rules the Loki chart dashboards query, with the
   # chart's appInstanceLabelName set to `cluster`. Rates use 5m rather than
   # upstream's 1m, which holds one sample at our 60s scrape.
