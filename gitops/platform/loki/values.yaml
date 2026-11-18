@@ -2,6 +2,11 @@ deploymentMode: Monolithic
 
 loki:
   auth_enabled: false
+  structuredConfig:
+    # Members resolve the gossip-ring DNS only at startup unless this is set,
+    # so a split ring never re-merges; rejoining heals it within a minute.
+    memberlist:
+      rejoin_interval: 1m
   storage:
     type: s3
     bucketNames:

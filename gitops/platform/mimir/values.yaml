@@ -11,6 +11,10 @@ metaMonitoring:
 
 mimir:
   structuredConfig:
+    # Members resolve the gossip-ring DNS only at startup unless this is set,
+    # so a split ring never re-merges; rejoining heals it within a minute.
+    memberlist:
+      rejoin_interval: 1m
     common:
       storage:
         backend: s3
