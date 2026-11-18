@@ -47,6 +47,18 @@ configMapGenerator:
       annotations:
         k8s-sidecar-target-directory: /tmp/dashboards/Platform
 
+  # Tempo mixin v3.1.1, vendored because its $pod variable hardcodes the
+  # jsonnet names (live-store-zone-*). Only query/regex/allValue of $pod are
+  # changed to tempo-live-store-*; redo that on upgrade. Panels that split
+  # by zone show one aggregate series, as there are no zones here.
+  - name: grafana-dashboard-tempo-livestore
+    namespace: grafana
+    files:
+      - dashboards/tempo-livestore.json
+    options:
+      annotations:
+        k8s-sidecar-target-directory: /tmp/dashboards/Observability
+
   # Ray's own dashboards, vendored from the Ray source tree (no gnetId/url) and
   # shared by every RayService, so they live here rather than in one workload.
   - name: ray-dashboard-default

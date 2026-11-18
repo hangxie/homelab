@@ -98,7 +98,7 @@ alloy:
 
       otelcol.exporter.otlp "tempo" {
         client {
-          endpoint = "tempo.tempo:4317"
+          endpoint = "tempo-distributor.tempo:4317"
           tls {
             insecure = true
           }
@@ -572,26 +572,41 @@ alloy:
       // ── Tempo ─────────────────────────────────────────────────────────────────
 
       discovery.kubernetes "tempo" {
-        role = "endpoints"
+        role = "pod"
         namespaces {
           names = ["tempo"]
         }
         selectors {
-          role  = "endpoints"
+          role  = "pod"
           label = "app.kubernetes.io/name=tempo"
         }
       }
 
+      // The Tempo mixin dashboards and alerts select job="<namespace>/<component>"
+      // and container="<component>".
       discovery.relabel "tempo" {
         targets = discovery.kubernetes.tempo.targets
         rule {
-          source_labels = ["__meta_kubernetes_endpoint_port_name"]
-          regex         = "tempo-prom-metrics"
+          source_labels = ["__meta_kubernetes_pod_container_port_name"]
+          regex         = "http-metrics"
           action        = "keep"
         }
         rule {
           source_labels = ["__meta_kubernetes_namespace"]
           target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+          separator     = "/"
+          target_label  = "job"
         }
       }
 

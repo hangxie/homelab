@@ -1,62 +1,178 @@
-# This chart is single-binary: replicas share no ring, so a trace lives only in
-# the ingester that received it and the Service finds it only half the time
-# until it is flushed. HA means moving to tempo-distributed, not adding replicas.
-replicas: 1
+# Microservices mode (#259). Distributors write to the tempo-traces Kafka topic
+# (gitops/platform/kafka/), which is the durable copy; block-builders turn it
+# into S3 blocks and live-stores serve recent traces. Every querier asks every
+# live-store, so a trace is found whichever pod the Service picks.
 
+# Shared by every Tempo component: the S3 keys come from the OBC Secret.
+x-s3-env: &s3-env
+  - secretRef:
+      name: tempo-traces
+
+defaults:
+  extraArgs:
+    - -config.expand-env=true
+
+# Govern each StatefulSet by its own headless Service so per-pod DNS resolves.
+# serviceName is immutable: flipping this on existing StatefulSets needs them
+# deleted and recreated.
 tempo:
-  storage:
-    trace:
-      backend: s3
-      s3:
-        bucket: tempo-traces
-        endpoint: rook-ceph-rgw-object-store.rook-ceph.svc:80
-        region: us-east-1
-        insecure: true
-        access_key: ${AWS_ACCESS_KEY_ID}
-        secret_key: ${AWS_SECRET_ACCESS_KEY}
-  retention: 168h
-  # TraceQL metrics (/api/metrics/query_range, used by Grafana's Traces Drilldown
-  # and service-graph panels) are served by the metrics generator's local-blocks
-  # processor. Without it the querier finds an empty generator ring and 500s.
-  metricsGenerator:
+  useHeadlessGoverningService: true
+
+traces:
+  otlp:
+    grpc:
+      enabled: true
+    http:
+      enabled: true
+
+# The topic is a KafkaTopic CR; the broker refuses auto-creation.
+ingest:
+  kafka:
+    address: kafka-kafka-bootstrap.kafka.svc.cluster.local:9092
+    topic: tempo-traces
+    auto_create_topic_enabled: false
+    auto_create_topic_default_partitions: 2
+
+storage:
+  trace:
+    backend: s3
+    s3:
+      bucket: tempo-traces
+      endpoint: rook-ceph-rgw-object-store.rook-ceph.svc:80
+      region: us-east-1
+      insecure: true
+      access_key: ${AWS_ACCESS_KEY_ID}
+      secret_key: ${AWS_SECRET_ACCESS_KEY}
+
+# The generator only runs for tenants that list its processors. TraceQL
+# metrics no longer need local-blocks: live-stores and RF1 blocks serve them.
+overrides:
+  defaults:
+    metrics_generator:
+      processors:
+        - service-graphs
+        - span-metrics
+
+distributor:
+  replicas: 2
+  extraEnvFrom: *s3-env
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+# One live-store and one block-builder per partition of the tempo-traces topic.
+liveStore:
+  replicas: 2
+  affinity: |
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              {{- include "tempo.selectorLabels" (dict "ctx" . "component" "live-store") | nindent 10 }}
+          topologyKey: kubernetes.io/hostname
+  # Without local data a restart replays up to 2 x complete_block_timeout from Kafka.
+  persistence:
     enabled: true
-    remoteWriteUrl: http://mimir-gateway.mimir/api/v1/push
-    processor:
-      local_blocks:
-        flush_to_storage: true
-      service_graphs: {}
-      span_metrics: {}
+    storageClass: rook-ceph-block
+    size: 10Gi
+  extraEnvFrom: *s3-env
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+blockBuilder:
+  replicas: 2
+  extraEnvFrom: *s3-env
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 1Gi
+
+querier:
+  replicas: 2
+  extraEnvFrom: *s3-env
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 1Gi
+
+queryFrontend:
+  replicas: 2
+  extraEnvFrom: *s3-env
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+backendScheduler:
+  config:
+    provider:
+      compaction:
+        compaction:
+          block_retention: 168h
+  extraEnvFrom: *s3-env
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+backendWorker:
+  extraEnvFrom: *s3-env
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 1Gi
+
+metricsGenerator:
+  enabled: true
+  # The remote-write WAL queues samples while Mimir is unreachable; a PVC keeps
+  # them across pod replacement.
+  kind: StatefulSet
+  persistence:
+    enabled: true
+    storageClass: rook-ceph-block
+    size: 10Gi
+  config:
     registry:
       external_labels:
         cluster: homelab
         source: tempo
-    # Chart defaults put both paths under /tmp; keep them on the PVC instead.
     storage:
-      path: /var/tempo/generator/wal
-    traces_storage:
-      path: /var/tempo/generator/traces
-  # The generator only runs for tenants that list its processors.
-  overrides:
-    defaults:
-      metrics_generator:
-        processors:
-          - local-blocks
-          - service-graphs
-          - span-metrics
-  extraArgs:
-    config.expand-env: true
-  extraEnvFrom:
-    - secretRef:
-        name: tempo-traces
+      remote_write:
+        - url: http://mimir-gateway.mimir/api/v1/push
+  extraEnvFrom: *s3-env
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 1Gi
 
-# WAL is written locally before being flushed to S3; each pod gets its own PVC.
-persistence:
-  enabled: true
-  storageClassName: rook-ceph-block
-  size: 10Gi
-
-securityContext:
-  runAsUser: 10001
-  runAsGroup: 10001
-  fsGroup: 10001
-  runAsNonRoot: true
+memcached:
+  # Two shards, not copies: clients consistent-hash each key to one pod, so a
+  # lost pod costs half the cache instead of all of it.
+  replicas: 2
+  # Cache size in MiB; the chart's 1024 would outgrow the limit below.
+  allocatedMemory: 64
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi

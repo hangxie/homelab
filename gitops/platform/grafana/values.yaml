@@ -223,9 +223,25 @@ dashboards:
     # as ray/14708 below. It now sits under infrastructure, where it has data.
     # Alloy's own dashboards live in operations/alloy-mixin in the Alloy repo
     # and are not published to grafana.com.
-    tempo:
-      gnetId: 23242
-      revision: 1
+    # Tempo mixin; Alloy sets job="<namespace>/<component>" and container to
+    # match it. tempo-livestore is vendored in extras/dashboards/.
+    tempo-operational:
+      url: https://raw.githubusercontent.com/grafana/tempo/v3.1.1/operations/tempo-mixin-compiled/dashboards/tempo-operational.json
+      datasource: Mimir
+    tempo-reads:
+      url: https://raw.githubusercontent.com/grafana/tempo/v3.1.1/operations/tempo-mixin-compiled/dashboards/tempo-reads.json
+      datasource: Mimir
+    tempo-writes:
+      url: https://raw.githubusercontent.com/grafana/tempo/v3.1.1/operations/tempo-mixin-compiled/dashboards/tempo-writes.json
+      datasource: Mimir
+    tempo-resources:
+      url: https://raw.githubusercontent.com/grafana/tempo/v3.1.1/operations/tempo-mixin-compiled/dashboards/tempo-resources.json
+      datasource: Mimir
+    tempo-block-builder:
+      url: https://raw.githubusercontent.com/grafana/tempo/v3.1.1/operations/tempo-mixin-compiled/dashboards/tempo-block-builder.json
+      datasource: Mimir
+    tempo-backendwork:
+      url: https://raw.githubusercontent.com/grafana/tempo/v3.1.1/operations/tempo-mixin-compiled/dashboards/tempo-backendwork.json
       datasource: Mimir
   workloads:
     airflow:

@@ -1,0 +1,28 @@
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: tempo-traces
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: kafka
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  topicName: tempo-traces
+  # Tempo binds partitions to live-store and block-builder ordinals, so this
+  # must match their replica counts (gitops/platform/tempo/values.yaml).
+  partitions: 2
+  replicas: 3
+  config:
+    # Block-builders commit offsets once a block is in S3, so retention bounds
+    # how long an RGW or block-builder outage can last before traces are lost.
+    # 24h is Tempo's recommended floor; the 1Gi cap (2Gi per broker across
+    # 2 partitions x RF3) protects the shared broker disk and binds first above
+    # ~12 KiB/s per partition. TempoBlockBuilderPartitionLag fires well before.
+    retention.ms: "86400000" # 24h
+    retention.bytes: "1073741824" # 1Gi
+    # Tempo produces record batches up to 16000000 bytes; the 1MiB default
+    # rejects large traces.
+    max.message.bytes: "16000000"
+    cleanup.policy: delete
+    min.insync.replicas: "2"
