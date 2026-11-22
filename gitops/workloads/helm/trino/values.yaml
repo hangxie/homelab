@@ -174,14 +174,14 @@ initContainers:
   coordinator:
     - name: jmx-exporter-init
       image: ghcr.io/oras-project/oras:v1.2.2
-      command: ["/bin/oras", "pull", "--output", "/jmx/agent", "media.xiehang.com/jars/jmx-prometheus-javaagent:1.6.0"]
+      command: ["/bin/oras", "pull", "--output", "/jmx/agent", "harbor.xiehang.com/jars/jmx-prometheus-javaagent:1.6.0"]
       volumeMounts:
         - name: jmx-agent
           mountPath: /jmx/agent
   worker:
     - name: jmx-exporter-init
       image: ghcr.io/oras-project/oras:v1.2.2
-      command: ["/bin/oras", "pull", "--output", "/jmx/agent", "media.xiehang.com/jars/jmx-prometheus-javaagent:1.6.0"]
+      command: ["/bin/oras", "pull", "--output", "/jmx/agent", "harbor.xiehang.com/jars/jmx-prometheus-javaagent:1.6.0"]
       volumeMounts:
         - name: jmx-agent
           mountPath: /jmx/agent

@@ -13,7 +13,7 @@ keepalived_vrrp_auth_pass: "REPLACE_ME"
 
 domain_suffix: "homelab.xiehang.com"
 
-vault_addr: "{{ lookup('env', 'VAULT_ADDR') | default('https://media.xiehang.com:8200', true) }}"
+vault_addr: "{{ lookup('env', 'VAULT_ADDR') | default('https://vault.xiehang.com', true) }}"
 
 # Cilium chart pinning. Spec §6.2 item 3 requires a pinned version.
 cilium_version: "1.20.4"
@@ -40,7 +40,7 @@ allow_disruptive_restarts: false
 
 # Container registry mirrors plumbed into containerd. The list mirrors the
 # site-up source; trim or replace for environments without a private mirror.
-harbor_host: "media.xiehang.com"
+harbor_host: "harbor.xiehang.com"
 containerd_registry_hosts:
   - { name: docker.io,                  server: "https://registry-1.docker.io", mirror: "https://{{ harbor_host }}/v2/docker-io" }
   - { name: ghcr.io,                    server: "https://ghcr.io",              mirror: "https://{{ harbor_host }}/v2/ghcr-io" }

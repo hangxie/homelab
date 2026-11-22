@@ -62,12 +62,12 @@ spec:
         # only, so the artifact carries its own copy.
         - name: fetch-auxlib
           image: ghcr.io/oras-project/oras:v1.2.2
-          command: ["/bin/oras", "pull", "--output", "/auxlib", "media.xiehang.com/jars/hive-metastore-auxlib:4.2.1"]
+          command: ["/bin/oras", "pull", "--output", "/auxlib", "harbor.xiehang.com/jars/hive-metastore-auxlib:4.2.1"]
           volumeMounts:
             - { name: auxlib, mountPath: /auxlib }
         - name: fetch-jmx-agent
           image: ghcr.io/oras-project/oras:v1.2.2
-          command: ["/bin/oras", "pull", "--output", "/auxlib", "media.xiehang.com/jars/jmx-prometheus-javaagent:1.6.0"]
+          command: ["/bin/oras", "pull", "--output", "/auxlib", "harbor.xiehang.com/jars/jmx-prometheus-javaagent:1.6.0"]
           volumeMounts:
             - { name: auxlib, mountPath: /auxlib }
         - name: render-conf

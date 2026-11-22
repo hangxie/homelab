@@ -1673,14 +1673,14 @@ alloy:
         }
         targets = [
           {
-            "__address__" = "media.xiehang.com:8443",
+            "__address__" = "llama-cpp.xiehang.com:443",
             "instance" = "media",
             "model" = "deepseek-r1-1.5b-q8",
             "__param_model" = "deepseek-r1-1.5b-q8",
             "__param_autoload" = "false",
           },
           {
-            "__address__" = "media.xiehang.com:8443",
+            "__address__" = "llama-cpp.xiehang.com:443",
             "instance" = "media",
             "model" = "qwen3.5-4b-q4",
             "__param_model" = "qwen3.5-4b-q4",
@@ -1797,18 +1797,18 @@ alloy:
                 follow_redirects: true
         `
 
-        // Internal. media.xiehang.com carries both Vault and Harbor, which makes
+        // Internal. The media host carries both Vault and Harbor, which makes
         // it the one external host the cluster cannot run without: ESO stops
         // refreshing and every image pull fails with it.
         target {
           name    = "vault"
-          address = "https://media.xiehang.com:8200/v1/sys/health"
+          address = "https://vault.xiehang.com/v1/sys/health"
           module  = "http_2xx"
           labels  = {scope = "internal"}
         }
         target {
           name    = "harbor"
-          address = "https://media.xiehang.com/api/v2.0/health"
+          address = "https://harbor.xiehang.com/api/v2.0/health"
           module  = "http_2xx"
           labels  = {scope = "internal"}
         }
@@ -1841,13 +1841,13 @@ alloy:
         // model.
         target {
           name    = "media-llama-health"
-          address = "https://media.xiehang.com:8443/health"
+          address = "https://llama-cpp.xiehang.com/health"
           module  = "llama_health"
           labels  = {scope = "internal"}
         }
         target {
           name    = "media-llama-models"
-          address = "https://media.xiehang.com:8443/v1/models"
+          address = "https://llama-cpp.xiehang.com/v1/models"
           module  = "llama_models"
           labels  = {scope = "internal"}
         }

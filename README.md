@@ -97,7 +97,7 @@ workloads come from explicit `elements` lists in `workloads-helm.yaml` and
 
 Trino, HDFS, the Hive metastore, and the Spark history server all need jars their images do not ship — the jmx_prometheus agent, the PostgreSQL JDBC driver, hadoop-aws, and the AWS SDK bundle. Those used to be `wget`ed from GitHub Releases and Maven Central on every pod start, which put a public-internet dependency on the data platform's startup path and moved 558 MiB per cold start in the metastore's case.
 
-They now come from a `jars` project on the Harbor instance at `media.xiehang.com`, one OCI artifact per consumer, fetched by an `oras pull` init container:
+They now come from a `jars` project on the Harbor instance at `harbor.xiehang.com`, one OCI artifact per consumer, fetched by an `oras pull` init container:
 
 | Artifact | Contents | Consumers |
 | --- | --- | --- |
@@ -125,7 +125,7 @@ Spark jobs are a separate case. `spec.deps.packages` and `spark.sql.hive.metasto
 
 Alloy scrapes node_exporter on `pi.xiehang.com:9100`, `media.xiehang.com:9100`, and `ai.xiehang.com:9100` every 60 seconds under `job="external/node"`. These hosts have separate resource alerts in `gitops/platform/mimir/extras/rules/external.yaml`; cluster node thresholds do not apply to them. Media provides Vault, Harbor, SSH, and llama.cpp inference; AI also runs llama.cpp inference.
 
-The embedded blackbox exporter checks Vault and Harbor on media, SSH banners on Pi/media/AI, `/health` and a nonempty `/v1/models` list on both inference servers (`https://media.xiehang.com:8443` and `http://ai.xiehang.com:8080`). It also checks Grafana and Argo CD through the gateway, rebuild upstreams, and two internet anchors. Internal probe failures become critical after 10 minutes. The Infrastructure blackbox dashboard shows probe status and latency; the node-exporter dashboard shows Linux host resources. HTTP availability probes do not submit inference requests or prove generation works.
+The embedded blackbox exporter checks Vault and Harbor on media, SSH banners on Pi/media/AI, `/health` and a nonempty `/v1/models` list on both inference servers (`https://llama-cpp.xiehang.com` and `http://ai.xiehang.com:8080`). It also checks Grafana and Argo CD through the gateway, rebuild upstreams, and two internet anchors. Internal probe failures become critical after 10 minutes. The Infrastructure blackbox dashboard shows probe status and latency; the node-exporter dashboard shows Linux host resources. HTTP availability probes do not submit inference requests or prove generation works.
 
 Media runs llama.cpp in router mode on port 8443 with TLS; AI runs it on port 8080 over plain HTTP. Media serves the `deepseek-r1-1.5b-q8` and `qwen3-1.7b-q8` presets, each of which must set `metrics = 1`; AI (macOS) serves `qwen3.8-27b-q8`, `qwen3-1.7b-q8`, `deepseek-r1-1.5b-q8`, and `qwen3-30b-a3b-q4`, with metrics always enabled by `--metrics` in its `run.sh`. Alloy polls each host's `/v1/models` every minute and scrapes only configured models whose state is `loaded`, using `/metrics?model=<id>&autoload=false` under `job="external/llama-cpp"`. Unloaded models and cache-only entries are omitted, and the query parameter prevents a scrape from auto-loading a model during a discovery race. Add new preset IDs to the matching `discovery.relabel` module (`media_llama` or `ai_llama`) in Alloy's values when adding presets. The bare `/metrics` endpoint returns HTTP 400 because it needs a model ID. A loaded model's metrics request may affect llama.cpp's idle timer; verify sleep behavior before enabling sleep-based unloading.
 
@@ -236,11 +236,11 @@ End-to-end provisioning of a fresh homelab cluster from this repo plus an extern
 - Operator workstation with `terraform`, `ansible`, `kubectl`, `helm`, `vault`,
   `jq`, `yq`, `oras`, and `openssl` on PATH.
 - Reachable Proxmox cluster, SSH agent loaded with the key used for VM access.
-- External HashiCorp Vault reachable at `media.xiehang.com:8200`.
+- External HashiCorp Vault reachable at `vault.xiehang.com`.
 - DNS `*.homelab.xiehang.com` pointed at the Gateway VIP (registered manually post-bootstrap).
 - `xiehang.com` zone hosted on Cloudflare, with a scoped API token (`Zone:DNS:Edit` on `xiehang.com` only) ready for cert-manager's DNS-01 solver.
 - Public HTTPS access to `https://github.com/hangxie/homelab.git`.
-- Harbor at `media.xiehang.com` carrying the `llm-models` project and a **public** `jars` project,
+- Harbor at `harbor.xiehang.com` carrying the `llm-models` project and a **public** `jars` project,
   each with a push robot account. Both are part of media server setup, not this repo — see
   [Runtime jar cache](#runtime-jar-cache).
 
@@ -249,7 +249,7 @@ End-to-end provisioning of a fresh homelab cluster from this repo plus an extern
 Step 3 also creates the Istio private CA when absent and validates/preserves it on rebuilds. See the [CA rotation commands](#rotate-the-istio-ca) for explicit intermediate renewal and root replacement.
 
 ```bash
-export VAULT_ADDR=https://media.xiehang.com:8200
+export VAULT_ADDR=https://vault.xiehang.com
 export VAULT_TOKEN=...   # operator token with admin perms
 
 # 1. Ensure the KV v2 mount exists so generate:false entries can be pre-loaded.

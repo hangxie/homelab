@@ -128,7 +128,7 @@ extraInitContainers:
   - name: model-pull
     image: ghcr.io/open-webui/open-webui:0.9.6
     env:
-      - { name: HARBOR_REGISTRY,              value: media.xiehang.com }
+      - { name: HARBOR_REGISTRY,              value: harbor.xiehang.com }
       - { name: HARBOR_PROJECT,               value: llm-models }
       - { name: HF_HUB_DISABLE_PROGRESS_BARS, value: "1" }
       - { name: MODEL_IDS,                    value: sentence-transformers/all-MiniLM-L6-v2 }
