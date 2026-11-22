@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-HARBOR_REGISTRY="${HARBOR_REGISTRY:-media.xiehang.com}"
+HARBOR_REGISTRY="${HARBOR_REGISTRY:-harbor.xiehang.com}"
 HARBOR_PROJECT="${HARBOR_PROJECT:-jars}"
 KV_MOUNT="homelab"
 FORCE=false
@@ -35,7 +35,7 @@ With no artifact arguments every artifact below is seeded.
   --force   re-push even when the tag already exists in Harbor
 
 env:
-  HARBOR_REGISTRY   default media.xiehang.com
+  HARBOR_REGISTRY   default harbor.xiehang.com
   HARBOR_PROJECT    default jars
   HARBOR_USERNAME   push robot; falls back to Vault harbor/jars
   HARBOR_PASSWORD   push robot; falls back to Vault harbor/jars

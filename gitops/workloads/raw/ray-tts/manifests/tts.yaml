@@ -12,13 +12,13 @@
 #   - Change voices: a push replaces the whole artifact, so start from what is
 #     there. <name>.txt is the exact transcript of <name>.wav.
 #       vault kv get -field=password homelab/harbor/llm-models | oras login \
-#         media.xiehang.com --password-stdin \
+#         harbor.xiehang.com --password-stdin \
 #         -u "$(vault kv get -field=username homelab/harbor/llm-models)"
-#       oras manifest fetch media.xiehang.com/llm-models/tts-voices:latest | jq -r \
+#       oras manifest fetch harbor.xiehang.com/llm-models/tts-voices:latest | jq -r \
 #         '.layers[].annotations["org.opencontainers.image.title"]'  # list voices
-#       oras pull media.xiehang.com/llm-models/tts-voices:latest -o tts-voices
+#       oras pull harbor.xiehang.com/llm-models/tts-voices:latest -o tts-voices
 #       # add/replace pairs in tts-voices/, then push every pair from there
-#       cd tts-voices && oras push media.xiehang.com/llm-models/tts-voices:latest *.wav *.txt
+#       cd tts-voices && oras push harbor.xiehang.com/llm-models/tts-voices:latest *.wav *.txt
 #       kubectl -n ray-tts delete pod -l ray.io/group=tts-worker
 ---
 apiVersion: v1
@@ -196,7 +196,7 @@ spec:
                 # CephFS root must be writable for the lockfile + model dirs.
                 securityContext: { runAsUser: 0, runAsGroup: 0 }
                 env:
-                  - { name: HARBOR_REGISTRY,              value: media.xiehang.com }
+                  - { name: HARBOR_REGISTRY,              value: harbor.xiehang.com }
                   - { name: HARBOR_PROJECT,               value: llm-models }
                   - { name: HF_HUB_DISABLE_PROGRESS_BARS, value: "1" }
                   - { name: RAYSERVICE_NAME,              value: ray-tts }
@@ -219,7 +219,7 @@ spec:
               - name: voices-pull
                 image: ghcr.io/oras-project/oras:v1.2.2
                 env:
-                  - { name: VOICES_REF, value: media.xiehang.com/llm-models/tts-voices:latest }
+                  - { name: VOICES_REF, value: harbor.xiehang.com/llm-models/tts-voices:latest }
                   - name: HARBOR_USERNAME
                     valueFrom: { secretKeyRef: { name: harbor-credentials, key: username } }
                   - name: HARBOR_PASSWORD

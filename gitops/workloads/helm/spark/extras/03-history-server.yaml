@@ -35,7 +35,7 @@ spec:
         # SDK v1, which is what Spark 3.5.5 is built against.
         - name: fetch-s3-jars
           image: ghcr.io/oras-project/oras:v1.2.2
-          command: ["/bin/oras", "pull", "--output", "/mnt/jars", "media.xiehang.com/jars/spark-history-s3a:3.3.4"]
+          command: ["/bin/oras", "pull", "--output", "/mnt/jars", "harbor.xiehang.com/jars/spark-history-s3a:3.3.4"]
           volumeMounts:
             - name: spark-jars
               mountPath: /mnt/jars

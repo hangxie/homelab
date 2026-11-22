@@ -8,7 +8,7 @@
 # match them — a Pi idling hot and a media library sitting near full are normal
 # there and would page every day under cluster thresholds.
 #
-# media.xiehang.com is the one to watch: it serves both Vault and Harbor, so it
+# media is the one to watch: it serves both Vault and Harbor, so it
 # going down stops every ExternalSecret refresh and every image pull.
 
 groups:
