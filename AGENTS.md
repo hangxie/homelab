@@ -5,7 +5,7 @@ See `README.md` for architecture, bootstrap flow, and rebuild modes.
 ## Rules
 
 - **No AI/agent attribution in repo artifacts.** No `Co-Authored-By`, `Generated with ...`, or similar in commits, PRs, issues, or docs.
-- **Short commit messages.** Title + 3-6 line body. Analysis, rationale, and test plan go in the PR description.
+- **Short commit messages.** Title + 3-6 line body. Detail goes in the PR: a short description (background, then implementation), with investigation notes, rationale, and test output in PR comments.
 - **Fix in place.** Edit the existing file/resource. No parallel versions, shim files, or "v2" copies — clean up the old thing first.
 - **No one-off migration code.** Operator resets or redeploys per README; don't add transition branches or backfill jobs.
 - **HF token always required.** Every HuggingFace download path reads the token and fails loudly if missing.
@@ -50,7 +50,7 @@ Bootstrap, reset, Vault seeding, and secret rotation: see `README.md` — the co
    ```
 2. **Validate locally** — apply changes directly with `kubectl` until the app is running correctly.
 3. **Reflect the change in code** — edit the GitOps manifests/values to match the working local state.
-4. **Branch → commit → PR** — short commit message (see Rules), analysis and rationale in the PR description.
+4. **Branch → commit → PR** — short commit message and PR layout per Rules.
 5. **Re-enable Argo CD sync** on both apps after merge. Note this in the **PR description only**, not the commit message.
 
 ## Gotchas
