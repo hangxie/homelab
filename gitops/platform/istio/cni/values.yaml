@@ -6,6 +6,11 @@ global:
   variant: distroless
 chained: true
 cniConfFileName: 05-cilium.conflist
+# Keep Istio in the chain after a reboot: Cilium rewrites 05-cilium.conflist at boot,
+# so pods started before istio-cni re-patches it skip redirection (istio/istio#60882).
+# The Istio-owned copy sorts first and survives the rewrite.
+istioOwnedCNIConfig: true
+istioOwnedCNIConfigFileName: 02-istio-cni.conflist
 excludeNamespaces:
   - kube-system
   - istio-system
