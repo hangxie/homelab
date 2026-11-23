@@ -227,6 +227,32 @@ The mesh does not protect:
 
 All measurements so far ran between VMs on one physical Proxmox host; they say nothing about physical cross-host traffic.
 
+#### Recovery after a node restart
+
+A reboot can leave an ambient pod annotated `ambient.istio.io/redirection: enabled` without working redirection or a ztunnel listener. In the November 2026 outage, Grafana and the Mimir gateway stayed Ready while dashboard queries and Alloy remote writes returned 502. Ztunnel logged `Connection refused` to the destination pod on port 15008; Istio CNI's boot logs reported `failed to reconcile inpod rules` and `can't find netns for pod`. This matches [istio/istio#55968](https://github.com/istio/istio/issues/55968). Startup reconciliation is already enabled in Istio 1.31.3; toggling that default does not fix the startup race.
+
+Once the workload pods have running network namespaces and assigned IPs, disable Argo CD self-heal on `root` and `istio-cni` using the change workflow, then restart the CNI agents. The DaemonSet rolls one node at a time and rebuilds its pod snapshot and redirection rules; application pods and their storage stay in place. Existing mesh connections can be interrupted while a node's agent reconciles.
+
+```bash
+kubectl -n istio-system rollout restart daemonset/istio-cni-node
+kubectl -n istio-system rollout status daemonset/istio-cni-node --timeout=5m
+kubectl -n istio-system logs -l k8s-app=istio-cni-node --since=5m --tail=-1 --prefix \
+  | rg "failed to reconcile|can't find netns|netns is not available"
+```
+
+An empty error search is expected. Check the query path from **each** gateway replica: during the outage one replica worked while the other consistently returned 502, so a single Service request could conceal the fault.
+
+```bash
+for pod in $(kubectl -n mimir get pods -l app.kubernetes.io/component=gateway -o name); do
+  kubectl -n mimir exec "$pod" -- wget -q -O - -T 20 \
+    'http://127.0.0.1:8080/prometheus/api/v1/query?query=count(up)'
+done
+```
+
+Both responses must report `status: success` with a nonzero count. In Grafana Explore, also check `count by (job) (up)` and `time() - max by (instance) (prometheus_remote_storage_queue_highest_sent_timestamp_seconds)` to confirm scrape coverage and delivery lag recover. Allow Alloy's WAL backlog to drain; temporary 429 ingestion-rate responses can occur during catch-up. Do not clear the WAL to hide the lag. Check Loki and Tempo too, since the same CNI snapshot failure can affect their pods. If reconciliation still fails for a pod, inspect its node's CNI logs and use that workload's normal rolling recovery procedure.
+
+The `mimir-metrics` blackbox target queries `count(up)` through Grafana's Mimir gateway and requires a successful response containing recent scrape series. This detects query-path failures that `/ready` and Grafana `/api/health` miss; it does not guarantee every scrape target is present. Its metrics and notifications still depend on Alloy and Mimir, so a total monitoring outage needs an independent observer. After recovery, follow the change workflow to restore Argo CD self-heal.
+
 ## First-time bootstrap
 
 End-to-end provisioning of a fresh homelab cluster from this repo plus an external Vault.

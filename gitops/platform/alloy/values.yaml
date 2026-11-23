@@ -1746,6 +1746,19 @@ alloy:
                 preferred_ip_protocol: ip4
                 ip_protocol_fallback: false
                 follow_redirects: false
+            # Exercise the query backend and require at least one recent scrape series.
+            # Grafana /api/health and the Mimir gateway /ready do not test this path.
+            mimir_query:
+              prober: http
+              timeout: 10s
+              http:
+                preferred_ip_protocol: ip4
+                ip_protocol_fallback: false
+                follow_redirects: false
+                valid_status_codes: [200]
+                fail_if_body_not_matches_regexp:
+                  - '"status"\s*:\s*"success"'
+                  - '"value"\s*:\s*\[[^,]+,\s*"[1-9][0-9]*"\s*\]'
             # Validate llama.cpp responses as well as their HTTP status.
             llama_health:
               prober: http
@@ -1810,6 +1823,14 @@ alloy:
           name    = "harbor"
           address = "https://harbor.xiehang.com/api/v2.0/health"
           module  = "http_2xx"
+          labels  = {scope = "internal"}
+        }
+        // Query through the same gateway as Grafana; a static /ready can stay
+        // green while mesh connections to the backends are broken.
+        target {
+          name    = "mimir-metrics"
+          address = "http://mimir-gateway.mimir/prometheus/api/v1/query?query=count(up)"
+          module  = "mimir_query"
           labels  = {scope = "internal"}
         }
         // Through the gateway on purpose: this is the only probe that covers
