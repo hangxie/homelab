@@ -123,13 +123,53 @@ Spark jobs are a separate case. `spec.deps.packages` and `spark.sql.hive.metasto
 
 ### External monitoring
 
-Alloy scrapes node_exporter on `pi.xiehang.com:9100`, `media.xiehang.com:9100`, and `ai.xiehang.com:9100` every 60 seconds under `job="external/node"`. These hosts have separate resource alerts in `gitops/platform/mimir/extras/rules/external.yaml`; cluster node thresholds do not apply to them. Media provides Vault, Harbor, the vchat voice-chat front end, SSH, and llama.cpp inference; AI runs llama.cpp inference plus the STT (whisper) and TTS services vchat calls.
+Alloy monitors three hosts outside the cluster. Their alerts live in `gitops/platform/mimir/extras/rules/external.yaml`; cluster node thresholds do not apply to them.
 
-The embedded blackbox exporter checks Vault and Harbor on media, SSH banners on Pi/media/AI, `/health` and a nonempty `/v1/models` list on both inference servers (`https://llama-cpp.xiehang.com` and `http://ai.xiehang.com:8080`), and `/health` on vchat (`https://vchat.xiehang.com`), STT (`http://ai.xiehang.com:5005`) and TTS (`http://ai.xiehang.com:5004`); vchat, STT and TTS export no metrics. It also checks Grafana and Argo CD through the gateway, rebuild upstreams, and two internet anchors. Internal probe failures become critical after 10 minutes. The Infrastructure blackbox dashboard shows probe status and latency; the node-exporter dashboard shows Linux host resources. HTTP availability probes do not submit inference requests or prove generation works.
+| Host | Services | Metrics (`node_exporter :9100`, 60s) |
+| --- | --- | --- |
+| `pi.xiehang.com` | SSH | `job="external/node"` |
+| `media.xiehang.com` | Vault, Harbor, vchat, llama.cpp, SSH | `job="external/node"` |
+| `ai.xiehang.com` (macOS) | llama.cpp, STT, TTS, SSH | `job="external/node"` (Darwin build) |
 
-Both hosts run llama.cpp in router mode: media behind its nginx proxy at `https://llama-cpp.xiehang.com`, AI on port 8080 over plain HTTP. Media serves `deepseek-r1-1.5b-q8` and `qwen3.5-4b-q4`, each of which must set `metrics = 1`; AI (macOS) serves `qwen3.5-9b-q8-uncensored` and `qwen3.8-27b-q8`, with metrics always enabled by `--metrics` in its `run.sh`. Alloy scrapes each listed model at `/metrics?model=<id>&autoload=false` under `job="external/llama-cpp"`; an idle model answers HTTP 400 (`up=0`) instead of being loaded, which is why `TargetDown` skips this job. When presets change, update the target list in the matching `prometheus.scrape` block (`media_llama` or `ai_llama`) in Alloy's values. The bare `/metrics` endpoint returns HTTP 400 because it needs a model ID. A loaded model's metrics request may affect llama.cpp's idle timer; verify sleep behavior before enabling sleep-based unloading.
+Blackbox probes (embedded in Alloy, scope `internal`, critical after 10 minutes):
 
-AI also runs a Darwin-compatible node_exporter on port 9100, reachable from cluster nodes (`192.168.0.210-225`). Its memory alert estimates utilisation from total, free, and inactive pages; it does not measure macOS memory pressure. Disk alerts check `/System/Volumes/Data`, since the APFS root snapshot is intentionally read-only. Linux temperature and clock collectors are not assumed to work on macOS. The Infrastructure **AI Host and Inference** dashboard combines AI host CPU, memory, disk, and network with llama.cpp throughput/queue metrics from both inference hosts. Sustained model queues warn after 15 minutes.
+| Probe | Endpoint | Passes when |
+| --- | --- | --- |
+| `vault` | `https://vault.xiehang.com/v1/sys/health` | 2xx |
+| `harbor` | `https://harbor.xiehang.com/api/v2.0/health` | 2xx |
+| `media-vchat-health` | `https://vchat.xiehang.com/health` | `{"status": "ok"}` |
+| `media-llama-health` / `-models` | `https://llama-cpp.xiehang.com/health`, `/v1/models` | `{"status": "ok"}` / nonempty model list |
+| `ai-llama-health` / `-models` | `http://ai.xiehang.com:8080/health`, `/v1/models` | `{"status": "ok"}` / nonempty model list |
+| `ai-stt-health` | `http://ai.xiehang.com:5005/health` | `{"status": "ok"}` |
+| `ai-tts-health` | `http://ai.xiehang.com:5004/health` | `{"status": "ok"}` |
+| `pi-ssh`, `media-ssh`, `ai-ssh` | port 22 | SSH banner |
+
+- Alloy also probes Grafana and Argo CD through the gateway, the upstreams a rebuild pulls from, and two internet anchors.
+- Probes only check availability. They don't send inference requests, so they don't prove generation works.
+- vchat, STT and TTS export no metrics, so their probes are the only monitoring they get.
+- Dashboards: **Infrastructure → blackbox** (probe status and latency), **node-exporter** (Linux hosts), **AI Host and Inference** (AI host resources plus llama.cpp throughput and queues from both hosts).
+
+#### llama.cpp
+
+Both hosts run llama.cpp in router mode:
+
+| Host | Endpoint | Models | Metrics enabled by |
+| --- | --- | --- | --- |
+| media | `https://llama-cpp.xiehang.com` (nginx proxy) | `deepseek-r1-1.5b-q8`, `qwen3.5-4b-q4` | `metrics = 1` in each preset |
+| ai | `http://ai.xiehang.com:8080` | `qwen3.5-9b-q8-uncensored`, `qwen3.8-27b-q8` | `--metrics` in `run.sh` |
+
+- Alloy scrapes each listed model at `/metrics?model=<id>&autoload=false` under `job="external/llama-cpp"`. The bare `/metrics` returns HTTP 400 because it needs a model ID.
+- An idle model answers HTTP 400 (`up=0`) instead of being loaded by the scrape, so `TargetDown` skips this job. A dead host still alerts through `external/node` and the probes.
+- When presets change, update the target list in the matching `prometheus.scrape` block (`media_llama` or `ai_llama`) in Alloy's values.
+- A metrics request on a loaded model may reset llama.cpp's idle timer; check sleep behavior before enabling sleep-based unloading.
+- Queued requests (`ExternalInferenceRequestsDeferred`) warn after 15 minutes.
+
+#### AI host (macOS)
+
+- node_exporter must accept scrapes from cluster nodes (`192.168.0.210-225`).
+- The memory alert estimates utilisation from total, free and inactive pages. It does not measure macOS memory pressure.
+- Disk alerts check `/System/Volumes/Data`, since the APFS root snapshot is read-only by design.
+- Linux temperature and clock collectors are not assumed to work on macOS.
 
 ### TLS
 
