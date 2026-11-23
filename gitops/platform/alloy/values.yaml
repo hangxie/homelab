@@ -1702,8 +1702,8 @@ alloy:
           {
             "__address__" = "ai.xiehang.com:8080",
             "instance" = "ai",
-            "model" = "qwen3.5-4b-q4",
-            "__param_model" = "qwen3.5-4b-q4",
+            "model" = "qwen3.5-9b-q8-uncensored",
+            "__param_model" = "qwen3.5-9b-q8-uncensored",
             "__param_autoload" = "false",
           },
           {
@@ -1759,8 +1759,9 @@ alloy:
                 fail_if_body_not_matches_regexp:
                   - '"status"\s*:\s*"success"'
                   - '"value"\s*:\s*\[[^,]+,\s*"[1-9][0-9]*"\s*\]'
-            # Validate llama.cpp responses as well as their HTTP status.
-            llama_health:
+            # /health on llama.cpp, vchat and the AI speech services: require
+            # their {"status": "ok"} body, not just a 200.
+            health_ok:
               prober: http
               timeout: 10s
               http:
@@ -1863,7 +1864,7 @@ alloy:
         target {
           name    = "media-llama-health"
           address = "https://llama-cpp.xiehang.com/health"
-          module  = "llama_health"
+          module  = "health_ok"
           labels  = {scope = "internal"}
         }
         target {
@@ -1875,13 +1876,34 @@ alloy:
         target {
           name    = "ai-llama-health"
           address = "http://ai.xiehang.com:8080/health"
-          module  = "llama_health"
+          module  = "health_ok"
           labels  = {scope = "internal"}
         }
         target {
           name    = "ai-llama-models"
           address = "http://ai.xiehang.com:8080/v1/models"
           module  = "llama_models"
+          labels  = {scope = "internal"}
+        }
+        // vchat on media is the voice-chat front end; its STT (whisper), TTS and
+        // LLM backends run on AI. None of them export metrics, so /health is
+        // all there is. The AI LLM is already covered by ai-llama-*.
+        target {
+          name    = "media-vchat-health"
+          address = "https://vchat.xiehang.com/health"
+          module  = "health_ok"
+          labels  = {scope = "internal"}
+        }
+        target {
+          name    = "ai-stt-health"
+          address = "http://ai.xiehang.com:5005/health"
+          module  = "health_ok"
+          labels  = {scope = "internal"}
+        }
+        target {
+          name    = "ai-tts-health"
+          address = "http://ai.xiehang.com:5004/health"
+          module  = "health_ok"
           labels  = {scope = "internal"}
         }
         target {
