@@ -33,6 +33,58 @@ slug() {
             | tr -cd 'a-z0-9-' | tr -s '-'
 }
 
+# Harbor answers a wrong robot secret with an anonymous token instead of a
+# 401, so on a public project pulls keep working and only the push at the
+# very end fails. Ask the token service for push up front and stop here.
+python - <<'PY' || exit 1
+import base64
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+registry = os.environ["HARBOR_REGISTRY"]
+project = os.environ["HARBOR_PROJECT"]
+username = os.environ["HARBOR_USERNAME"]
+password = os.environ["HARBOR_PASSWORD"]
+
+try:
+    urllib.request.urlopen(f"https://{registry}/v2/", timeout=20)
+    sys.exit(f"ERROR: https://{registry}/v2/ did not ask for auth")
+except urllib.error.HTTPError as exc:
+    challenge = dict(re.findall(r'(\w+)="([^"]*)"', exc.headers.get("WWW-Authenticate", "")))
+except Exception as exc:
+    sys.exit(f"ERROR: Harbor unreachable at {registry}: {exc}")
+
+query = urllib.parse.urlencode({
+    "service": challenge.get("service", ""),
+    "scope": f"repository:{project}/credential-check:pull,push",
+})
+request = urllib.request.Request(
+    f"{challenge['realm']}?{query}",
+    headers={"Authorization": "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode()},
+)
+try:
+    with urllib.request.urlopen(request, timeout=20) as response:
+        token = json.load(response)["token"]
+except Exception as exc:
+    sys.exit(f"ERROR: Harbor token request failed for {username}: {exc}")
+
+payload = token.split(".")[1]
+claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+actions = {a for entry in claims.get("access", []) for a in entry.get("actions", [])}
+if claims.get("sub") != username or "push" not in actions:
+    sys.exit(
+        f"ERROR: permission denied: Harbor rejected {username} or did not grant push "
+        f"on {project} (sub={claims.get('sub')!r}, actions={sorted(actions)}); "
+        f"check homelab/harbor/{project} in Vault"
+    )
+print(f"Harbor credentials ok: {username} can push to {project}")
+PY
+
 for MODEL_ID in ${MODELS}; do
   MODEL_ID="$(echo "${MODEL_ID}" | xargs)"
   [ -z "${MODEL_ID}" ] && continue
@@ -102,9 +154,16 @@ PY
     }
 
     if pvc_complete; then
-      if harbor_has_model; then
+      HAS_MODEL=0
+      harbor_has_model || HAS_MODEL=$?
+      if [ "${HAS_MODEL}" -eq 0 ]; then
         echo "PVC and Harbor ok: ${MODEL_ID}"
         exit 0
+      fi
+      # Anything but a 404 is an auth or Harbor error, not a missing model.
+      if [ "${HAS_MODEL}" -ne 1 ]; then
+        echo "ERROR: Harbor lookup failed for ${HARBOR_REF}" >&2
+        exit 1
       fi
       echo "PVC ok but Harbor cache missing: ${MODEL_ID}"
       push_to_harbor || { echo "ERROR: Harbor push failed for ${HARBOR_REF}" >&2; exit 1; }
