@@ -19,11 +19,13 @@ spec:
           # (including PVCs) are deleted on the next Argo sync.
           - name: dbeaver
           - name: mysql
-          # Ray Serve on the GPU node; both want its two cards, so enable one
-          # at a time. Their model and compile-cache PVCs are Delete=false and
-          # survive a disable, so switching back starts warm.
-          - name: ray-vllm
-          # - name: ray-tts
+          # Ray Serve on the GPU node's two cards: ray-vllm takes both, ray-tts
+          # one per TTS replica (TTS_NUM_REPLICAS), ray-stt one. Enable apps
+          # that fit in two cards. Their model and compile-cache PVCs are
+          # Delete=false and survive a disable, so switching back starts warm.
+          # - name: ray-vllm
+          - name: ray-tts
+          - name: ray-stt
   template:
     metadata:
       name: 'wl-{{ .name }}'

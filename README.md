@@ -433,16 +433,21 @@ TTS (`https://tts.homelab.xiehang.com/`) access:
 
 - **Login:** the page and `/voices` need a Zitadel login (through OAuth2 Proxy) with the `homelab` project's `admin` or `viewer` role. A session lasts 12h from login.
 - **Sign out:** the page has no button; open `https://tts.homelab.xiehang.com/oauth2/sign_out`. It ends both the TTS and the Zitadel session. Logging out of Zitadel elsewhere leaves the TTS session running.
-- **API:** `/api` needs `Authorization: Bearer <PAT>` from a machine user with the `tts-user` or `admin` role (see API bearer tokens below).
+- **API:** `/api` and `/voices` with an `Authorization: Bearer <PAT>` header need a machine user with the `tts-user` or `admin` role (see API bearer tokens below).
 - **Public:** `/health` and FastAPI's doc routes (`/openapi.json`, `/docs`, `/docs/oauth2-redirect`, `/redoc`) need no auth.
 - **First deploy:** run `scripts/seed-vault.sh` (creates `ray/tts-oidc`), then `scripts/seed-zitadel.sh` (registers the `ray-tts` client and writes `oidc/ray-tts`).
+
+STT (`https://stt.homelab.xiehang.com/v1`, Whisper behind OpenAI's `/v1/audio/transcriptions` in `ray-stt`) access:
+
+- **API:** everything under `/v1` needs `Authorization: Bearer <PAT>` from a machine user with the `stt-user` or `admin` role (see API bearer tokens below); a missing token gets 401. There is no page.
+- **Public:** `/v1/health`, `/v1/docs` and `/v1/openapi.json` need no auth.
 
 API bearer tokens (#254):
 
 - **How it works:** an HTTPRoute rule with an `ExternalAuth` filter asks Authorino (`gitops/platform/authorino`) about each request. Authorino introspects the opaque token at Zitadel, using the `authorino` API client from `apiClients:` in `scripts/zitadel.template.yaml`, and checks the project roles against that API's `AuthConfig`. Results are cached for 60s, so a deleted token or role stops working within a minute.
 - **Responses:** an invalid or expired bearer token gets 401 with `WWW-Authenticate: Bearer`, and a valid token without an allowed role gets 403. A request with no `Authorization: Bearer` header never reaches Authorino: it falls through to the page's OAuth2 Proxy, which redirects to the Zitadel login (302). Headless clients that see a 302 forgot the token.
-- **Issuing a token:** in the Zitadel console, create a service account (machine user), grant it a `homelab` role (e.g. `tts-user`), and add a personal access token. Hand the PAT to the client. If the account shows as inactive, reactivate it, or its tokens get 401. Console-made machine users are lost on a rebuild; for in-cluster clients, list the account under `machines:` in `scripts/zitadel.template.yaml` instead. `seed-zitadel.sh` then creates it, grants its roles, and keeps a PAT in Vault. Each run checks that PAT against Zitadel and issues a new one when it is missing or revoked, or with `--regenerate`.
-- **Rotating a machine PAT:** the script never revokes the old PAT, because consumers hold the token in an env var until they restart. After a new one, run the commands it prints: a force-sync of each ExternalSecret reading the Vault path, and a `rollout restart` of each Deployment/StatefulSet using its Secret (for Open WebUI, `kubectl -n openwebui rollout restart deployment/open-webui`). Check that the consumer works, then delete the old PATs in the Zitadel console.
+- **Issuing a token:** list each client under `machines:` in `scripts/zitadel.template.yaml` with its `homelab` roles (e.g. `tts-user`) and a Vault path. `seed-zitadel.sh` creates the service account, grants exactly those roles, and issues a PAT into Vault `api-keys/<name>` (field `token`) only when the account is new or that path is empty; the PAT never expires. To adopt a console-made account, put its PAT in Vault first (`vault kv put homelab/api-keys/<name> token=-`), or the script issues a second one. A Reset or Nuke (see Rebuild modes) empties Zitadel's database, so the script recreates the listed accounts and replaces their Vault PATs; console-made accounts that are not listed are gone. Ordinary updates keep every account and PAT. If an account shows as inactive, reactivate it, or its tokens get 401.
+- **Rotating a machine PAT:** by hand only; the script never rotates one, `--regenerate` included, and fails if a Vault PAT no longer works for its account. Add a PAT in the Zitadel console (Users > Service Accounts > `<name>`), `vault kv put homelab/api-keys/<name> token=-`, then move the consumer: off-cluster ones re-read Vault; in-cluster ones need a force-sync of the ExternalSecret reading that path and a `rollout restart` (for Open WebUI, `kubectl -n openwebui rollout restart deployment/open-webui`). Delete the old PAT in the console once the consumer works on the new one.
 - **Roles:** grant `*-user` roles to machine users only. Any role passes the project's login check, and Argo CD gives every logged-in user read-only access.
 - **Network policy:** a protected backend also needs a `CiliumNetworkPolicy` that only admits the Gateway (`fromEntities: [ingress]`) and its known in-cluster callers, else a pod could call it directly and skip the check (`ray-tts/manifests/networkpolicy.yaml`, `ray-vllm/manifests/networkpolicy.yaml`).
 - **Adding an API:** add an `AuthConfig` in `gitops/platform/authorino/`, a `from` entry for its namespace in `03-referencegrant.yaml`, the `ExternalAuth` filter on its route, the network policy, and a `*-user` role in the template.
@@ -486,7 +491,7 @@ propagate to OpenWebUI on its own — change it in the UI, or wipe the
      password='<new secret from Harbor>'
    ```
 
-3. Force the `harbor-credentials` Secret in the enabled Ray namespaces (`ray-vllm`, `ray-tts`) to refresh from Vault immediately (otherwise wait for the 1h ExternalSecret refresh):
+3. Force the `harbor-credentials` Secret in the enabled Ray namespaces (`ray-vllm`, `ray-tts`, `ray-stt`) to refresh from Vault immediately (otherwise wait for the 1h ExternalSecret refresh):
 
    ```bash
    kubectl -n ray-tts annotate externalsecret harbor-credentials \
@@ -534,7 +539,7 @@ vault kv put homelab/harbor/jars \
      token='<new HuggingFace read token>'
    ```
 
-3. Force the `hf-token` Secret in the enabled Ray namespaces (`ray-vllm`, `ray-tts`) to refresh:
+3. Force the `hf-token` Secret in the enabled Ray namespaces (`ray-vllm`, `ray-tts`, `ray-stt`) to refresh:
 
    ```bash
    kubectl -n ray-tts annotate externalsecret hf-token \

@@ -8,7 +8,8 @@
 # Zitadel generates OIDC client secrets itself and returns them only once, so
 # each client's id/secret is written to Vault oidc/<name> when the client is
 # created, when Vault does not hold its current client id (e.g. after a Nuke),
-# or with --regenerate, which mints a fresh secret for every client.
+# or with --regenerate, which mints a fresh secret for every client. Machine
+# user PATs are never rotated, --regenerate included; see ensure_machine.
 #
 # Prereqs:
 #   - kubectl pointed at the cluster (reads the iam-admin-pat Secret that
@@ -23,6 +24,7 @@
 set -euo pipefail
 
 REGENERATE=false
+MACHINE_ERRORS=0
 case "${1:-}" in
   "") ;;
   --regenerate) REGENERATE=true ;;
@@ -420,37 +422,44 @@ pat_valid() {
   return "${code}"
 }
 
-# Machine user for an in-cluster bearer-token client: exactly the template's
-# roles and a PAT in Vault. A PAT is shown only once, so a new one is issued
-# when the Vault one is missing or no longer valid, or with --regenerate.
-# Older PATs are kept: consumers hold the token in env until they restart, so
-# the operator revokes them once the consumer runs on the new one.
+# Machine user for a bearer-token client: exactly the template's roles and a
+# PAT in Vault. The script issues a PAT only when the user is new (first run,
+# or a rebuilt Zitadel) or Vault holds none; it never rotates one, not even
+# with --regenerate. An existing user whose Vault PAT is invalid fails the run:
+# rotation is done by hand in the console (README, API bearer tokens).
 ensure_machine() {
-  local machine="$1" name vault_path id token pats created ns es secret workload
+  local machine="$1" name vault_path id token created ns es secret workload
   name="$(jq -r '.name' <<<"${machine}")"
   vault_path="$(jq -r '.vault' <<<"${machine}")"
   id="$(api POST /v2/users "$(jq -nc --arg u "${name}" \
     '{queries: [{userNameQuery: {userName: $u, method: "TEXT_QUERY_METHOD_EQUALS"}}]}')" \
     | jq -r '.result[0].userId // empty')"
+  token="$(vault kv get -field=token "${KV_MOUNT}/${vault_path}" 2>/dev/null || true)"
   if [[ -z "${id}" ]]; then
     echo ">>> Creating machine user ${name}"
     id="$(api POST /management/v1/users/machine "$(jq -nc --arg n "${name}" \
       '{userName: $n, name: $n, accessTokenType: "ACCESS_TOKEN_TYPE_BEARER"}')" | jq -r '.userId')"
+    ensure_user_grant "${id}" "$(jq -c '{username: .name, roles}' <<<"${machine}")"
   else
     echo ">>> Machine user ${name} exists"
+    ensure_user_grant "${id}" "$(jq -c '{username: .name, roles}' <<<"${machine}")"
+    if [[ -n "${token}" ]]; then
+      if pat_valid "${token}" "${id}"; then
+        echo ">>> Machine user ${name} PAT in Vault is valid"
+      else
+        echo "Error: the PAT in ${KV_MOUNT}/${vault_path} is not a live PAT of ${name}. Rotate it by hand:" >&2
+        echo "    add a PAT in the console (Users > Service Accounts > ${name}), then" >&2
+        echo "    vault kv put ${KV_MOUNT}/${vault_path} token=-   # paste it, then Ctrl-D" >&2
+        MACHINE_ERRORS=$((MACHINE_ERRORS + 1))
+      fi
+      return
+    fi
   fi
-  ensure_user_grant "${id}" "$(jq -c '{username: .name, roles}' <<<"${machine}")"
-  token="$(vault kv get -field=token "${KV_MOUNT}/${vault_path}" 2>/dev/null || true)"
-  if [[ "${REGENERATE}" != "true" && -n "${token}" ]] && pat_valid "${token}" "${id}"; then
-    echo ">>> Machine user ${name} PAT in Vault is valid"
-    return
-  fi
-  pats="$(api POST "/management/v1/users/${id}/pats/_search" '{}' | jq -r '[.result[]?.id] | join(" ")')"
-  echo ">>> Issuing a PAT for ${name} into ${KV_MOUNT}/${vault_path}"
+  echo ">>> Issuing the first PAT for ${name} into ${KV_MOUNT}/${vault_path}"
   created="$(api POST "/management/v1/users/${id}/pats" '{}')"
   # Through stdin, so the token never shows up in a process listing.
   jq -c '{token}' <<<"${created}" | vault kv put "${KV_MOUNT}/${vault_path}" - >/dev/null
-  echo ">>> Move the consumer to the new PAT: force-sync, then restart the workloads reading the Secret:"
+  echo ">>> Move the consumer to the new PAT; off-cluster ones read Vault. In-cluster: force-sync, then restart:"
   while read -r ns es secret; do
     [[ -n "${ns}" ]] || continue
     echo "    kubectl -n ${ns} annotate externalsecret ${es} force-sync=\$(date +%s) --overwrite"
@@ -465,10 +474,6 @@ ensure_machine() {
   done < <(kubectl get externalsecret -A -o json | jq -r --arg k "${vault_path}" \
     '.items[] | select([.spec.data[]?.remoteRef.key] | index($k))
       | "\(.metadata.namespace) \(.metadata.name) \(.spec.target.name // .metadata.name)"')
-  if [[ -n "${pats}" ]]; then
-    echo ">>> Once it works on the new PAT, delete the old ones (${pats}) in the Zitadel console:"
-    echo "    Users > Service Accounts > ${name} > Personal Access Tokens"
-  fi
 }
 
 ensure_machines() {
@@ -478,6 +483,10 @@ ensure_machines() {
     [[ -n "${machine}" ]] || continue
     ensure_machine "${machine}"
   done <<<"${machines}"
+  if (( MACHINE_ERRORS > 0 )); then
+    echo "Error: ${MACHINE_ERRORS} machine user(s) need a hand-rotated PAT in Vault (see above)" >&2
+    exit 1
+  fi
 }
 
 # The template is the client list: unlisted apps in the project are deleted.

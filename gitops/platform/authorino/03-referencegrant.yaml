@@ -12,6 +12,9 @@ spec:
       namespace: ray-tts
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
+      namespace: ray-stt
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
       namespace: ray-vllm
   to:
     - group: ""
