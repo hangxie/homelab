@@ -135,13 +135,16 @@ while IFS=$'\t' read -r ns name hostname; do
         grafana/grafana)
             print_secret_user_pass_row "$url" grafana grafana-admin username password admin
             ;;
-        ray-vllm/ray-dashboard|ray-tts/ray-dashboard|spark/spark-history-server)
+        ray-vllm/ray-dashboard|ray-tts/ray-dashboard|ray-stt/ray-dashboard|spark/spark-history-server)
             print_row "$url" "-" "(no auth)"
             ;;
         ray-tts/tts)
             print_row "$url" "-" "(Zitadel SSO; sign out: /oauth2/sign_out)"
-            # Zitadel shows a PAT only once, so there is nothing to print here.
-            print_row "${url}/api/tts" "(bearer)" "(PAT of a machine user with tts-user, Zitadel console)"
+            # Tokens are per client, so none is printed here.
+            print_row "${url}/api/tts" "(bearer)" "(PAT of a tts-user machine user, Vault api-keys/<name>)"
+            ;;
+        ray-stt/stt)
+            print_row "${url}/v1" "(bearer)" "(PAT of an stt-user machine user, Vault api-keys/<name>)"
             ;;
         openwebui/open-webui)
             print_secret_row "$url" openwebui openwebui-admin password admin@homelab.xiehang.com

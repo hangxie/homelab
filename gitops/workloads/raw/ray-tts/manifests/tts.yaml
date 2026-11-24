@@ -1,14 +1,15 @@
 # ray-tts namespace contents — Qwen3-TTS voice cloning (serve_tts in
 # hangxie/ray-images) as its own RayService and Argo CD app, so it upgrades,
-# restarts and fails independently of ray-vllm. One replica per card on the GPU
-# node (tts-worker group); reference voices come from the Harbor artifact
-# llm-models/tts-voices:latest, the model from this namespace's llm-models PVC
-# (components/ray-model-pull, shared with raw/ray-vllm).
+# restarts and fails independently of ray-stt and ray-vllm. One card per TTS
+# replica on the GPU node: a replica peaks at 5.4 of 6 GB. Reference voices
+# come from the Harbor artifact llm-models/tts-voices:latest, the model from
+# this namespace's llm-models PVC (components/ray-model-pull).
 #
 # Operator workflow:
-#   - Enable/disable: the `ray-tts` line in workloads-raw.yaml. It shares the GPU
-#     node's two cards with ray-vllm, so enable only one of them until there are
-#     more GPUs. The model PVC survives a disable.
+#   - Enable/disable: the `ray-tts` line in workloads-raw.yaml. The GPU node's
+#     two cards are shared by ray-vllm (both), ray-tts (one per TTS replica)
+#     and ray-stt (one); enabled apps must not ask for more than two.
+#     The model PVC survives a disable.
 #   - Change voices: a push replaces the whole artifact, so start from what is
 #     there. <name>.txt is the exact transcript of <name>.wav.
 #       vault kv get -field=password homelab/harbor/llm-models | oras login \
@@ -133,8 +134,8 @@ spec:
             TTS_MODEL: "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
             TTS_MODEL_DIR: "/mnt/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base"
             TTS_VOICES_DIR: /mnt/voices
-            # One replica per card; Serve queues the rest, 503 past the queue.
-            TTS_NUM_REPLICAS: "2"
+            # One card; the other runs ray-stt. "2" uses both when ray-stt is off.
+            TTS_NUM_REPLICAS: "1"
             TTS_MAX_QUEUED_REQUESTS: "4"
             HF_HUB_OFFLINE: "1"
   rayClusterConfig:
@@ -146,7 +147,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: hangxie/ray-images:v0.4.0
+              image: hangxie/ray-images:v0.5.0
               resources:
                 requests: { cpu: "2", memory: "4Gi" }
                 limits:   { cpu: "2", memory: "8Gi" }
@@ -192,7 +193,7 @@ spec:
                 volumeMounts:
                   - { name: shared-bin, mountPath: /shared }
               - name: model-pull
-                image: hangxie/ray-images:v0.4.0
+                image: hangxie/ray-images:v0.5.0
                 # CephFS root must be writable for the lockfile + model dirs.
                 securityContext: { runAsUser: 0, runAsGroup: 0 }
                 env:
@@ -237,7 +238,7 @@ spec:
                   - { name: host-ca, mountPath: /etc/ssl/certs, readOnly: true }
             containers:
               - name: ray-worker
-                image: hangxie/ray-images:v0.4.0
+                image: hangxie/ray-images:v0.5.0
                 resources:
                   # A replica holds ~2.6-3.0 GiB of host RAM (model, CUDA context, torch).
                   requests: { cpu: "2", memory: "4Gi", nvidia.com/gpu: "1" }
@@ -271,10 +272,18 @@ spec:
   rules:
     # Bearer token checked by Authorino (AuthConfig authorino/ray-tts, #254).
     # /api calls without one, i.e. the page's own, fall through to OAuth2 Proxy.
+    # /voices is the voice list API clients pick from.
     - matches:
         - path:
             type: PathPrefix
             value: /api
+          headers:
+            - name: Authorization
+              type: RegularExpression
+              value: "^Bearer .+"
+        - path:
+            type: Exact
+            value: /voices
           headers:
             - name: Authorization
               type: RegularExpression

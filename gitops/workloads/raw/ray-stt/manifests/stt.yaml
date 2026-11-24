@@ -1,0 +1,265 @@
+# ray-stt namespace contents — Whisper speech-to-text (serve_stt from
+# hangxie/ray-images) behind OpenAI's /v1/audio/transcriptions, as its own
+# RayService and Argo CD app, so it runs, restarts and fails independently of
+# ray-tts and ray-vllm. One card on the GPU node; the model comes from this
+# namespace's llm-models PVC (components/ray-model-pull).
+#
+# Operator workflow:
+#   - Enable/disable: the `ray-stt` line in workloads-raw.yaml. The GPU node's
+#     two cards are shared by ray-vllm (both), ray-tts (one per TTS replica)
+#     and ray-stt (one); enabled apps must not ask for more than two.
+#     The model PVC survives a disable.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ray-stt
+  namespace: ray-stt
+---
+# model-pull reads the model list from the live RayService.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ray-stt
+  namespace: ray-stt
+rules:
+  - apiGroups: ["ray.io"]
+    resources: ["rayservices"]
+    resourceNames: ["ray-stt"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ray-stt
+  namespace: ray-stt
+subjects:
+  - kind: ServiceAccount
+    name: ray-stt
+    namespace: ray-stt
+roleRef:
+  kind: Role
+  name: ray-stt
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: harbor-credentials
+  namespace: ray-stt
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: harbor-credentials
+    creationPolicy: Owner
+  data:
+    - secretKey: username
+      remoteRef:
+        key: harbor/llm-models
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: harbor/llm-models
+        property: password
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: hf-token
+  namespace: ray-stt
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: hf-token
+    creationPolicy: Owner
+  data:
+    - secretKey: token
+      remoteRef:
+        key: huggingface/api-token
+        property: token
+---
+# Whisper large-v3-turbo is ~1.6 GiB. Kept when the app is disabled
+# (Delete=false), so re-enabling skips the pull.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llm-models
+  namespace: ray-stt
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: rook-cephfs
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: ray-stt
+  namespace: ray-stt
+spec:
+  serviceUnhealthySecondThreshold: 1800
+  deploymentUnhealthySecondThreshold: 1800
+  # Same reason as ray-vllm: a second RayCluster's workers could never get the
+  # GPU node's cards, so an upgrade would deadlock. Costs a short outage.
+  upgradeStrategy:
+    type: None
+  serveConfigV2: |
+    applications:
+      # OpenAI's /v1/audio/transcriptions, as site-up's mlx-stt-svc serves it.
+      - name: stt
+        route_prefix: /v1
+        import_path: serve_stt:app
+        runtime_env:
+          env_vars:
+            STT_MODEL: "openai/whisper-large-v3-turbo"
+            STT_MODEL_DIR: "/mnt/models/openai/whisper-large-v3-turbo"
+            STT_MAX_QUEUED_REQUESTS: "8"
+            HF_HUB_OFFLINE: "1"
+  rayClusterConfig:
+    enableInTreeAutoscaling: true
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: hangxie/ray-images:v0.5.0
+              resources:
+                requests: { cpu: "2", memory: "4Gi" }
+                limits:   { cpu: "2", memory: "8Gi" }
+              ports:
+                - { name: gcs,       containerPort: 6379 }
+                - { name: dashboard, containerPort: 8265 }
+                - { name: serve,     containerPort: 8000 }
+                - { name: metrics,   containerPort: 8080 }
+              volumeMounts:
+                - { name: dshm, mountPath: /dev/shm }
+          volumes:
+            - { name: dshm, emptyDir: { medium: Memory } }
+    workerGroupSpecs:
+      - groupName: stt-worker
+        replicas: 0
+        minReplicas: 0
+        maxReplicas: 1
+        rayStartParams:
+          num-gpus: "1"
+        template:
+          spec:
+            serviceAccountName: ray-stt
+            nodeSelector:
+              feature.node.kubernetes.io/pci-0300_10de.present: "true"
+            tolerations:
+              - { key: gpu, operator: Equal, value: "true", effect: NoSchedule }
+            initContainers:
+              - name: oras-installer
+                image: ghcr.io/oras-project/oras:v1.2.2
+                command: [sh, -ceu, "cp /bin/oras /shared/oras"]
+                volumeMounts:
+                  - { name: shared-bin, mountPath: /shared }
+              - name: kubectl-installer
+                image: alpine/kubectl:1.36.1
+                command: [sh, -ceu, 'cp "$(command -v kubectl)" /shared/kubectl']
+                volumeMounts:
+                  - { name: shared-bin, mountPath: /shared }
+              - name: yq-installer
+                image: mikefarah/yq:4
+                command: [sh, -ceu, "cp /usr/bin/yq /shared/yq"]
+                volumeMounts:
+                  - { name: shared-bin, mountPath: /shared }
+              - name: model-pull
+                image: hangxie/ray-images:v0.5.0
+                # CephFS root must be writable for the lockfile + model dirs.
+                securityContext: { runAsUser: 0, runAsGroup: 0 }
+                env:
+                  - { name: HARBOR_REGISTRY,              value: harbor.xiehang.com }
+                  - { name: HARBOR_PROJECT,               value: llm-models }
+                  - { name: HF_HUB_DISABLE_PROGRESS_BARS, value: "1" }
+                  - { name: RAYSERVICE_NAME,              value: ray-stt }
+                  - { name: RAYSERVE_APP,                 value: stt }
+                  - { name: MODELS_VAR,                   value: STT_MODEL }
+                  - name: HF_TOKEN
+                    valueFrom: { secretKeyRef: { name: hf-token, key: token } }
+                  - name: HARBOR_USERNAME
+                    valueFrom: { secretKeyRef: { name: harbor-credentials, key: username } }
+                  - name: HARBOR_PASSWORD
+                    valueFrom: { secretKeyRef: { name: harbor-credentials, key: password } }
+                command: [bash, /scripts/model-pull.sh]
+                volumeMounts:
+                  - { name: model-pull,   mountPath: /scripts/model-pull.sh, subPath: model-pull.sh }
+                  - { name: llm-models,   mountPath: /mnt/models }
+                  - { name: shared-bin,   mountPath: /shared }
+                  - { name: host-ca,      mountPath: /etc/ssl/certs, readOnly: true }
+            containers:
+              - name: ray-worker
+                image: hangxie/ray-images:v0.5.0
+                resources:
+                  # A Whisper replica holds ~2.1 GiB of host RAM (model, CUDA context, torch).
+                  requests: { cpu: "2", memory: "3Gi", nvidia.com/gpu: "1" }
+                  limits:   { cpu: "4", memory: "4Gi", nvidia.com/gpu: "1" }
+                ports:
+                  - { name: metrics, containerPort: 8080, protocol: TCP }
+                volumeMounts:
+                  - { name: dshm,       mountPath: /dev/shm }
+                  - { name: llm-models, mountPath: /mnt/models, readOnly: true }
+            volumes:
+              - { name: model-pull,   configMap: { name: ray-model-pull } }
+              - { name: dshm,         emptyDir: { medium: Memory } }
+              - { name: llm-models,   persistentVolumeClaim: { claimName: llm-models } }
+              - { name: shared-bin,   emptyDir: {} }
+              - { name: host-ca,      hostPath: { path: /etc/ssl/certs, type: Directory } }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: stt
+  namespace: ray-stt
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+      sectionName: https
+  hostnames:
+    - "stt.homelab.xiehang.com"
+  rules:
+    # API only, no page: every /v1 request needs a bearer token, checked by
+    # Authorino (AuthConfig authorino/ray-stt, #254); a missing one gets 401.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1
+      filters:
+        - type: ExternalAuth
+          externalAuth:
+            protocol: GRPC
+            backendRef:
+              name: authorino-authorino-authorization
+              namespace: authorino
+              port: 50051
+            grpc: {}
+      backendRefs:
+        - name: ray-stt-serve-svc
+          port: 8000
+    # /v1/health and FastAPI's doc routes are public.
+    - matches:
+        - path:
+            type: Exact
+            value: /v1/health
+        - path:
+            type: Exact
+            value: /v1/openapi.json
+        - path:
+            type: Exact
+            value: /v1/docs
+      backendRefs:
+        - name: ray-stt-serve-svc
+          port: 8000

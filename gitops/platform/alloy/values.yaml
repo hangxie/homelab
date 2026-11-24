@@ -838,7 +838,7 @@ alloy:
       discovery.kubernetes "ray_head" {
         role = "pod"
         namespaces {
-          names = ["ray-vllm", "ray-tts"]
+          names = ["ray-vllm", "ray-tts", "ray-stt"]
         }
         selectors {
           role  = "pod"
@@ -873,7 +873,7 @@ alloy:
       discovery.kubernetes "ray_workers" {
         role = "pod"
         namespaces {
-          names = ["ray-vllm", "ray-tts"]
+          names = ["ray-vllm", "ray-tts", "ray-stt"]
         }
         selectors {
           role  = "pod"
