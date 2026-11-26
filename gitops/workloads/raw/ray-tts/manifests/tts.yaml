@@ -147,7 +147,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: hangxie/ray-images:v0.9.0-rc2
+              image: hangxie/ray-images:v0.9.0-rc3
               resources:
                 requests: { cpu: "2", memory: "4Gi" }
                 limits:   { cpu: "2", memory: "8Gi" }
@@ -193,7 +193,7 @@ spec:
                 volumeMounts:
                   - { name: shared-bin, mountPath: /shared }
               - name: model-pull
-                image: hangxie/ray-images:v0.9.0-rc2
+                image: hangxie/ray-images:v0.9.0-rc3
                 # CephFS root must be writable for the lockfile + model dirs.
                 securityContext: { runAsUser: 0, runAsGroup: 0 }
                 env:
@@ -238,7 +238,7 @@ spec:
                   - { name: host-ca, mountPath: /etc/ssl/certs, readOnly: true }
             containers:
               - name: ray-worker
-                image: hangxie/ray-images:v0.9.0-rc2
+                image: hangxie/ray-images:v0.9.0-rc3
                 resources:
                   # A replica holds ~2.6-3.0 GiB of host RAM (model, CUDA context, torch).
                   requests: { cpu: "2", memory: "4Gi", nvidia.com/gpu: "1" }
