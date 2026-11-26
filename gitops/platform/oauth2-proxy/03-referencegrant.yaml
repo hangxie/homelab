@@ -15,6 +15,7 @@ spec:
     - { group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: ray-tts }
     - { group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: ray-stt }
     - { group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: ray-vchat }
+    - { group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: ray-meeting }
     - { group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: clickhouse }
     - { group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: dbeaver }
   to:

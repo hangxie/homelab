@@ -76,6 +76,8 @@ clients:
     redirectUris: [https://tts.homelab.xiehang.com/oauth2/callback]
   - name: ray-vchat
     redirectUris: [https://vchat.homelab.xiehang.com/oauth2/callback]
+  - name: ray-meeting
+    redirectUris: [https://meeting.homelab.xiehang.com/oauth2/callback]
   - name: openwebui
     redirectUris: [https://openwebui.homelab.xiehang.com/oauth/oidc/callback]
   - name: trino
@@ -101,6 +103,7 @@ clients:
       - https://ray-tts-dashboard.homelab.xiehang.com/oauth2/callback
       - https://ray-stt-dashboard.homelab.xiehang.com/oauth2/callback
       - https://ray-vchat-dashboard.homelab.xiehang.com/oauth2/callback
+      - https://ray-meeting-dashboard.homelab.xiehang.com/oauth2/callback
       - https://clickhouse.homelab.xiehang.com/oauth2/callback
       - https://dbeaver.homelab.xiehang.com/oauth2/callback
 
@@ -125,6 +128,9 @@ machines:
   - name: ray-vchat
     roles: [tts-user, stt-user]
     vault: api-keys/ray-vchat
+  - name: ray-meeting
+    roles: [stt-user]
+    vault: api-keys/ray-meeting
   - name: txt2m4b
     roles: [tts-user]
     vault: api-keys/txt2m4b
