@@ -439,7 +439,7 @@ TTS (`https://tts.homelab.xiehang.com/`) access:
 
 STT (`https://stt.homelab.xiehang.com/v1`, Whisper behind OpenAI's `/v1/audio/transcriptions` in `ray-stt`) access:
 
-- **API:** everything under `/v1` needs `Authorization: Bearer <PAT>` from a machine user with the `stt-user` or `admin` role (see API bearer tokens below); a missing token gets 401. There is no page.
+- **API:** everything under `/v1` needs `Authorization: Bearer <PAT>` from a machine user with the `stt-user` or `admin` role (see API bearer tokens below); a missing token gets 401. The recorder at `/v1/` uses the same policy. Browser clients must send the bearer header for both the page and its transcription requests.
 - **Public:** `/v1/health`, `/v1/docs` and `/v1/openapi.json` need no auth.
 
 Voice chat (`https://vchat.homelab.xiehang.com/`, `serve_chat` in `ray-vchat`) access:
