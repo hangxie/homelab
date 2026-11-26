@@ -9,6 +9,7 @@ namespace: ray-stt
 
 resources:
   - stt.yaml
+  - oauth2-proxy.yaml
   - networkpolicy.yaml
   - route-ray-dashboard.yaml
 

@@ -231,12 +231,15 @@ spec:
   hostnames:
     - "stt.homelab.xiehang.com"
   rules:
-    # The recorder and API require a bearer token, checked by
-    # Authorino (AuthConfig authorino/ray-stt, #254); a missing one gets 401.
+    # Machine clients use Authorino. The recorder uses the browser login below.
     - matches:
         - path:
             type: PathPrefix
             value: /v1
+          headers:
+            - name: Authorization
+              type: RegularExpression
+              value: "^Bearer .+"
       filters:
         - type: ExternalAuth
           externalAuth:
@@ -263,3 +266,6 @@ spec:
       backendRefs:
         - name: ray-stt-serve-svc
           port: 8000
+    - backendRefs:
+        - name: stt-oauth2-proxy
+          port: 4180
