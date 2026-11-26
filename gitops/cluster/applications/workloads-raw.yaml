@@ -28,6 +28,8 @@ spec:
           - name: ray-stt
           # Voice chat: CPU only, needs ray-tts and ray-stt.
           - name: ray-vchat
+          # Meeting notes: CPU only, needs ray-stt.
+          - name: ray-meeting
   template:
     metadata:
       name: 'wl-{{ .name }}'

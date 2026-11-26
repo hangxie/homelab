@@ -1,0 +1,89 @@
+# CPU-only meeting notes page and WebSocket relay to Whisper.
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: meeting-api-key
+  namespace: ray-meeting
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: meeting-api-key
+    creationPolicy: Owner
+  data:
+    - secretKey: token
+      remoteRef:
+        key: api-keys/ray-meeting
+        property: token
+---
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: ray-meeting
+  namespace: ray-meeting
+spec:
+  serviceUnhealthySecondThreshold: 900
+  deploymentUnhealthySecondThreshold: 900
+  serveConfigV2: |
+    applications:
+      # Relative URLs on the page: open it at / (route prefix /).
+      - name: meeting
+        route_prefix: /
+        import_path: serve_meeting:app
+        runtime_env:
+          env_vars:
+            MEETING_STT_URL: "https://stt.homelab.xiehang.com/v1"
+  rayClusterConfig:
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: hangxie/ray-images:v0.9.0-rc1
+              # Read on the head and passed to the replica through Meeting.bind();
+              # kept out of serveConfigV2, which the RayService status echoes.
+              env:
+                - name: MEETING_STT_TOKEN
+                  valueFrom: { secretKeyRef: { name: meeting-api-key, key: token } }
+              resources:
+                requests: { cpu: "2", memory: "4Gi" }
+                limits:   { cpu: "2", memory: "8Gi" }
+              ports:
+                - { name: gcs,       containerPort: 6379 }
+                - { name: dashboard, containerPort: 8265 }
+                - { name: serve,     containerPort: 8000 }
+                - { name: metrics,   containerPort: 8080 }
+              volumeMounts:
+                - { name: dshm, mountPath: /dev/shm }
+          volumes:
+            - { name: dshm, emptyDir: { medium: Memory } }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: meeting
+  namespace: ray-meeting
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+      sectionName: https
+  hostnames:
+    - "meeting.homelab.xiehang.com"
+  rules:
+    # /health is public; the page and /api go through OAuth2 Proxy.
+    - matches:
+        - path:
+            type: Exact
+            value: /health
+      backendRefs:
+        - name: ray-meeting-serve-svc
+          port: 8000
+    - backendRefs:
+        - name: meeting-oauth2-proxy
+          port: 4180

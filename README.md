@@ -439,10 +439,10 @@ TTS (`https://tts.homelab.xiehang.com/`) access:
 
 STT (`https://stt.homelab.xiehang.com/v1`, Whisper behind OpenAI's `/v1/audio/transcriptions` in `ray-stt`) access:
 
-- **Recorder:** open `https://stt.homelab.xiehang.com/v1/` and sign in with the homelab project's `admin` role. Browser transcription requests use the same login. Sign out at `/oauth2/sign_out`.
+- **Recorder:** open `https://stt.homelab.xiehang.com/` and sign in with the homelab project's `admin` role. Browser transcription requests use the same login. Sign out at `/oauth2/sign_out`.
 - **API:** clients can send a machine bearer token with the `stt-user` or `admin` role to `/v1/audio/transcriptions`.
 - **First deploy:** seed `ray/stt-oidc` with `scripts/seed-vault.sh`, then run `scripts/seed-zitadel.sh` to register the callback and populate `oidc/ray-stt`.
-- **Public:** `/v1/health`, `/v1/docs` and `/v1/openapi.json` need no auth.
+- **Public:** `/v1/health`, `/docs` and `/openapi.json` need no auth.
 
 Voice chat (`https://vchat.homelab.xiehang.com/`, `serve_chat` in `ray-vchat`) access:
 
@@ -450,6 +450,12 @@ Voice chat (`https://vchat.homelab.xiehang.com/`, `serve_chat` in `ray-vchat`) a
 - **Public:** `/health` needs no auth.
 - **Backends:** STT and TTS through the Gateway as the `ray-vchat` machine user (PAT in Vault `api-keys/ray-vchat`), the LLM on the AI host's llama.cpp. It needs `ray-tts` and `ray-stt` enabled.
 - **First deploy:** run `scripts/seed-vault.sh` (creates `ray/vchat-oidc`), then `scripts/seed-zitadel.sh` (registers the `ray-vchat` client and machine user, writes `oidc/ray-vchat` and `api-keys/ray-vchat`).
+
+Meeting notes (`https://meeting.homelab.xiehang.com/`, `serve_meeting` in `ray-meeting`) access:
+
+- **Login:** the page and its `/api/stream` WebSocket require the homelab project’s `admin` or `viewer` role. Sign out at `/oauth2/sign_out`. Only `/health` is public.
+- **Backend:** the CPU-only replica relays audio through the Gateway to STT at `/v1/audio/stream` using the `ray-meeting` machine user’s `stt-user` role.
+- **First deploy:** run `scripts/seed-vault.sh --only ray/meeting-oidc`, then `scripts/seed-zitadel.sh` to provision the OIDC client and machine user.
 
 API bearer tokens (#254):
 

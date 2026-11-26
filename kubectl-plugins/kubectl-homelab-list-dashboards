@@ -143,7 +143,10 @@ while IFS=$'\t' read -r ns name hostname; do
             # Tokens are per client, so none is printed here.
             print_row "${url}/api/tts" "(bearer)" "(PAT of a tts-user machine user, Vault api-keys/<name>)"
             ;;
-        ray-vchat/vchat)
+        ray-meeting/ray-dashboard)
+            print_row "$url" "-" "(Zitadel SSO)"
+            ;;
+        ray-vchat/vchat|ray-meeting/meeting)
             print_row "$url" "-" "(Zitadel SSO; sign out: /oauth2/sign_out)"
             ;;
         ray-stt/stt)
