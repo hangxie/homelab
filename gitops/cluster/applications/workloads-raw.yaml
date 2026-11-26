@@ -26,6 +26,8 @@ spec:
           # - name: ray-vllm
           - name: ray-tts
           - name: ray-stt
+          # Voice chat: CPU only, needs ray-tts and ray-stt.
+          - name: ray-vchat
   template:
     metadata:
       name: 'wl-{{ .name }}'

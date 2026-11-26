@@ -1,0 +1,110 @@
+# ray-vchat namespace contents — voice chat (serve_chat from
+# hangxie/ray-images): the page records speech, the replica sends it to STT,
+# streams a reply from an LLM, and has TTS speak it one sentence at a time.
+# It holds no models and needs no GPU, so it is a head-only RayService whose
+# replica runs on the head's CPUs.
+#
+# Backends:
+#   - STT and TTS: ray-stt and ray-tts through the Gateway, with the
+#     ray-vchat machine user's PAT (Vault api-keys/ray-vchat), so the bearer
+#     check and their network policies stay as they are.
+#   - LLM: llama.cpp on the AI host; ray-vllm can't share the GPU node's
+#     two cards with ray-tts and ray-stt.
+#
+# Operator workflow:
+#   - Enable/disable: the `ray-vchat` line in workloads-raw.yaml. It works only
+#     while ray-tts and ray-stt are enabled.
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: vchat-api-key
+  namespace: ray-vchat
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-homelab
+    kind: ClusterSecretStore
+  target:
+    name: vchat-api-key
+    creationPolicy: Owner
+  data:
+    - secretKey: token
+      remoteRef:
+        key: api-keys/ray-vchat
+        property: token
+---
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: ray-vchat
+  namespace: ray-vchat
+spec:
+  serviceUnhealthySecondThreshold: 900
+  deploymentUnhealthySecondThreshold: 900
+  serveConfigV2: |
+    applications:
+      # Relative URLs on the page: open it at / (route prefix /).
+      - name: chat
+        route_prefix: /
+        import_path: serve_chat:app
+        runtime_env:
+          env_vars:
+            CHAT_STT_URL: "https://stt.homelab.xiehang.com/v1"
+            CHAT_TTS_URL: "https://tts.homelab.xiehang.com"
+            CHAT_LLM_URL: "http://ai.xiehang.com:8080/v1"
+            CHAT_LLM_MODEL: "qwen3.5-9b-q8-uncensored"
+            CHAT_VOICE: "hang-zh"
+  rayClusterConfig:
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: hangxie/ray-images:v0.6.0-rc1
+              # Read on the head and passed to the replica through Chat.bind();
+              # kept out of serveConfigV2, which the RayService status echoes.
+              env:
+                - name: CHAT_STT_TOKEN
+                  valueFrom: { secretKeyRef: { name: vchat-api-key, key: token } }
+                - name: CHAT_TTS_TOKEN
+                  valueFrom: { secretKeyRef: { name: vchat-api-key, key: token } }
+              resources:
+                requests: { cpu: "2", memory: "4Gi" }
+                limits:   { cpu: "2", memory: "8Gi" }
+              ports:
+                - { name: gcs,       containerPort: 6379 }
+                - { name: dashboard, containerPort: 8265 }
+                - { name: serve,     containerPort: 8000 }
+                - { name: metrics,   containerPort: 8080 }
+              volumeMounts:
+                - { name: dshm, mountPath: /dev/shm }
+          volumes:
+            - { name: dshm, emptyDir: { medium: Memory } }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: vchat
+  namespace: ray-vchat
+spec:
+  parentRefs:
+    - name: default-gateway
+      namespace: gateway-system
+      sectionName: https
+  hostnames:
+    - "vchat.homelab.xiehang.com"
+  rules:
+    # /health is public; the page and /api go through OAuth2 Proxy.
+    - matches:
+        - path:
+            type: Exact
+            value: /health
+      backendRefs:
+        - name: ray-vchat-serve-svc
+          port: 8000
+    - backendRefs:
+        - name: vchat-oauth2-proxy
+          port: 4180
