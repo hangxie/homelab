@@ -72,6 +72,8 @@ clients:
     redirectUris: [https://kafka.homelab.xiehang.com/login/oauth2/code/zitadel]
   - name: ray-tts
     redirectUris: [https://tts.homelab.xiehang.com/oauth2/callback]
+  - name: ray-vchat
+    redirectUris: [https://vchat.homelab.xiehang.com/oauth2/callback]
   - name: openwebui
     redirectUris: [https://openwebui.homelab.xiehang.com/oauth/oidc/callback]
   - name: trino
@@ -96,6 +98,7 @@ clients:
       - https://ray-dashboard.homelab.xiehang.com/oauth2/callback
       - https://ray-tts-dashboard.homelab.xiehang.com/oauth2/callback
       - https://ray-stt-dashboard.homelab.xiehang.com/oauth2/callback
+      - https://ray-vchat-dashboard.homelab.xiehang.com/oauth2/callback
       - https://clickhouse.homelab.xiehang.com/oauth2/callback
       - https://dbeaver.homelab.xiehang.com/oauth2/callback
 
@@ -117,6 +120,9 @@ machines:
   - name: voicechat
     roles: [tts-user, stt-user]
     vault: api-keys/voicechat
+  - name: ray-vchat
+    roles: [tts-user, stt-user]
+    vault: api-keys/ray-vchat
   - name: txt2m4b
     roles: [tts-user]
     vault: api-keys/txt2m4b

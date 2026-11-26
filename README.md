@@ -442,6 +442,13 @@ STT (`https://stt.homelab.xiehang.com/v1`, Whisper behind OpenAI's `/v1/audio/tr
 - **API:** everything under `/v1` needs `Authorization: Bearer <PAT>` from a machine user with the `stt-user` or `admin` role (see API bearer tokens below); a missing token gets 401. There is no page.
 - **Public:** `/v1/health`, `/v1/docs` and `/v1/openapi.json` need no auth.
 
+Voice chat (`https://vchat.homelab.xiehang.com/`, `serve_chat` in `ray-vchat`) access:
+
+- **Login:** the page and `/api` need a Zitadel login (through OAuth2 Proxy) with the `homelab` project's `admin` or `viewer` role, as for TTS. Sign out at `/oauth2/sign_out`.
+- **Public:** `/health` needs no auth.
+- **Backends:** STT and TTS through the Gateway as the `ray-vchat` machine user (PAT in Vault `api-keys/ray-vchat`), the LLM on the AI host's llama.cpp. It needs `ray-tts` and `ray-stt` enabled.
+- **First deploy:** run `scripts/seed-vault.sh` (creates `ray/vchat-oidc`), then `scripts/seed-zitadel.sh` (registers the `ray-vchat` client and machine user, writes `oidc/ray-vchat` and `api-keys/ray-vchat`).
+
 API bearer tokens (#254):
 
 - **How it works:** an HTTPRoute rule with an `ExternalAuth` filter asks Authorino (`gitops/platform/authorino`) about each request. Authorino introspects the opaque token at Zitadel, using the `authorino` API client from `apiClients:` in `scripts/zitadel.template.yaml`, and checks the project roles against that API's `AuthConfig`. Results are cached for 60s, so a deleted token or role stops working within a minute.
