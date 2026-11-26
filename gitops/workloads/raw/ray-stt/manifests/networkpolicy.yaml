@@ -12,12 +12,13 @@ spec:
     # Ray head <-> workers (GCS, object manager, Serve).
     - fromEndpoints:
         - {}
-    # Gateway Envoy: Ray Serve and the Ray dashboard route.
+    # Gateway Envoy: Ray Serve, Ray dashboard and OAuth2 Proxy.
     - fromEntities: [ingress]
       toPorts:
         - ports:
             - { port: "8000", protocol: TCP }
             - { port: "8265", protocol: TCP }
+            - { port: "4180", protocol: TCP }
     # kubelet probes.
     - fromEntities: [host]
     # Metrics scrape.

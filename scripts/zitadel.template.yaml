@@ -70,6 +70,8 @@ clients:
     postLogoutRedirectUris: [https://grafana.homelab.xiehang.com/login]
   - name: kafka-ui
     redirectUris: [https://kafka.homelab.xiehang.com/login/oauth2/code/zitadel]
+  - name: ray-stt
+    redirectUris: [https://stt.homelab.xiehang.com/oauth2/callback]
   - name: ray-tts
     redirectUris: [https://tts.homelab.xiehang.com/oauth2/callback]
   - name: ray-vchat

@@ -439,7 +439,9 @@ TTS (`https://tts.homelab.xiehang.com/`) access:
 
 STT (`https://stt.homelab.xiehang.com/v1`, Whisper behind OpenAI's `/v1/audio/transcriptions` in `ray-stt`) access:
 
-- **API:** everything under `/v1` needs `Authorization: Bearer <PAT>` from a machine user with the `stt-user` or `admin` role (see API bearer tokens below); a missing token gets 401. The recorder at `/v1/` uses the same policy. Browser clients must send the bearer header for both the page and its transcription requests.
+- **Recorder:** open `https://stt.homelab.xiehang.com/v1/` and sign in with the homelab project's `admin` role. Browser transcription requests use the same login. Sign out at `/oauth2/sign_out`.
+- **API:** clients can send a machine bearer token with the `stt-user` or `admin` role to `/v1/audio/transcriptions`.
+- **First deploy:** seed `ray/stt-oidc` with `scripts/seed-vault.sh`, then run `scripts/seed-zitadel.sh` to register the callback and populate `oidc/ray-stt`.
 - **Public:** `/v1/health`, `/v1/docs` and `/v1/openapi.json` need no auth.
 
 Voice chat (`https://vchat.homelab.xiehang.com/`, `serve_chat` in `ray-vchat`) access:
