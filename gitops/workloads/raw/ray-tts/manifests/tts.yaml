@@ -282,6 +282,13 @@ spec:
               type: RegularExpression
               value: "^Bearer .+"
         - path:
+            type: PathPrefix
+            value: /v1/audio
+          headers:
+            - name: Authorization
+              type: RegularExpression
+              value: "^Bearer .+"
+        - path:
             type: Exact
             value: /voices
           headers:
