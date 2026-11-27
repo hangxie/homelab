@@ -63,7 +63,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: hangxie/ray-voice:v0.12.0
+              image: hangxie/ray-voice:v0.13.0-rc1
               # Read on the head and passed to the replica through Chat.bind();
               # kept out of serveConfigV2, which the RayService status echoes.
               env:
