@@ -23,9 +23,9 @@ spec:
           # one per TTS replica (TTS_NUM_REPLICAS), ray-stt one. Enable apps
           # that fit in two cards. Their model and compile-cache PVCs are
           # Delete=false and survive a disable, so switching back starts warm.
-          - name: ray-vllm
-          # - name: ray-tts
-          # - name: ray-stt
+          # - name: ray-vllm
+          - name: ray-tts
+          - name: ray-stt
           # Voice chat: CPU only, needs ray-tts and ray-stt.
           - name: ray-vchat
           # Meeting notes: CPU only, needs ray-stt.
