@@ -1,5 +1,5 @@
 # ray-vchat namespace contents — voice chat (serve_chat from
-# hangxie/ray-images): the page records speech, the replica sends it to STT,
+# hangxie/ray-voice): the page records speech, the replica sends it to STT,
 # streams a reply from an LLM, and has TTS speak it one sentence at a time.
 # It holds no models and needs no GPU, so it is a head-only RayService whose
 # replica runs on the head's CPUs.
@@ -63,7 +63,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: hangxie/ray-images:v0.11.0
+              image: hangxie/ray-voice:v0.12.0-rc1
               # Read on the head and passed to the replica through Chat.bind();
               # kept out of serveConfigV2, which the RayService status echoes.
               env:
