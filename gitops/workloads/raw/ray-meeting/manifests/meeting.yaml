@@ -44,7 +44,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: hangxie/ray-images:v0.10.0
+              image: hangxie/ray-images:v0.11.0-rc1
               # Read on the head and passed to the replica through Meeting.bind();
               # kept out of serveConfigV2, which the RayService status echoes.
               env:
