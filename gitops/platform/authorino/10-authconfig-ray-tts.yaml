@@ -1,5 +1,5 @@
-# TTS synthesis API (/api, /voices). Only the bearer rule of the tts HTTPRoute
-# carries the ExternalAuth filter; /health and the FastAPI doc routes stay public.
+# TTS synthesis API (/v1/audio, /v1/models). Only the bearer rule of the tts HTTPRoute
+# carries the ExternalAuth filter; /v1/health and the FastAPI doc routes stay public.
 apiVersion: authorino.kuadrant.io/v1beta3
 kind: AuthConfig
 metadata:
