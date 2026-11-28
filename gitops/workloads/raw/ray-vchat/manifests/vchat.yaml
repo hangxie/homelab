@@ -51,7 +51,7 @@ spec:
         runtime_env:
           env_vars:
             CHAT_STT_URL: "https://stt.homelab.xiehang.com/v1"
-            CHAT_TTS_URL: "https://tts.homelab.xiehang.com"
+            CHAT_TTS_URL: "https://tts.homelab.xiehang.com/v1"
             CHAT_LLM_URL: "http://ai.xiehang.com:8080/v1"
             CHAT_LLM_MODEL: "qwen3.5-9b-q8-uncensored"
             CHAT_VOICE: "hang-zh"
